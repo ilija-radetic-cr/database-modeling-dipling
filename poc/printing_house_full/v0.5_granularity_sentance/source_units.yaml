@@ -1,0 +1,2370 @@
+document:
+    id: printing_house_full_v05_sentence_source_units
+    title: Printing House full v0.5 sentence-granularity source units
+    pipeline_version: "0.5"
+    source_file: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt
+    source_language: sr-Cyrl
+    granularity: sentence_or_bullet_sentence_or_json_field
+source_units:
+    - id: PHF-GSU-001
+      kind: heading
+      section: document_title
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-5
+      relevance: model_supporting
+      tags:
+        - document_title
+        - heading
+      text:
+        exact: Пројекат из предмета Програмирање интернет апликација
+        normalized: Пројекат из предмета Програмирање интернет апликација
+    - id: PHF-GSU-002
+      kind: heading
+      section: document_title
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-6
+      relevance: model_supporting
+      tags:
+        - document_title
+        - heading
+      text:
+        exact: за школску 2025/26. годину
+        normalized: за школску 2025/26. годину
+    - id: PHF-GSU-003
+      kind: sentence
+      section: document_title
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-9
+      relevance: model_relevant
+      tags:
+        - document_title
+        - sentence
+        - user_account
+      text:
+        exact: Реализовати веб систем „Printing House“ који служи као платформа (веб систем) за штампарије.
+        normalized: Реализовати веб систем „Printing House“ који служи као платформа (веб систем) за штампарије.
+    - id: PHF-GSU-004
+      kind: sentence
+      section: document_title
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-9
+      relevance: model_relevant
+      tags:
+        - document_title
+        - sentence
+        - user_account
+      text:
+        exact: Систем треба да омогући ефикасно управљање ресурсима и праћење активности корисника.
+        normalized: Систем треба да омогући ефикасно управљање ресурсима и праћење активности корисника.
+    - id: PHF-GSU-005
+      kind: sentence
+      section: document_title
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-9
+      relevance: model_relevant
+      tags:
+        - document_title
+        - institution
+        - sentence
+        - user_account
+      text:
+        exact: 'Постоје три врсте корисника: клијенти (физичка и правна лица), штампари и администратор веб система.'
+        normalized: 'Постоје три врсте корисника: клијенти (физичка и правна лица), штампари и администратор веб система.'
+    - id: PHF-GSU-006
+      kind: heading
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-13
+      relevance: model_supporting
+      tags:
+        - authentication_and_registration
+        - heading
+        - registration
+      text:
+        exact: Аутентификација и регистрација
+        normalized: Аутентификација и регистрација
+    - id: PHF-GSU-007
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - credentials
+        - sentence
+      text:
+        exact: Свим корисницима треба омогућити пријављивање у систем коришћењем својих креденцијала (корисничко име и лозинка).
+        normalized: Свим корисницима треба омогућити пријављивање у систем коришћењем својих креденцијала (корисничко име и лозинка).
+    - id: PHF-GSU-008
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - sentence
+        - user_account
+      text:
+        exact: Корисник има могућност да након исправно унетих података настави рад са остатком система.
+        normalized: Корисник има могућност да након исправно унетих података настави рад са остатком система.
+    - id: PHF-GSU-009
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - sentence
+      text:
+        exact: У случају погрешно унетих података приказати одговарајућу поруку.
+        normalized: У случају погрешно унетих података приказати одговарајућу поруку.
+    - id: PHF-GSU-010
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - credentials
+        - sentence
+        - user_account
+      text:
+        exact: У случају заборављене лозинке, постоји линк испод форме за пријављивање, који корисника води на нову веб страну са формом у којој корисник може унети своје корисничко име или и-мејл адресу, чиме добија веб линк за поништавање лозинке и постављање нове, путем веб линка.
+        normalized: У случају заборављене лозинке, постоји линк испод форме за пријављивање, који корисника води на нову веб страну са формом у којој корисник може унети своје корисничко име или и-мејл адресу, чиме добија веб линк за поништавање лозинке и постављање нове, путем веб линка.
+    - id: PHF-GSU-011
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - sentence
+        - user_account
+      text:
+        exact: Веб линк је привремен и доступан је за постављање нове лозинке у трајању од 5 минута од тренутка када је корисник затражио поништавање старе заборављене лозинке.
+        normalized: Веб линк је привремен и доступан је за постављање нове лозинке у трајању од 5 минута од тренутка када је корисник затражио поништавање старе заборављене лозинке.
+    - id: PHF-GSU-012
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - sentence
+        - user_account
+      text:
+        exact: Клијенти и штампари се пријављују у систем преко описане јавно видљиве форме.
+        normalized: Клијенти и штампари се пријављују у систем преко описане јавно видљиве форме.
+    - id: PHF-GSU-013
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - sentence
+        - user_account
+      text:
+        exact: Администратор система треба да има могућност пријављивања преко друге форме, са истим пољима, али која није јавно видљива свим корисницима (приступ форми за пријаву администратора треба да буде на посебној рути/путањи, у односу на форму за друге кориснике на почетној веб страни).
+        normalized: Администратор система треба да има могућност пријављивања преко друге форме, са истим пољима, али која није јавно видљива свим корисницима (приступ форми за пријаву администратора треба да буде на посебној рути/путањи, у односу на форму за друге кориснике на почетној веб страни).
+    - id: PHF-GSU-014
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - catalog
+        - registration
+        - sentence
+        - user_account
+      text:
+        exact: 'Могућа је регистрација нових корисника из категорије клијенти – физичка лица, који треба да унесу следеће податке:'
+        normalized: 'Могућа је регистрација нових корисника из категорије клијенти – физичка лица, који треба да унесу следеће податке:'
+    - id: PHF-GSU-015
+      kind: list_item_field
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-30
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - credentials
+        - list_item_field
+        - user_account
+      text:
+        exact: '- корисничко име (које је јединствено, на нивоу свих корисника у систему),'
+        normalized: '- корисничко име (које је јединствено, на нивоу свих корисника у систему),'
+    - id: PHF-GSU-016
+      kind: list_item_field
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-31
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - credentials
+        - list_item_field
+      text:
+        exact: '- лозинка1,'
+        normalized: '- лозинка1,'
+    - id: PHF-GSU-017
+      kind: list_item_field
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-32
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - list_item_field
+      text:
+        exact: '- име,'
+        normalized: '- име,'
+    - id: PHF-GSU-018
+      kind: list_item_field
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-33
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - list_item_field
+      text:
+        exact: '- презиме,'
+        normalized: '- презиме,'
+    - id: PHF-GSU-019
+      kind: list_item_field
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-34
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - list_item_field
+      text:
+        exact: '- контакт телефон,'
+        normalized: '- контакт телефон,'
+    - id: PHF-GSU-020
+      kind: list_item_field
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-35
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - credentials
+        - list_item_field
+      text:
+        exact: '- и-мејл адреса (јединствено, највише један кориснички налог по и-мејл адреси),'
+        normalized: '- и-мејл адреса (јединствено, највише један кориснички налог по и-мејл адреси),'
+    - id: PHF-GSU-021
+      kind: list_item_field
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-36
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - list_item_field
+        - profile_image
+      text:
+        exact: '- профилна слика (додаје се као фајл).'
+        normalized: '- профилна слика (додаје се као фајл).'
+    - id: PHF-GSU-022
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-38
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - institution
+        - sentence
+        - user_account
+      text:
+        exact: Додатно, клијенти - правна лица, као и штампарије, поред својих основних података, треба да могу да унесу податке о називу своје институције, адресу седишта, матични број и ПИБ (порески идентификациони број).
+        normalized: Додатно, клијенти - правна лица, као и штампарије, поред својих основних података, треба да могу да унесу податке о називу своје институције, адресу седишта, матични број и ПИБ (порески идентификациони број).
+    - id: PHF-GSU-023
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-38
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - institution
+        - sentence
+      text:
+        exact: Матични број институције има тачно 8 цифара и јединствен је за све институције.
+        normalized: Матични број институције има тачно 8 цифара и јединствен је за све институције.
+    - id: PHF-GSU-024
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-38
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - institution
+        - sentence
+      text:
+        exact: ПИБ је деветоцифрени јединствени број, који не може почињати цифром 0.
+        normalized: ПИБ је деветоцифрени јединствени број, који не може почињати цифром 0.
+    - id: PHF-GSU-025
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-38
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - catalog
+        - institution
+        - sentence
+        - user_account
+      text:
+        exact: Име и презиме горе дефинисано за физичко лице, у овим категоријама корисника се исто уноси и односи се на одговорно лице институције.
+        normalized: Име и презиме горе дефинисано за физичко лице, у овим категоријама корисника се исто уноси и односи се на одговорно лице институције.
+    - id: PHF-GSU-026
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-47
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - sentence
+      text:
+        exact: Лозинку проверити коришћењем регуларног израза (минимално 8 карактера, максимално 12 карактера, од тога бар једно велико слово, један број и један специјални карактер, и мора почињати словом).
+        normalized: Лозинку проверити коришћењем регуларног израза (минимално 8 карактера, максимално 12 карактера, од тога бар једно велико слово, један број и један специјални карактер, и мора почињати словом).
+    - id: PHF-GSU-027
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-47
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - sentence
+      text:
+        exact: Лозинку у бази података обавезно чувати као криптовану!
+        normalized: Лозинку у бази података обавезно чувати као криптовану!
+    - id: PHF-GSU-028
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-56
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - catalog
+        - registration
+        - sentence
+        - user_account
+      text:
+        exact: Ако су подаци исправно унети (извршити неке основне провере коришћењем JavaScript технологије), треба креирати нови захтев за регистрацију и тај захтев мора да чека на одобрење администратора да би ове категорије корисника постале активни корисници система.
+        normalized: Ако су подаци исправно унети (извршити неке основне провере коришћењем JavaScript технологије), треба креирати нови захтев за регистрацију и тај захтев мора да чека на одобрење администратора да би ове категорије корисника постале активни корисници система.
+    - id: PHF-GSU-029
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-56
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - registration
+        - sentence
+        - user_account
+      text:
+        exact: Администратор је задужен за разматрање пристиглих захтева, а исход може да буде прихватање или одбацивање захтева за регистрацијом.
+        normalized: Администратор је задужен за разматрање пристиглих захтева, а исход може да буде прихватање или одбацивање захтева за регистрацијом.
+    - id: PHF-GSU-030
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-56
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - sentence
+        - user_account
+      text:
+        exact: Регистровање новог администратора у веб систему није потребно реализовати.
+        normalized: Регистровање новог администратора у веб систему није потребно реализовати.
+    - id: PHF-GSU-031
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-56
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - registration
+        - sentence
+      text:
+        exact: Приликом регистрације, корисници шаљу своју профилну слику (минималне величине 100х100 px, а максималне величине 250х250 px, у JPG/PNG/GIF формату).
+        normalized: Приликом регистрације, корисници шаљу своју профилну слику (минималне величине 100х100 px, а максималне величине 250х250 px, у JPG/PNG/GIF формату).
+    - id: PHF-GSU-032
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-56
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - profile_image
+        - sentence
+      text:
+        exact: Слике у апликацији морају да буду унете преко FileUpload прозора, и није прихватљиво решење да буду већ ручно унете, или да се уносе путем екстерног линка до слике на другој локацији/веб сајту, која је негде већ постављена.
+        normalized: Слике у апликацији морају да буду унете преко FileUpload прозора, и није прихватљиво решење да буду већ ручно унете, или да се уносе путем екстерног линка до слике на другој локацији/веб сајту, која је негде већ постављена.
+    - id: PHF-GSU-033
+      kind: sentence
+      section: authentication_and_registration
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-56
+      relevance: model_relevant
+      tags:
+        - authentication_and_registration
+        - profile_image
+        - sentence
+        - user_account
+      text:
+        exact: Ако се профилна слика не дода, корисник добија подразумевану профилну слику, која већ постоји дефинисана у систему као default_profile_image.jpg.
+        normalized: Ако се профилна слика не дода, корисник добија подразумевану профилну слику, која већ постоји дефинисана у систему као default_profile_image.jpg.
+    - id: PHF-GSU-034
+      kind: heading
+      section: public_home_and_search
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-70
+      relevance: model_supporting
+      tags:
+        - heading
+        - public_home_and_search
+        - user_account
+      text:
+        exact: Нерегистровани корисник – почетна веб страна
+        normalized: Нерегистровани корисник – почетна веб страна
+    - id: PHF-GSU-035
+      kind: sentence
+      section: public_home_and_search
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-71
+      relevance: model_relevant
+      tags:
+        - catalog
+        - feedback
+        - public_home_and_search
+        - sentence
+        - user_account
+      text:
+        exact: На почетној страни веб система потребно је приказати опште информације о укупном броју регистрованих штампарија и ТОП 5 најбоље оцењених штампаних производа на основу броја „свиђања“ (лајкова).
+        normalized: На почетној страни веб система потребно је приказати опште информације о укупном броју регистрованих штампарија и ТОП 5 најбоље оцењених штампаних производа на основу броја „свиђања“ (лајкова).
+    - id: PHF-GSU-036
+      kind: sentence
+      section: public_home_and_search
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-71
+      relevance: model_relevant
+      tags:
+        - catalog
+        - public_home_and_search
+        - sentence
+        - user_account
+      text:
+        exact: Нерегистровани корисник може да у форми за претраживање унесе назив штампаног производа који жели да претражи (нпр. Хемијска оловка, Поло мајица,...)
+        normalized: Нерегистровани корисник може да у форми за претраживање унесе назив штампаног производа који жели да претражи (нпр. Хемијска оловка, Поло мајица,...)
+    - id: PHF-GSU-037
+      kind: sentence
+      section: public_home_and_search
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-71
+      relevance: model_relevant
+      tags:
+        - catalog
+        - public_home_and_search
+        - sentence
+      text:
+        exact: и/или одабере категорију штампаног производа из падајуће листе.
+        normalized: и/или одабере категорију штампаног производа из падајуће листе.
+    - id: PHF-GSU-038
+      kind: sentence
+      section: public_home_and_search
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-71
+      relevance: model_relevant
+      tags:
+        - catalog
+        - public_home_and_search
+        - sentence
+        - stock
+      text:
+        exact: Падајућа листа приказује иницијално „Све категорије“, а у листи се налазе само оне категорије где постоје тренутно активни производи на стању.
+        normalized: Падајућа листа приказује иницијално „Све категорије“, а у листи се налазе само оне категорије где постоје тренутно активни производи на стању.
+    - id: PHF-GSU-039
+      kind: sentence
+      section: public_home_and_search
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-71
+      relevance: model_relevant
+      tags:
+        - public_home_and_search
+        - sentence
+      text:
+        exact: Резултате претраживања излистати у табели испод форме, а поред сваког резултата приказати дугме „ДЕТАЉИ“.
+        normalized: Резултате претраживања излистати у табели испод форме, а поред сваког резултата приказати дугме „ДЕТАЉИ“.
+    - id: PHF-GSU-040
+      kind: sentence
+      section: public_home_and_search
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-71
+      relevance: model_relevant
+      tags:
+        - catalog
+        - public_home_and_search
+        - sentence
+      text:
+        exact: Код резултата омогућити абецедно сортирање (опадајуће и растуће) по називу штампаног производа, притиском на заглавље те колоне у табели.
+        normalized: Код резултата омогућити абецедно сортирање (опадајуће и растуће) по називу штампаног производа, притиском на заглавље те колоне у табели.
+    - id: PHF-GSU-041
+      kind: sentence
+      section: public_home_and_search
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-71
+      relevance: model_relevant
+      tags:
+        - catalog
+        - feedback
+        - non_model
+        - public_home_and_search
+        - sentence
+        - user_account
+      text:
+        exact: Када корисник притисне дугме „ДЕТАЉИ“, добиће веб страну са детаљима о изабраном производу – назив производа, назив штампарије која га нуди, град, број „свиђања“/„несвиђања“, и галерију са главном сликом (уз опционо највише три додатне мање слике, тзв. thumbnail, које корисник може да увећа – увек се једна слика из галерије приказује кориснику, односно она коју је одабрао и она постаје запамћена у колачићу тог веб прегледача, као тренутно главна слика за тај производ).
+        normalized: Када корисник притисне дугме „ДЕТАЉИ“, добиће веб страну са детаљима о изабраном производу – назив производа, назив штампарије која га нуди, град, број „свиђања“/„несвиђања“, и галерију са главном сликом (уз опционо највише три додатне мање слике, тзв. thumbnail, које корисник може да увећа – увек се једна слика из галерије приказује кориснику, односно она коју је одабрао и она постаје запамћена у колачићу тог веб прегледача, као тренутно главна слика за тај производ).
+    - id: PHF-GSU-042
+      kind: heading
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-88
+      relevance: model_supporting
+      tags:
+        - clients
+        - heading
+        - user_account
+      text:
+        exact: Клијенти
+        normalized: Клијенти
+    - id: PHF-GSU-043
+      kind: sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-89
+      relevance: model_relevant
+      tags:
+        - clients
+        - sentence
+      text:
+        exact: 'Након успешног пријављивања у систем, клијенту је омогућено да кроз главни мени приступи следећим функционалностима:'
+        normalized: 'Након успешног пријављивања у систем, клијенту је омогућено да кроз главни мени приступи следећим функционалностима:'
+    - id: PHF-GSU-044
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-91
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - clients
+      text:
+        exact: '▪ Профил: преглед и ажурирање личних података (осим забране промене корисничког имена).'
+        normalized: '▪ Профил: преглед и ажурирање личних података (осим забране промене корисничког имена).'
+    - id: PHF-GSU-045
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-91
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - clients
+      text:
+        exact: Ажурирање треба да подразумева и могућност промене своје профилне слике.
+        normalized: Ажурирање треба да подразумева и могућност промене своје профилне слике.
+    - id: PHF-GSU-046
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-91
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - clients
+        - invoice
+      text:
+        exact: Испод табеле са личним подацима треба да постоји друга табела, са свим претходно реализованим и тренутно актуелним још увек нереализованим наруџбинама, и могућношћу сортирања истих.
+        normalized: Испод табеле са личним подацима треба да постоји друга табела, са свим претходно реализованим и тренутно актуелним још увек нереализованим наруџбинама, и могућношћу сортирања истих.
+    - id: PHF-GSU-047
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-91
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - invoice
+        - stock
+        - user_account
+      text:
+        exact: 'Табела треба да има следеће колоне: ИД фактуре, назив штампарије одакле је поручено, град у коме се налази штампарија, нумерисани производи који су наручени (у загради и количина за сваки производ), укупан износ фактуре (у динарима), и опционо дугме „Откажи“, али само поред наруџбине за коју није још започета штампа и има статус'
+        normalized: 'Табела треба да има следеће колоне: ИД фактуре, назив штампарије одакле је поручено, град у коме се налази штампарија, нумерисани производи који су наручени (у загради и количина за сваки производ), укупан износ фактуре (у динарима), и опционо дугме „Откажи“, али само поред наруџбине за коју није још започета штампа и има статус'
+    - id: PHF-GSU-048
+      kind: sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-107
+      relevance: model_relevant
+      tags:
+        - clients
+        - invoice
+        - sentence
+      text:
+        exact: '„наручено“ (статуси наруџбина и њихова секвенца прелаза је: „наручено“ => [„плаћено“2] => „у штампи“ => „испоручено“ => „примљено“).'
+        normalized: '„наручено“ (статуси наруџбина и њихова секвенца прелаза је: „наручено“ => [„плаћено“2] => „у штампи“ => „испоручено“ => „примљено“).'
+    - id: PHF-GSU-049
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-109
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - user_account
+      text:
+        exact: '▪ Претраживање производа: слично као и код нерегистрованог корисника, клијент има форму за претраживање по називу производа и/или по категорији.'
+        normalized: '▪ Претраживање производа: слично као и код нерегистрованог корисника, клијент има форму за претраживање по називу производа и/или по категорији.'
+    - id: PHF-GSU-050
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-109
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+      text:
+        exact: У табели испод форме за претраживање, клијент добија табеларно резултате претраге, а притиском на дугме „ДЕТАЉИ“ поред одређеног резултата, добија нову страну са проширеним информацијама о производу (у односу на јавно видљиву страну).
+        normalized: У табели испод форме за претраживање, клијент добија табеларно резултате претраге, а притиском на дугме „ДЕТАЉИ“ поред одређеног резултата, добија нову страну са проширеним информацијама о производу (у односу на јавно видљиву страну).
+    - id: PHF-GSU-051
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-109
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+      text:
+        exact: 'Проширене информације обухватају: дужи опис производа, цену по комаду, боју коју бира из падајуће листе (ако нема боје, ту стоји подразумевано бела), врсте штампе које могу да се изврше на том производу (нпр. Пресликач, Дигитална ФЛЕКС штампа, Директна штампа на текстил, итд.), са максималним димензијама, и додатном ценом по комаду.'
+        normalized: 'Проширене информације обухватају: дужи опис производа, цену по комаду, боју коју бира из падајуће листе (ако нема боје, ту стоји подразумевано бела), врсте штампе које могу да се изврше на том производу (нпр. Пресликач, Дигитална ФЛЕКС штампа, Директна штампа на текстил, итд.), са максималним димензијама, и додатном ценом по комаду.'
+    - id: PHF-GSU-052
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-109
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - user_account
+      text:
+        exact: Испод назива штампарије која нуди производ, на овој веб страни приказује се и мапа где се штампарија налази.
+        normalized: Испод назива штампарије која нуди производ, на овој веб страни приказује се и мапа где се штампарија налази.
+    - id: PHF-GSU-053
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-109
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - cart
+        - catalog
+        - clients
+        - stock
+      text:
+        exact: Клијент дугметом „ДАЉЕ“ прелази на веб страну припрема производа, где уноси текст или поставља сличицу (у JPG/PNG/GIF формату3), која се затим приказује (рендерује) на самој слици производа, и у пољу за количину уноси број комада жељеног производа, које убацује у е-корпу притиском на дугме „ДОДАЈ У КОРПУ“.
+        normalized: Клијент дугметом „ДАЉЕ“ прелази на веб страну припрема производа, где уноси текст или поставља сличицу (у JPG/PNG/GIF формату3), која се затим приказује (рендерује) на самој слици производа, и у пољу за количину уноси број комада жељеног производа, које убацује у е-корпу притиском на дугме „ДОДАЈ У КОРПУ“.
+    - id: PHF-GSU-054
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-109
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+      text:
+        exact: 'Треба да постоје и додатна два дугмета: „ПОНИШТИ“ које поништава веб страну за припрему производа на иницијалну, и „НАЗАД“ које враћа клијента на веб страну са детаљима о изабраном производу.'
+        normalized: 'Треба да постоје и додатна два дугмета: „ПОНИШТИ“ које поништава веб страну за припрему производа на иницијалну, и „НАЗАД“ које враћа клијента на веб страну са детаљима о изабраном производу.'
+    - id: PHF-GSU-055
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-109
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - stock
+        - user_account
+      text:
+        exact: У претрази се не појављују произоди које штампарије немају на стању, а уколико клијент покуша да наручи већу количину него што постоји тренутно на лагеру штампарије, добија се упозорење „Нема довољно производа тренутно на стању“.
+        normalized: У претрази се не појављују произоди које штампарије немају на стању, а уколико клијент покуша да наручи већу количину него што постоји тренутно на лагеру штампарије, добија се упозорење „Нема довољно производа тренутно на стању“.
+    - id: PHF-GSU-056
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-130
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - cart
+        - catalog
+        - clients
+        - invoice
+        - stock
+        - user_account
+      text:
+        exact: '▪ Тренутна електронска корпа (скр. е-корпа): у тренутној наруџбини клијент груписано по штампаријама види све наручене производе са релевантним информацијама (пун назив производа, количина, тип штампе, укупна цена за тај производ).'
+        normalized: '▪ Тренутна електронска корпа (скр. е-корпа): у тренутној наруџбини клијент груписано по штампаријама види све наручене производе са релевантним информацијама (пун назив производа, количина, тип штампе, укупна цена за тај производ).'
+    - id: PHF-GSU-057
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-130
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - cart
+        - catalog
+        - clients
+        - invoice
+        - user_account
+      text:
+        exact: Уколико у е-корпи има производа који се набављају од више различитих штампарија, када се изврши наруџбина, дугметом „ПОТВРДИ“, формира се више различитих фактура, сходно броју штампарија од којих се производи набављају (нпр. ако су одабрани производи из 3 различите штампарије, систем ће евидентирати 3 различите фактуре).
+        normalized: Уколико у е-корпи има производа који се набављају од више различитих штампарија, када се изврши наруџбина, дугметом „ПОТВРДИ“, формира се више различитих фактура, сходно броју штампарија од којих се производи набављају (нпр. ако су одабрани производи из 3 различите штампарије, систем ће евидентирати 3 различите фактуре).
+    - id: PHF-GSU-058
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-130
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - clients
+        - invoice
+        - payment
+        - user_account
+      text:
+        exact: Наруџбине се након овог корака (само уколико не реализујете део са плаћањем) дефинишу са статусом „наручено“, док их штампарије не прихвати и пребаци у следећи статус - „у штампи“.
+        normalized: Наруџбине се након овог корака (само уколико не реализујете део са плаћањем) дефинишу са статусом „наручено“, док их штампарије не прихвати и пребаци у следећи статус - „у штампи“.
+    - id: PHF-GSU-059
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-140
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - clients
+        - credentials
+        - invoice
+      text:
+        exact: ▪ Након формирања, фактуру/е доставити као PDF фајл(ове) клијенту на и-мејл.
+        normalized: ▪ Након формирања, фактуру/е доставити као PDF фајл(ове) клијенту на и-мејл.
+    - id: PHF-GSU-060
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-141
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - cart
+        - clients
+        - invoice
+        - payment
+      text:
+        exact: ▪ У е-корпи реализовати након притиска на дугме „ПОТВРДИ“ бесплатан сервис за плаћање (нпр. Stripe Test Mode4 / Sandbox PayPal Developer5) где клијент уноси податке о типу картице, броју картице са које плаћа фактуру/фактуре, CVC код картице и датум истицања картице (MM/GG).
+        normalized: ▪ У е-корпи реализовати након притиска на дугме „ПОТВРДИ“ бесплатан сервис за плаћање (нпр. Stripe Test Mode4 / Sandbox PayPal Developer5) где клијент уноси податке о типу картице, броју картице са које плаћа фактуру/фактуре, CVC код картице и датум истицања картице (MM/GG).
+    - id: PHF-GSU-061
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-141
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - clients
+      text:
+        exact: Такође, између „наручено“ и „у
+        normalized: Такође, између „наручено“ и „у
+    - id: PHF-GSU-062
+      kind: sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-147
+      relevance: model_relevant
+      tags:
+        - clients
+        - payment
+        - sentence
+      text:
+        exact: Статус реализовати само уколико се реализује веб сервис за плаћање.
+        normalized: Статус реализовати само уколико се реализује веб сервис за плаћање.
+    - id: PHF-GSU-063
+      kind: sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-147
+      relevance: non_model
+      tags:
+        - catalog
+        - clients
+        - non_model
+        - sentence
+      text:
+        exact: 'Дозвољено је коришћење HTML5 Canvas елемента или CSS преклапања (position: absolute/relative) позиционирања текста или транспарентне слике, преко слике производа.'
+        normalized: 'Дозвољено је коришћење HTML5 Canvas елемента или CSS преклапања (position: absolute/relative) позиционирања текста или транспарентне слике, преко слике производа.'
+    - id: PHF-GSU-064
+      kind: sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-147
+      relevance: model_relevant
+      tags:
+        - clients
+        - sentence
+      text:
+        exact: Није неопходна друга комплексна обрада слика на серверу.
+        normalized: Није неопходна друга комплексна обрада слика на серверу.
+    - id: PHF-GSU-065
+      kind: sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-147
+      relevance: non_model
+      tags:
+        - clients
+        - payment
+        - sentence
+      text:
+        exact: 'Доступан линк: https://stripe.com/docs/testing Доступан линк: https://developer.paypal.com'
+        normalized: 'Доступан линк: https://stripe.com/docs/testing Доступан линк: https://developer.paypal.com'
+    - id: PHF-GSU-066
+      kind: sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-162
+      relevance: model_relevant
+      tags:
+        - clients
+        - payment
+        - sentence
+      text:
+        exact: штампи“ додаје се онда нови међу статус „плаћено“, уколико је успешно извршено плаћање, ако није, исписује се порука, и понавља се опет корак плаћања.
+        normalized: штампи“ додаје се онда нови међу статус „плаћено“, уколико је успешно извршено плаћање, ако није, исписује се порука, и понавља се опет корак плаћања.
+    - id: PHF-GSU-067
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-164
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - cart
+        - clients
+        - invoice
+        - procurement
+        - user_account
+      text:
+        exact: ▪ Клијент - правно лице има додатну веб страну „Јавне набавке“ и за разлику од клијента - физичког лица, у тренутку потврђивања у Е-корпи, не формирају се фактуре, већ се формира позив за подношење понуда штампаријама и лицитирање, које траје 10 минута6.
+        normalized: ▪ Клијент - правно лице има додатну веб страну „Јавне набавке“ и за разлику од клијента - физичког лица, у тренутку потврђивања у Е-корпи, не формирају се фактуре, већ се формира позив за подношење понуда штампаријама и лицитирање, које траје 10 минута6.
+    - id: PHF-GSU-068
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-164
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - credentials
+        - procurement
+        - user_account
+      text:
+        exact: Свим штампаријама треба да стигне и и-мејл порука да је отворена лицитација за јавну набавку са листом потребних производа.
+        normalized: Свим штампаријама треба да стигне и и-мејл порука да је отворена лицитација за јавну набавку са листом потребних производа.
+    - id: PHF-GSU-069
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-164
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - invoice
+        - procurement
+        - stock
+        - user_account
+      text:
+        exact: Након истека временског периода, штампарија која је имала најнижу укупну понуду за све производе и довољну количину сваког производа на стању, добија набавку, тражени производи се фактуришу, а статус наруџбине је „у штампи“.
+        normalized: Након истека временског периода, штампарија која је имала најнижу укупну понуду за све производе и довољну количину сваког производа на стању, добија набавку, тражени производи се фактуришу, а статус наруџбине је „у штампи“.
+    - id: PHF-GSU-070
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-172
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+      text:
+        exact: ▪ Клијент на веб страни „Архива производа“ има могућност да види све производе који су добијени, односно који су у статусу „Примљено“.
+        normalized: ▪ Клијент на веб страни „Архива производа“ има могућност да види све производе који су добијени, односно који су у статусу „Примљено“.
+    - id: PHF-GSU-071
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-172
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+      text:
+        exact: У истој листи налазе се и производи са стутатусом „Испоручено“, које клијент може променити у статус „Примљено“.
+        normalized: У истој листи налазе се и производи са стутатусом „Испоручено“, које клијент може променити у статус „Примљено“.
+    - id: PHF-GSU-072
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-172
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - invoice
+        - stock
+        - user_account
+      text:
+        exact: Испоручени и примљени производи су сортирани по датуму наручивања (издавања фактуре на којој се тај производ налазио), али се могу сортирати и на друге начине (по називу производа, количини, штампарији од које је набављено).
+        normalized: Испоручени и примљени производи су сортирани по датуму наручивања (издавања фактуре на којој се тај производ налазио), али се могу сортирати и на друге начине (по називу производа, количини, штампарији од које је набављено).
+    - id: PHF-GSU-073
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-172
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - feedback
+      text:
+        exact: За сваки примљени производ, клијент може оставити „свиђање“ (лајк) или „несвиђање“ (дислајк) и коментар за тај производ.
+        normalized: За сваки примљени производ, клијент може оставити „свиђање“ (лајк) или „несвиђање“ (дислајк) и коментар за тај производ.
+    - id: PHF-GSU-074
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-172
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - clients
+        - credentials
+        - feedback
+      text:
+        exact: Клијент види број „свиђања“/„несвиђања“ на веб страни са детаљима о том производу, као и последњих пет коментара свих клијената (корисничко име члана, уз датум остављања коментара и текст коментара).
+        normalized: Клијент види број „свиђања“/„несвиђања“ на веб страни са детаљима о том производу, као и последњих пет коментара свих клијената (корисничко име члана, уз датум остављања коментара и текст коментара).
+    - id: PHF-GSU-075
+      kind: bullet_sentence
+      section: clients
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-172
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - clients
+        - feedback
+      text:
+        exact: Коментаре које је он оставио треба уоквирити одређеном дискретном линијом у наранџастој боји.
+        normalized: Коментаре које је он оставио треба уоквирити одређеном дискретном линијом у наранџастој боји.
+    - id: PHF-GSU-076
+      kind: heading
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-185
+      relevance: model_supporting
+      tags:
+        - heading
+        - printers
+        - user_account
+      text:
+        exact: Штампари
+        normalized: Штампари
+    - id: PHF-GSU-077
+      kind: sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-186
+      relevance: model_relevant
+      tags:
+        - printers
+        - sentence
+      text:
+        exact: 'Након успешног пријављивања у систем, штампар има главни мени, који се састоји од ставки, односно функционалности описаних у наставку:'
+        normalized: 'Након успешног пријављивања у систем, штампар има главни мени, који се састоји од ставки, односно функционалности описаних у наставку:'
+    - id: PHF-GSU-078
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-188
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - printers
+      text:
+        exact: '▪ Профил: преглед и ажурирање личних података (осим забране промене корисничког имена).'
+        normalized: '▪ Профил: преглед и ажурирање личних података (осим забране промене корисничког имена).'
+    - id: PHF-GSU-079
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-188
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - printers
+      text:
+        exact: Ажурирање треба да подразумева и могућност промене своје профилне слике.
+        normalized: Ажурирање треба да подразумева и могућност промене своје профилне слике.
+    - id: PHF-GSU-080
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-191
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+        - user_account
+      text:
+        exact: '▪ Производи и услуге: Штампари имају могућност додавања својих производа и производних додатних услуга.'
+        normalized: '▪ Производи и услуге: Штампари имају могућност додавања својих производа и производних додатних услуга.'
+    - id: PHF-GSU-081
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-191
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+      text:
+        exact: 'Производи се додају у већ предефинисане категорије и поткатегорије из базе података:'
+        normalized: 'Производи се додају у већ предефинисане категорије и поткатегорије из базе података:'
+    - id: PHF-GSU-082
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-194
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - printers
+      text:
+        exact: o Штампа малих формата (оловке, визит карте, флајери, захвалнице, позивнице, фасцикле...).
+        normalized: o Штампа малих формата (оловке, визит карте, флајери, захвалнице, позивнице, фасцикле...).
+    - id: PHF-GSU-083
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-196
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - printers
+      text:
+        exact: o Штампа великих формата (постери, rollups, фототапете).
+        normalized: o Штампа великих формата (постери, rollups, фототапете).
+    - id: PHF-GSU-084
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-197
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+      text:
+        exact: o Креативне штампе (шоље, штампа на мајицама, штампа на дуксевима, штампа на цегерима).
+        normalized: o Креативне штампе (шоље, штампа на мајицама, штампа на дуксевима, штампа на цегерима).
+    - id: PHF-GSU-085
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-197
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+      text:
+        exact: Услуге су специјализовани типови штампе или пресликача, који повећавају цену по производу.
+        normalized: Услуге су специјализовани типови штампе или пресликача, који повећавају цену по производу.
+    - id: PHF-GSU-086
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-197
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+      text:
+        exact: Приликом додавања производа додати јединичну цену, као и све
+        normalized: Приликом додавања производа додати јединичну цену, као и све
+    - id: PHF-GSU-087
+      kind: sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-203
+      relevance: model_relevant
+      tags:
+        - printers
+        - procurement
+        - sentence
+      text:
+        exact: Није потребно реализовати тајмер у бази нити WebSocket / Background job, већ приликом наредне пријаве у систем установе која је расписала јавну набавку, проверити да ли је прошао временски интервал, и закључити све пристигле понуде избором најбоље.
+        normalized: Није потребно реализовати тајмер у бази нити WebSocket / Background job, већ приликом наредне пријаве у систем установе која је расписала јавну набавку, проверити да ли је прошао временски интервал, и закључити све пристигле понуде избором најбоље.
+    - id: PHF-GSU-088
+      kind: sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-212
+      relevance: model_relevant
+      tags:
+        - catalog
+        - printers
+        - sentence
+      text:
+        exact: друге релевантне податке, укључујући и слику/е производа.
+        normalized: друге релевантне податке, укључујући и слику/е производа.
+    - id: PHF-GSU-089
+      kind: sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-212
+      relevance: model_relevant
+      tags:
+        - catalog
+        - printers
+        - sentence
+      text:
+        exact: Уз производ се затим дефинишу и услуге које се нуде.
+        normalized: Уз производ се затим дефинишу и услуге које се нуде.
+    - id: PHF-GSU-090
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-214
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+        - stock
+      text:
+        exact: '▪ Ажурирање количина: за све постојеће производе може се променити количина.'
+        normalized: '▪ Ажурирање количина: за све постојеће производе може се променити количина.'
+    - id: PHF-GSU-091
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-215
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - json_import
+        - printers
+      text:
+        exact: '▪ Додавање из фајла: штампар има могућност уношења лагер листе, путем додавања JSON фајла, чиме се постављају дефинисани производи и услуге за њих.'
+        normalized: '▪ Додавање из фајла: штампар има могућност уношења лагер листе, путем додавања JSON фајла, чиме се постављају дефинисани производи и услуге за њих.'
+    - id: PHF-GSU-092
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-215
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - printers
+      text:
+        exact: У додатном кораку по учитавању фајла, додати и слике.
+        normalized: У додатном кораку по учитавању фајла, додати и слике.
+    - id: PHF-GSU-093
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-215
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - printers
+      text:
+        exact: Пример фајла је дат у Прилогу 1 текста овог пројектног задатка.
+        normalized: Пример фајла је дат у Прилогу 1 текста овог пројектног задатка.
+    - id: PHF-GSU-094
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-219
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+      text:
+        exact: '▪ Наручени производи: за производе који су дошли од стране клијената као физичких лица, штампар има само привилегију да пребаци статус из „наручено“ у статус „у штампи“, и након тога у статус „испоручено“.'
+        normalized: '▪ Наручени производи: за производе који су дошли од стране клијената као физичких лица, штампар има само привилегију да пребаци статус из „наручено“ у статус „у штампи“, и након тога у статус „испоручено“.'
+    - id: PHF-GSU-095
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-222
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+        - procurement
+      text:
+        exact: '▪ Лицитације: за производе који су наручени од стране клијената као правних лица, штампар може да у дефинисаном временском интервалу проследи званичне понуде за отворене јавне набавке.'
+        normalized: '▪ Лицитације: за производе који су наручени од стране клијената као правних лица, штампар може да у дефинисаном временском интервалу проследи званичне понуде за отворене јавне набавке.'
+    - id: PHF-GSU-096
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-222
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+        - stock
+      text:
+        exact: Свака јавна набавка има свој идентификатор (ИД), датум и време расписивања набавке и потребне производе и количине за сваки од њих.
+        normalized: Свака јавна набавка има свој идентификатор (ИД), датум и време расписивања набавке и потребне производе и количине за сваки од њих.
+    - id: PHF-GSU-097
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-222
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - catalog
+        - printers
+        - procurement
+        - user_account
+      text:
+        exact: Штампар шаље за своју штампарију једну понуду (са свим траженим производима) по јавној набавци.
+        normalized: Штампар шаље за своју штампарију једну понуду (са свим траженим производима) по јавној набавци.
+    - id: PHF-GSU-098
+      kind: bullet_sentence
+      section: printers
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-228
+      relevance: model_relevant
+      tags:
+        - bullet_sentence
+        - institution
+        - printers
+        - procurement
+      text:
+        exact: '▪ Извештавање: након завршетка лицитације, свака установа добија у свом одељку за јавне набавке PDF извештај о свим послатим понудама и оној која је добила јавну набавку (имала понуду најнижег износа).'
+        normalized: '▪ Извештавање: након завршетка лицитације, свака установа добија у свом одељку за јавне набавке PDF извештај о свим послатим понудама и оној која је добила јавну набавку (имала понуду најнижег износа).'
+    - id: PHF-GSU-099
+      kind: heading
+      section: administrator
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-232
+      relevance: model_supporting
+      tags:
+        - administrator
+        - heading
+        - user_account
+      text:
+        exact: Администратор система
+        normalized: Администратор система
+    - id: PHF-GSU-100
+      kind: sentence
+      section: administrator
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-233
+      relevance: model_relevant
+      tags:
+        - administrator
+        - sentence
+        - user_account
+      text:
+        exact: Администратор система је корисник са посебним привилегијама.
+        normalized: Администратор система је корисник са посебним привилегијама.
+    - id: PHF-GSU-101
+      kind: sentence
+      section: administrator
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-233
+      relevance: model_relevant
+      tags:
+        - administrator
+        - sentence
+        - user_account
+      text:
+        exact: Администратор управља корисницима, односно може вршити преглед, ажурирање и брисање свих корисничких налога.
+        normalized: Администратор управља корисницима, односно може вршити преглед, ажурирање и брисање свих корисничких налога.
+    - id: PHF-GSU-102
+      kind: sentence
+      section: administrator
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-233
+      relevance: model_relevant
+      tags:
+        - administrator
+        - registration
+        - sentence
+        - user_account
+      text:
+        exact: Одобравање захтева за регистрацију клијената и штампара врши се кроз посебан табеларни преглед свих неодобрених корисника.
+        normalized: Одобравање захтева за регистрацију клијената и штампара врши се кроз посебан табеларни преглед свих неодобрених корисника.
+    - id: PHF-GSU-103
+      kind: sentence
+      section: administrator
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-233
+      relevance: model_relevant
+      tags:
+        - administrator
+        - catalog
+        - sentence
+        - user_account
+      text:
+        exact: Администратор управља и категоријама штампарских производа.
+        normalized: Администратор управља и категоријама штампарских производа.
+    - id: PHF-GSU-104
+      kind: sentence
+      section: administrator
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-233
+      relevance: model_relevant
+      tags:
+        - administrator
+        - catalog
+        - sentence
+      text:
+        exact: Он може додати нову категорију и унутар ње исто то за поткатегорије.
+        normalized: Он може додати нову категорију и унутар ње исто то за поткатегорије.
+    - id: PHF-GSU-105
+      kind: sentence
+      section: administrator
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-233
+      relevance: model_relevant
+      tags:
+        - administrator
+        - catalog
+        - sentence
+        - stock
+        - user_account
+      text:
+        exact: 'Администратор може извући статистике, које се приказују као графиконе: опадајућа листа штампарија које су у последњем кварталу (3 месеца) оствариле највећи промет ка клијентима у виду стубичастог (бар) графикона; листа производа који су најчешће наручивани у последњих месец дана (по количини / проценту удела у свим производима) у виду пита графикона; кретање оцене производа у зависности од времена, у виду линијског графикона (са могућношћу да се одређени производи искључе из приказа).'
+        normalized: 'Администратор може извући статистике, које се приказују као графиконе: опадајућа листа штампарија које су у последњем кварталу (3 месеца) оствариле највећи промет ка клијентима у виду стубичастог (бар) графикона; листа производа који су најчешће наручивани у последњих месец дана (по количини / проценту удела у свим производима) у виду пита графикона; кретање оцене производа у зависности од времена, у виду линијског графикона (са могућношћу да се одређени производи искључе из приказа).'
+    - id: PHF-GSU-106
+      kind: heading
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-246
+      relevance: model_supporting
+      tags:
+        - heading
+        - other_application_characteristics
+      text:
+        exact: Остале карактеристике апликације
+        normalized: Остале карактеристике апликације
+    - id: PHF-GSU-107
+      kind: sentence
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-247
+      relevance: non_model
+      tags:
+        - other_application_characteristics
+        - sentence
+      text:
+        exact: Апликација треба да буде отпорна на унос некоректних података.
+        normalized: Апликација треба да буде отпорна на унос некоректних података.
+    - id: PHF-GSU-108
+      kind: sentence
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-247
+      relevance: non_model
+      tags:
+        - non_model
+        - other_application_characteristics
+        - sentence
+      text:
+        exact: Потребно је направити и униформни изглед апликације користећи Cascading Style Sheets (скр. CSS).
+        normalized: Потребно је направити и униформни изглед апликације користећи Cascading Style Sheets (скр. CSS).
+    - id: PHF-GSU-109
+      kind: sentence
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-247
+      relevance: non_model
+      tags:
+        - other_application_characteristics
+        - sentence
+      text:
+        exact: Свака веб страна треба да садржи мени и заглавља (header и footer).
+        normalized: Свака веб страна треба да садржи мени и заглавља (header и footer).
+    - id: PHF-GSU-110
+      kind: sentence
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-247
+      relevance: non_model
+      tags:
+        - other_application_characteristics
+        - sentence
+      text:
+        exact: На свим екранима где је приказан жељени садржај треба омогућити опцију за повратак на почетни екран са корисничким опцијама (ово само уколико немате мени који је увек видљив).
+        normalized: На свим екранима где је приказан жељени садржај треба омогућити опцију за повратак на почетни екран са корисничким опцијама (ово само уколико немате мени који је увек видљив).
+    - id: PHF-GSU-111
+      kind: sentence
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-247
+      relevance: non_model
+      tags:
+        - other_application_characteristics
+        - sentence
+      text:
+        exact: 'Такође на свим екранима је потребан и линк који води на почетни екран за пријављивање (опција: Излогуј се).'
+        normalized: 'Такође на свим екранима је потребан и линк који води на почетни екран за пријављивање (опција: Излогуј се).'
+    - id: PHF-GSU-112
+      kind: sentence
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-247
+      relevance: model_supporting
+      tags:
+        - other_application_characteristics
+        - sentence
+      text:
+        exact: Сваки вид серверске валидације потребно је што ефикасније реализовати.
+        normalized: Сваки вид серверске валидације потребно је што ефикасније реализовати.
+    - id: PHF-GSU-113
+      kind: sentence
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-260
+      relevance: non_model
+      tags:
+        - non_model
+        - other_application_characteristics
+        - sentence
+      text:
+        exact: Веб апликација треба да буде прилагодљива и мањим и већим екранима („responsive web design“).
+        normalized: Веб апликација треба да буде прилагодљива и мањим и већим екранима („responsive web design“).
+    - id: PHF-GSU-114
+      kind: sentence
+      section: other_application_characteristics
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-260
+      relevance: non_model
+      tags:
+        - non_model
+        - other_application_characteristics
+        - sentence
+      text:
+        exact: Тестирати веб апликацију у најмање 3 стандардна веб прегледача.
+        normalized: Тестирати веб апликацију у најмање 3 стандардна веб прегледача.
+    - id: PHF-GSU-115
+      kind: heading
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-263
+      relevance: model_supporting
+      tags:
+        - exam_notes
+        - heading
+      text:
+        exact: 'Напомене:'
+        normalized: 'Напомене:'
+    - id: PHF-GSU-116
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-264
+      relevance: non_model
+      tags:
+        - exam_notes
+        - sentence
+      text:
+        exact: Пројекат из предмета Програмирање интернет апликација се ради самостално и услов је за полагање испита.
+        normalized: Пројекат из предмета Програмирање интернет апликација се ради самостално и услов је за полагање испита.
+    - id: PHF-GSU-117
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-264
+      relevance: non_model
+      tags:
+        - exam_notes
+        - sentence
+      text:
+        exact: Пројекат се може бранити у испитном року у коме се ради писмени испит или у неком од наредних рокова.
+        normalized: Пројекат се може бранити у испитном року у коме се ради писмени испит или у неком од наредних рокова.
+    - id: PHF-GSU-118
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-264
+      relevance: non_model
+      tags:
+        - exam_notes
+        - sentence
+      text:
+        exact: Пројекат вреди максимално 30 поена.
+        normalized: Пројекат вреди максимално 30 поена.
+    - id: PHF-GSU-119
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-264
+      relevance: non_model
+      tags:
+        - exam_notes
+        - sentence
+      text:
+        exact: На усменој обрани кандидат мора самостално да инсталира све програме неопходне за исправан рад приложеног решења (уколико не постоје у рачунарској лабораторији).
+        normalized: На усменој обрани кандидат мора самостално да инсталира све програме неопходне за исправан рад приложеног решења (уколико не постоје у рачунарској лабораторији).
+    - id: PHF-GSU-120
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-264
+      relevance: non_model
+      tags:
+        - exam_notes
+        - sentence
+      text:
+        exact: Кандидат мора да поседује потребан ниво знања о пројектном задатку, мора да буде свестан недостатака приложеног решења и могућности да те недостатке реши.
+        normalized: Кандидат мора да поседује потребан ниво знања о пројектном задатку, мора да буде свестан недостатака приложеног решења и могућности да те недостатке реши.
+    - id: PHF-GSU-121
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-264
+      relevance: non_model
+      tags:
+        - exam_notes
+        - sentence
+      text:
+        exact: Кандидат мора тачно да одговори и на одређен број питања која се баве тематиком пројекта.
+        normalized: Кандидат мора тачно да одговори и на одређен број питања која се баве тематиком пројекта.
+    - id: PHF-GSU-122
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-273
+      relevance: non_model
+      tags:
+        - exam_notes
+        - non_model
+        - sentence
+      text:
+        exact: Алати вештачке интелигенције могу се користити за помоћ у дизајнирању веб страна, али не и развој комплетне архитектуре софтверског система, или серверског дела апликације.
+        normalized: Алати вештачке интелигенције могу се користити за помоћ у дизајнирању веб страна, али не и развој комплетне архитектуре софтверског система, или серверског дела апликације.
+    - id: PHF-GSU-123
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-273
+      relevance: non_model
+      tags:
+        - exam_notes
+        - non_model
+        - registration
+        - sentence
+      text:
+        exact: Алати ВИ неће бити доступни током одбране пројекта, када ће студент самостално морати да реализује промене на захтев испитвача, у свом програмском коду.
+        normalized: Алати ВИ неће бити доступни током одбране пројекта, када ће студент самостално морати да реализује промене на захтев испитвача, у свом програмском коду.
+    - id: PHF-GSU-124
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-273
+      relevance: non_model
+      tags:
+        - credentials
+        - exam_notes
+        - sentence
+      text:
+        exact: Коришћење додатних библиотека, као што су за прављење PDF докумената било на клијентској или серверској страни, за аутоматизовано слање и-мејл порука или израду статистика, је потпуно дозвољено и пожељно, а студенти бирају библиотеке по свом избору.
+        normalized: Коришћење додатних библиотека, као што су за прављење PDF докумената било на клијентској или серверској страни, за аутоматизовано слање и-мејл порука или израду статистика, је потпуно дозвољено и пожељно, а студенти бирају библиотеке по свом избору.
+    - id: PHF-GSU-125
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-273
+      relevance: non_model
+      tags:
+        - exam_notes
+        - sentence
+      text:
+        exact: За одређене задатке (мапе, временска прогноза и сл.) могу се користите спољашњи интерфејси (API).
+        normalized: За одређене задатке (мапе, временска прогноза и сл.) могу се користите спољашњи интерфејси (API).
+    - id: PHF-GSU-126
+      kind: sentence
+      section: exam_notes
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-273
+      relevance: non_model
+      tags:
+        - exam_notes
+        - non_model
+        - sentence
+      text:
+        exact: Одбране пројеката се одржавају уживо, у рачунарским лабораторијама Електротехничког факултета у Београду, осим у случају ванредног стања или других стриктних епидемиолошких мера, када предметни наставници могу до 24 сата пре одбране да одлуче да се одбрана у том случају одржи путем видеоконференцијске везе.
+        normalized: Одбране пројеката се одржавају уживо, у рачунарским лабораторијама Електротехничког факултета у Београду, осим у случају ванредног стања или других стриктних епидемиолошких мера, када предметни наставници могу до 24 сата пре одбране да одлуче да се одбрана у том случају одржи путем видеоконференцијске везе.
+    - id: PHF-GSU-127
+      kind: heading
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-286
+      relevance: model_supporting
+      tags:
+        - heading
+        - technology_requirements
+      text:
+        exact: 'За израду пројектног задатка потребно је користити:'
+        normalized: 'За израду пројектног задатка потребно је користити:'
+    - id: PHF-GSU-128
+      kind: bullet_sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-287
+      relevance: non_model
+      tags:
+        - bullet_sentence
+        - non_model
+        - technology_requirements
+      text:
+        exact: 1) Angular 20 framework са Spring Boot 3.5.x (опционо 4.x) уз примену неког радног оквира за објектно релационо мапирање (проверити доступне верзије на сајту предмета; пожељно је преузети иницијално празан пројекат са предметног сајта и њега надограђивати); при развоју пројекта у овим технологијама потребно је користити MySQL (или PostgreSQL) релациону базу података или
+        normalized: 1) Angular 20 framework са Spring Boot 3.5.x (опционо 4.x) уз примену неког радног оквира за објектно релационо мапирање (проверити доступне верзије на сајту предмета; пожељно је преузети иницијално празан пројекат са предметног сајта и њега надограђивати); при развоју пројекта у овим технологијама потребно је користити MySQL (или PostgreSQL) релациону базу података или
+    - id: PHF-GSU-129
+      kind: bullet_sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-292
+      relevance: non_model
+      tags:
+        - bullet_sentence
+        - non_model
+        - technology_requirements
+      text:
+        exact: 2) Angular 20 framework са Express и NodeJS у серверском делу (проверити доступне верзије на сајту предмета; пожељно је преузети иницијално празан пројекат са предметног сајта и њега надограђивати), уз коришћење нерелационе базе MongoDB.
+        normalized: 2) Angular 20 framework са Express и NodeJS у серверском делу (проверити доступне верзије на сајту предмета; пожељно је преузети иницијално празан пројекат са предметног сајта и њега надограђивати), уз коришћење нерелационе базе MongoDB.
+    - id: PHF-GSU-130
+      kind: bullet_sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-292
+      relevance: model_supporting
+      tags:
+        - bullet_sentence
+        - technology_requirements
+      text:
+        exact: Сваки вид серверске валидације потребно је што ефикасније реализовати.
+        normalized: Сваки вид серверске валидације потребно је што ефикасније реализовати.
+    - id: PHF-GSU-131
+      kind: bullet_sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-292
+      relevance: model_supporting
+      tags:
+        - bullet_sentence
+        - technology_requirements
+      text:
+        exact: Подразумевати да се база података иницијално креира и попуњава независно од ове апликације (тј.
+        normalized: Подразумевати да се база података иницијално креира и попуњава независно од ове апликације (тј.
+    - id: PHF-GSU-132
+      kind: bullet_sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-292
+      relevance: non_model
+      tags:
+        - bullet_sentence
+        - technology_requirements
+      text:
+        exact: табеле или колекције у бази не треба креирати из саме апликације, већ независно од ње).
+        normalized: табеле или колекције у бази не треба креирати из саме апликације, већ независно од ње).
+    - id: PHF-GSU-133
+      kind: bullet_sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-292
+      relevance: model_supporting
+      tags:
+        - bullet_sentence
+        - stock
+        - technology_requirements
+      text:
+        exact: На одбрану је потребно донети базу података која је попуњена са довољном количином података, како би био омогућен преглед свих реализованих функционалности апликације, у супротном се добија -5 поена.
+        normalized: На одбрану је потребно донети базу података која је попуњена са довољном количином података, како би био омогућен преглед свих реализованих функционалности апликације, у супротном се добија -5 поена.
+    - id: PHF-GSU-134
+      kind: sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-308
+      relevance: non_model
+      tags:
+        - non_model
+        - sentence
+        - technology_requirements
+      text:
+        exact: Одбране ће бити организоване у августовском и септембарском року, након писменог дела испита, а тачан дан и сатница ће бити објављени након истека рока за пријаву одбране пројекта.
+        normalized: Одбране ће бити организоване у августовском и септембарском року, након писменог дела испита, а тачан дан и сатница ће бити објављени након истека рока за пријаву одбране пројекта.
+    - id: PHF-GSU-135
+      kind: sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-308
+      relevance: non_model
+      tags:
+        - sentence
+        - technology_requirements
+      text:
+        exact: Студент може само једном изаћи на одбрану овог пројекта.
+        normalized: Студент може само једном изаћи на одбрану овог пројекта.
+    - id: PHF-GSU-136
+      kind: sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-308
+      relevance: non_model
+      tags:
+        - non_model
+        - sentence
+        - technology_requirements
+      text:
+        exact: Предметни наставници задржавају право да изврше аутоматску и мануелну проверу сличности предатих студентских пројеката пре, за време или након одбране.
+        normalized: Предметни наставници задржавају право да изврше аутоматску и мануелну проверу сличности предатих студентских пројеката пре, за време или након одбране.
+    - id: PHF-GSU-137
+      kind: sentence
+      section: technology_requirements
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-308
+      relevance: non_model
+      tags:
+        - non_model
+        - sentence
+        - technology_requirements
+      text:
+        exact: Уколико се утврди недозвољена сарадња, студенти ће бити удаљени са одбране пројекта, поени на свим активностима до тада се поништавају на 0, а против таквих студената ће бити поднете пријаве Дисциплинској комисији Електротехничког факултета у Београду.
+        normalized: Уколико се утврди недозвољена сарадња, студенти ће бити удаљени са одбране пројекта, поени на свим активностима до тада се поништавају на 0, а против таквих студената ће бити поднете пријаве Дисциплинској комисији Електротехничког факултета у Београду.
+    - id: PHF-GSU-138
+      kind: heading
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-1
+      relevance: model_supporting
+      tags:
+        - heading
+        - json_appendix
+        - json_import
+      text:
+        exact: 'Прилог 1: JSON фајл за уношење производа'
+        normalized: 'Прилог 1: JSON фајл за уношење производа'
+    - id: PHF-GSU-139
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-3
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_import
+        - json_key:stampaorijaId
+      text:
+        exact: '"stampaorijaId": "stampa_001",'
+        normalized: '"stampaorijaId": "stampa_001",'
+    - id: PHF-GSU-140
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-4
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:nazivStamparije
+      text:
+        exact: '"nazivStamparije": "Copy Studio Kumanovska",'
+        normalized: '"nazivStamparije": "Copy Studio Kumanovska",'
+    - id: PHF-GSU-141
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-5
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:proizvodi
+      text:
+        exact: '"proizvodi": ['
+        normalized: '"proizvodi": ['
+    - id: PHF-GSU-142
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-7
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:sifra
+      text:
+        exact: '"sifra": "PR-001",'
+        normalized: '"sifra": "PR-001",'
+    - id: PHF-GSU-143
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-8
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:naziv
+      text:
+        exact: '"naziv": "Pamucna Polo Majica",'
+        normalized: '"naziv": "Pamucna Polo Majica",'
+    - id: PHF-GSU-144
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-10
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:opis
+      text:
+        exact: '"opis": "Kvalitetna pamučna polo majica 180g/m2, pogodna za brendiranje i korporativne uniforme.",'
+        normalized: '"opis": "Kvalitetna pamučna polo majica 180g/m2, pogodna za brendiranje i korporativne uniforme.",'
+    - id: PHF-GSU-145
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-11
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:kategorija
+      text:
+        exact: '"kategorija": "Kreativne štampe",'
+        normalized: '"kategorija": "Kreativne štampe",'
+    - id: PHF-GSU-146
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-12
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:potkategorija
+      text:
+        exact: '"potkategorija": "Štampa na majicama",'
+        normalized: '"potkategorija": "Štampa na majicama",'
+    - id: PHF-GSU-147
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-13
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:jedinicnaCena
+      text:
+        exact: '"jedinicnaCena": 1200.00,'
+        normalized: '"jedinicnaCena": 1200.00,'
+    - id: PHF-GSU-148
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-14
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:kolicinaNaLageru
+      text:
+        exact: '"kolicinaNaLageru": 150,'
+        normalized: '"kolicinaNaLageru": 150,'
+    - id: PHF-GSU-149
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-15
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dostupneBoje
+      text:
+        exact: '"dostupneBoje": ["Bela", "Crna", "Tamno plava", "Siva"],'
+        normalized: '"dostupneBoje": ["Bela", "Crna", "Tamno plava", "Siva"],'
+    - id: PHF-GSU-150
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-16
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:slikaUrl
+      text:
+        exact: '"slikaUrl": "",'
+        normalized: '"slikaUrl": "",'
+    - id: PHF-GSU-151
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-17
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dodatneSlike
+      text:
+        exact: '"dodatneSlike": [],'
+        normalized: '"dodatneSlike": [],'
+    - id: PHF-GSU-152
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-18
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_import
+        - json_key:uslugeStampe
+      text:
+        exact: '"uslugeStampe": ['
+        normalized: '"uslugeStampe": ['
+    - id: PHF-GSU-153
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-20
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:idUsluge
+      text:
+        exact: '"idUsluge": "USL-01",'
+        normalized: '"idUsluge": "USL-01",'
+    - id: PHF-GSU-154
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-21
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:tipStampe
+      text:
+        exact: '"tipStampe": "Direktna štampa na tekstil (DTG)",'
+        normalized: '"tipStampe": "Direktna štampa na tekstil (DTG)",'
+    - id: PHF-GSU-155
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-22
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dodatnaCenaPoKomadu
+      text:
+        exact: '"dodatnaCenaPoKomadu": 350.00,'
+        normalized: '"dodatnaCenaPoKomadu": 350.00,'
+    - id: PHF-GSU-156
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-23
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:maxSirinaMm
+      text:
+        exact: '"maxSirinaMm": 300,'
+        normalized: '"maxSirinaMm": 300,'
+    - id: PHF-GSU-157
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-24
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:maxVisinaMm
+      text:
+        exact: '"maxVisinaMm": 400'
+        normalized: '"maxVisinaMm": 400'
+    - id: PHF-GSU-158
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-27
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:idUsluge
+      text:
+        exact: '"idUsluge": "USL-02",'
+        normalized: '"idUsluge": "USL-02",'
+    - id: PHF-GSU-159
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-28
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:tipStampe
+      text:
+        exact: '"tipStampe": "Preslikač (Sito preslikač)",'
+        normalized: '"tipStampe": "Preslikač (Sito preslikač)",'
+    - id: PHF-GSU-160
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-29
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dodatnaCenaPoKomadu
+      text:
+        exact: '"dodatnaCenaPoKomadu": 200.00,'
+        normalized: '"dodatnaCenaPoKomadu": 200.00,'
+    - id: PHF-GSU-161
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-30
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:maxSirinaMm
+      text:
+        exact: '"maxSirinaMm": 280,'
+        normalized: '"maxSirinaMm": 280,'
+    - id: PHF-GSU-162
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-31
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:maxVisinaMm
+      text:
+        exact: '"maxVisinaMm": 350'
+        normalized: '"maxVisinaMm": 350'
+    - id: PHF-GSU-163
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-36
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:sifra
+      text:
+        exact: '"sifra": "PR-002",'
+        normalized: '"sifra": "PR-002",'
+    - id: PHF-GSU-164
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-37
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:naziv
+      text:
+        exact: '"naziv": "Keramička šolja 330ml",'
+        normalized: '"naziv": "Keramička šolja 330ml",'
+    - id: PHF-GSU-165
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-39
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:opis
+      text:
+        exact: '"opis": "Bela keramička šolja visokog sjaja, idealna za sublimacionu štampu visoke rezolucije.",'
+        normalized: '"opis": "Bela keramička šolja visokog sjaja, idealna za sublimacionu štampu visoke rezolucije.",'
+    - id: PHF-GSU-166
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-40
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:kategorija
+      text:
+        exact: '"kategorija": "Kreativne štampe",'
+        normalized: '"kategorija": "Kreativne štampe",'
+    - id: PHF-GSU-167
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-41
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:potkategorija
+      text:
+        exact: '"potkategorija": "Šolje",'
+        normalized: '"potkategorija": "Šolje",'
+    - id: PHF-GSU-168
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-42
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:jedinicnaCena
+      text:
+        exact: '"jedinicnaCena": 320.00,'
+        normalized: '"jedinicnaCena": 320.00,'
+    - id: PHF-GSU-169
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-44
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:kolicinaNaLageru
+      text:
+        exact: '"kolicinaNaLageru": 500, 7'
+        normalized: '"kolicinaNaLageru": 500, 7'
+    - id: PHF-GSU-170
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-50
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dostupneBoje
+      text:
+        exact: '"dostupneBoje": ["Bela"],'
+        normalized: '"dostupneBoje": ["Bela"],'
+    - id: PHF-GSU-171
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-51
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:slikaUrl
+      text:
+        exact: '"slikaUrl": "",'
+        normalized: '"slikaUrl": "",'
+    - id: PHF-GSU-172
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-52
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dodatneSlike
+      text:
+        exact: '"dodatneSlike": [],'
+        normalized: '"dodatneSlike": [],'
+    - id: PHF-GSU-173
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-53
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_import
+        - json_key:uslugeStampe
+      text:
+        exact: '"uslugeStampe": ['
+        normalized: '"uslugeStampe": ['
+    - id: PHF-GSU-174
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-55
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:idUsluge
+      text:
+        exact: '"idUsluge": "USL-03",'
+        normalized: '"idUsluge": "USL-03",'
+    - id: PHF-GSU-175
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-56
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:tipStampe
+      text:
+        exact: '"tipStampe": "Sublimaciona štampa",'
+        normalized: '"tipStampe": "Sublimaciona štampa",'
+    - id: PHF-GSU-176
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-57
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dodatnaCenaPoKomadu
+      text:
+        exact: '"dodatnaCenaPoKomadu": 150.00,'
+        normalized: '"dodatnaCenaPoKomadu": 150.00,'
+    - id: PHF-GSU-177
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-58
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:maxSirinaMm
+      text:
+        exact: '"maxSirinaMm": 200,'
+        normalized: '"maxSirinaMm": 200,'
+    - id: PHF-GSU-178
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-59
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:maxVisinaMm
+      text:
+        exact: '"maxVisinaMm": 85'
+        normalized: '"maxVisinaMm": 85'
+    - id: PHF-GSU-179
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-64
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:sifra
+      text:
+        exact: '"sifra": "PR-003",'
+        normalized: '"sifra": "PR-003",'
+    - id: PHF-GSU-180
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-65
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:naziv
+      text:
+        exact: '"naziv": "Promotivni Roll-up Baner 85x200cm",'
+        normalized: '"naziv": "Promotivni Roll-up Baner 85x200cm",'
+    - id: PHF-GSU-181
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-67
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:opis
+      text:
+        exact: '"opis": "Lagan aluminijumski mehanizam sa torbom i štampom na kvalitetnom baner platnu.",'
+        normalized: '"opis": "Lagan aluminijumski mehanizam sa torbom i štampom na kvalitetnom baner platnu.",'
+    - id: PHF-GSU-182
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-68
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:kategorija
+      text:
+        exact: '"kategorija": "Štampa velikih formata",'
+        normalized: '"kategorija": "Štampa velikih formata",'
+    - id: PHF-GSU-183
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-69
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:potkategorija
+      text:
+        exact: '"potkategorija": "Rollups",'
+        normalized: '"potkategorija": "Rollups",'
+    - id: PHF-GSU-184
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-70
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:jedinicnaCena
+      text:
+        exact: '"jedinicnaCena": 4500.00,'
+        normalized: '"jedinicnaCena": 4500.00,'
+    - id: PHF-GSU-185
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-71
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:kolicinaNaLageru
+      text:
+        exact: '"kolicinaNaLageru": 20,'
+        normalized: '"kolicinaNaLageru": 20,'
+    - id: PHF-GSU-186
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-72
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dostupneBoje
+      text:
+        exact: '"dostupneBoje": ["Bela", "Crna"],'
+        normalized: '"dostupneBoje": ["Bela", "Crna"],'
+    - id: PHF-GSU-187
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-73
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:slikaUrl
+      text:
+        exact: '"slikaUrl": "",'
+        normalized: '"slikaUrl": "",'
+    - id: PHF-GSU-188
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-74
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dodatneSlike
+      text:
+        exact: '"dodatneSlike": [],'
+        normalized: '"dodatneSlike": [],'
+    - id: PHF-GSU-189
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-75
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_import
+        - json_key:uslugeStampe
+      text:
+        exact: '"uslugeStampe": ['
+        normalized: '"uslugeStampe": ['
+    - id: PHF-GSU-190
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-77
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:idUsluge
+      text:
+        exact: '"idUsluge": "USL-04",'
+        normalized: '"idUsluge": "USL-04",'
+    - id: PHF-GSU-191
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-78
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:tipStampe
+      text:
+        exact: '"tipStampe": "Eko-solventna štampa visoke rezolucije",'
+        normalized: '"tipStampe": "Eko-solventna štampa visoke rezolucije",'
+    - id: PHF-GSU-192
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-79
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:dodatnaCenaPoKomadu
+      text:
+        exact: '"dodatnaCenaPoKomadu": 800.00,'
+        normalized: '"dodatnaCenaPoKomadu": 800.00,'
+    - id: PHF-GSU-193
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-80
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:maxSirinaMm
+      text:
+        exact: '"maxSirinaMm": 850,'
+        normalized: '"maxSirinaMm": 850,'
+    - id: PHF-GSU-194
+      kind: json_field
+      section: json_appendix
+      location: pia/text/2025_2026/2025_2026_001_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.txt#line-81
+      relevance: model_relevant
+      tags:
+        - json_appendix
+        - json_field
+        - json_key:maxVisinaMm
+      text:
+        exact: '"maxVisinaMm": 2000'
+        normalized: '"maxVisinaMm": 2000'

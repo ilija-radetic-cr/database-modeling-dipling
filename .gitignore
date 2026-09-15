@@ -1,0 +1,21 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Runtime state and generated outputs
+.dbdsl_workbench/
+output/
+
+# Go
+dbdsl/dbdsl
+dbdsl/dbdsl-server
+dbdsl/*.test
+
+# Frontend
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+

@@ -1,0 +1,3398 @@
+---
+dsl:
+  name: DB-DSL
+  version: '0.5'
+  compatibility:
+    structural_base: '0.2'
+model:
+  id: printing_house_full_v05_from_text
+  name: Printing House Full v0.5 From Text
+  domain_slice: full_system
+  status: draft_model
+  description: Svezi v0.5 pokusaj modelovanja celog Printing House zadatka iz teksta,
+    bez prevodjenja postojeceg v0.2 PoC modela.
+source:
+  pipeline_version: '0.5'
+  task_text_file: poc/printing_house_full/v0.5/TASK_FULL.md
+  source_units_file: poc/printing_house_full/v0.5/source_units.yaml
+  requirement_atoms_file: poc/printing_house_full/v0.5/requirement_atoms.yaml
+  functional_decomposition_file: poc/printing_house_full/v0.5/functional_decomposition.yaml
+  crud_matrix_file: poc/printing_house_full/v0.5/crud_matrix.yaml
+  review_decisions_file: poc/printing_house_full/v0.5/review_decisions.yaml
+  review_state: simulated_review_complete
+entities:
+- id: UserAccount
+  label: UserAccount
+  description: UserAccount
+  table_name: user_accounts
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-002
+    - PHF-SU-004
+    - PHF-SU-005
+    - PHF-SU-007
+    - PHF-SU-011
+    requirement_atoms:
+    - PHF-RA-001
+    - PHF-RA-002
+    - PHF-RA-005
+    review_decisions:
+    - PHF-RD-001
+    - PHF-RD-002
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: username
+    label: Username
+    description: username
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      - PHF-SU-004
+      requirement_atoms:
+      - PHF-RA-002
+      review_decisions:
+      - PHF-RD-002
+      support_level: explicit
+      confidence: high
+  - id: password_hash
+    label: Password hash
+    description: password hash
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      - PHF-SU-004
+      requirement_atoms:
+      - PHF-RA-002
+      review_decisions:
+      - PHF-RD-002
+      support_level: explicit
+      confidence: high
+  - id: first_name
+    label: First name
+    description: first name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      - PHF-SU-005
+      - PHF-SU-007
+      - PHF-SU-011
+      requirement_atoms:
+      - PHF-RA-005
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+  - id: last_name
+    label: Last name
+    description: last name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      - PHF-SU-005
+      - PHF-SU-007
+      - PHF-SU-011
+      requirement_atoms:
+      - PHF-RA-005
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+  - id: phone
+    label: Phone
+    description: phone
+    type: phone
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      - PHF-SU-005
+      - PHF-SU-007
+      - PHF-SU-011
+      requirement_atoms:
+      - PHF-RA-005
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+  - id: email
+    label: Email
+    description: email
+    type: email
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      - PHF-SU-004
+      - PHF-SU-005
+      - PHF-SU-007
+      - PHF-SU-011
+      requirement_atoms:
+      - PHF-RA-002
+      - PHF-RA-005
+      review_decisions:
+      - PHF-RD-002
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+  - id: profile_image_path
+    label: Profile image path
+    description: profile image path
+    type: file_path
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-002
+      - PHF-SU-005
+      - PHF-SU-007
+      - PHF-SU-011
+      requirement_atoms:
+      - PHF-RA-005
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+  - id: role
+    label: Role
+    description: role
+    type: string
+    required: true
+    enum_values:
+    - client_individual
+    - client_legal
+    - printer
+    - admin
+    evidence:
+      source_units:
+      - PHF-SU-002
+      requirement_atoms:
+      - PHF-RA-001
+      review_decisions:
+      - PHF-RD-001
+      support_level: explicit
+      confidence: high
+  - id: account_status
+    label: Account status
+    description: account status
+    type: string
+    required: true
+    enum_values:
+    - pending
+    - active
+    - rejected
+    - disabled
+    evidence:
+      source_units:
+      - PHF-SU-005
+      - PHF-SU-014
+      requirement_atoms:
+      - PHF-RA-004
+      - PHF-RA-020
+      review_decisions:
+      - PHF-RD-001
+      - PHF-RD-011
+      - PHF-RD-010
+      support_level: explicit
+      confidence: high
+  - id: created_at
+    label: Created at
+    description: created at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-005
+      requirement_atoms:
+      - PHF-RA-004
+      review_decisions:
+      - PHF-RD-001
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: Institution
+  label: Institution
+  description: Institution
+  table_name: institutions
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-003
+    requirement_atoms:
+    - PHF-RA-006
+    review_decisions:
+    - PHF-RD-001
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: name
+    label: Name
+    description: name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-003
+      requirement_atoms:
+      - PHF-RA-006
+      review_decisions:
+      - PHF-RD-001
+      support_level: explicit
+      confidence: high
+  - id: headquarters_address
+    label: Headquarters address
+    description: headquarters address
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-003
+      requirement_atoms:
+      - PHF-RA-006
+      review_decisions:
+      - PHF-RD-001
+      support_level: explicit
+      confidence: high
+  - id: registration_number
+    label: Registration number
+    description: registration number
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-003
+      requirement_atoms:
+      - PHF-RA-006
+      review_decisions:
+      - PHF-RD-001
+      support_level: explicit
+      confidence: high
+  - id: tax_number
+    label: Tax number
+    description: tax number
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-003
+      requirement_atoms:
+      - PHF-RA-006
+      review_decisions:
+      - PHF-RD-001
+      support_level: explicit
+      confidence: high
+- id: PasswordResetToken
+  label: PasswordResetToken
+  description: PasswordResetToken
+  table_name: password_reset_tokens
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-002
+    requirement_atoms:
+    - PHF-RA-003
+    review_decisions:
+    - PHF-RD-002
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: token_hash
+    label: Token hash
+    description: token hash
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      requirement_atoms:
+      - PHF-RA-003
+      review_decisions:
+      - PHF-RD-002
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: created_at
+    label: Created at
+    description: created at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      requirement_atoms:
+      - PHF-RA-003
+      review_decisions:
+      - PHF-RD-002
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: expires_at
+    label: Expires at
+    description: expires at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-002
+      requirement_atoms:
+      - PHF-RA-003
+      review_decisions:
+      - PHF-RD-002
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: used_at
+    label: Used at
+    description: used at
+    type: datetime
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-002
+      requirement_atoms:
+      - PHF-RA-003
+      review_decisions:
+      - PHF-RD-002
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: RegistrationRequest
+  label: RegistrationRequest
+  description: RegistrationRequest
+  table_name: registration_requests
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-005
+    requirement_atoms:
+    - PHF-RA-004
+    review_decisions:
+    - PHF-RD-001
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: status
+    label: Status
+    description: status
+    type: string
+    required: true
+    enum_values:
+    - pending
+    - accepted
+    - rejected
+    evidence:
+      source_units:
+      - PHF-SU-005
+      requirement_atoms:
+      - PHF-RA-004
+      review_decisions:
+      - PHF-RD-001
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: submitted_at
+    label: Submitted at
+    description: submitted at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-005
+      requirement_atoms:
+      - PHF-RA-004
+      review_decisions:
+      - PHF-RD-001
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: reviewed_at
+    label: Reviewed at
+    description: reviewed at
+    type: datetime
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-005
+      requirement_atoms:
+      - PHF-RA-004
+      review_decisions:
+      - PHF-RD-001
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: rejection_reason
+    label: Rejection reason
+    description: rejection reason
+    type: text
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-005
+      requirement_atoms:
+      - PHF-RA-004
+      review_decisions:
+      - PHF-RD-001
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: PrintShop
+  label: PrintShop
+  description: PrintShop
+  table_name: print_shops
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-003
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-006
+    - PHF-RA-009
+    review_decisions:
+    - PHF-RD-001
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: code
+    label: Code
+    description: code
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: display_name
+    label: Display name
+    description: display name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-003
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-006
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-001
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: city
+    label: City
+    description: city
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-006
+      - PHF-SU-007
+      requirement_atoms:
+      - PHF-RA-007
+      - PHF-RA-008
+      review_decisions:
+      - PHF-RD-010
+      support_level: explicit
+      confidence: high
+  - id: latitude
+    label: Latitude
+    description: latitude
+    type: decimal
+    required: false
+    precision: 10
+    scale: 7
+    evidence:
+      source_units:
+      - PHF-SU-007
+      requirement_atoms:
+      - PHF-RA-008
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+  - id: longitude
+    label: Longitude
+    description: longitude
+    type: decimal
+    required: false
+    precision: 10
+    scale: 7
+    evidence:
+      source_units:
+      - PHF-SU-007
+      requirement_atoms:
+      - PHF-RA-008
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+  - id: is_active
+    label: Is active
+    description: is active
+    type: boolean
+    required: true
+    default: true
+    evidence:
+      source_units:
+      - PHF-SU-006
+      requirement_atoms:
+      - PHF-RA-007
+      review_decisions:
+      - PHF-RD-010
+      support_level: explicit
+      confidence: high
+- id: Category
+  label: Category
+  description: Category
+  table_name: categories
+  kind: lookup
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: name
+    label: Name
+    description: name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+- id: Subcategory
+  label: Subcategory
+  description: Subcategory
+  table_name: subcategories
+  kind: lookup
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: name
+    label: Name
+    description: name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+- id: Product
+  label: Product
+  description: Product
+  table_name: products
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    - PHF-RA-010
+    - PHF-RA-011
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: code
+    label: Code
+    description: code
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      - PHF-RA-010
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: name
+    label: Name
+    description: name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: description
+    label: Description
+    description: description
+    type: text
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: unit_price
+    label: Unit price
+    description: unit price
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      - PHF-RA-010
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: stock_quantity
+    label: Stock quantity
+    description: stock quantity
+    type: integer
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      - PHF-RA-011
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: is_active
+    label: Is active
+    description: is active
+    type: boolean
+    required: true
+    default: true
+    evidence:
+      source_units:
+      - PHF-SU-006
+      - PHF-SU-008
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-007
+      - PHF-RA-011
+      review_decisions:
+      - PHF-RD-010
+      support_level: explicit
+      confidence: high
+- id: ProductImage
+  label: ProductImage
+  description: ProductImage
+  table_name: product_images
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: storage_path
+    label: Storage path
+    description: storage path
+    type: file_path
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: mime_type
+    label: Mime type
+    description: mime type
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: sort_order
+    label: Sort order
+    description: sort order
+    type: integer
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: is_primary
+    label: Is primary
+    description: is primary
+    type: boolean
+    required: true
+    default: false
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+- id: Color
+  label: Color
+  description: Color
+  table_name: colors
+  kind: lookup
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: name
+    label: Name
+    description: name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+- id: ProductColor
+  label: ProductColor
+  description: ProductColor
+  table_name: product_colors
+  kind: association
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes: []
+- id: PrintService
+  label: PrintService
+  description: PrintService
+  table_name: print_services
+  kind: lookup
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: code
+    label: Code
+    description: code
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: name
+    label: Name
+    description: name
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-009
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+- id: ProductPrintService
+  label: ProductPrintService
+  description: ProductPrintService
+  table_name: product_print_services
+  kind: association
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: additional_price
+    label: Additional price
+    description: additional price
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-010
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: max_width_mm
+    label: Max width mm
+    description: max width mm
+    type: integer
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-010
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+  - id: max_height_mm
+    label: Max height mm
+    description: max height mm
+    type: integer
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-011
+      - PHF-SU-013
+      - PHF-SU-020
+      - PHF-SU-021
+      requirement_atoms:
+      - PHF-RA-010
+      review_decisions:
+      - PHF-RD-004
+      - PHF-RD-005
+      support_level: explicit
+      confidence: high
+- id: Cart
+  label: Cart
+  description: Cart
+  table_name: carts
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-009
+    - PHF-SU-007
+    requirement_atoms:
+    - PHF-RA-012
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-003
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: status
+    label: Status
+    description: status
+    type: string
+    required: true
+    enum_values:
+    - active
+    - confirmed
+    - abandoned
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: created_at
+    label: Created at
+    description: created at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: CartItem
+  label: CartItem
+  description: CartItem
+  table_name: cart_items
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-009
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-012
+    - PHF-RA-011
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: quantity
+    label: Quantity
+    description: quantity
+    type: integer
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-009
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-012
+      - PHF-RA-011
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+  - id: custom_text
+    label: Custom text
+    description: custom text
+    type: text
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-009
+      requirement_atoms:
+      - PHF-RA-012
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+  - id: custom_image_path
+    label: Custom image path
+    description: custom image path
+    type: file_path
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-009
+      requirement_atoms:
+      - PHF-RA-012
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+  - id: line_total
+    label: Line total
+    description: line total
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-009
+      requirement_atoms:
+      - PHF-RA-012
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+- id: Invoice
+  label: Invoice
+  description: Invoice
+  table_name: invoices
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-013
+    - PHF-RA-014
+    - PHF-RA-015
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    - PHF-RD-003
+    - PHF-RD-007
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: invoice_number
+    label: Invoice number
+    description: invoice number
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: status
+    label: Status
+    description: status
+    type: string
+    required: true
+    enum_values:
+    - ordered
+    - paid
+    - in_print
+    - delivered
+    - received
+    - cancelled
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-013
+      - PHF-RA-015
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      - PHF-RD-007
+      support_level: explicit
+      confidence: high
+  - id: total_amount
+    label: Total amount
+    description: total amount
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: issued_at
+    label: Issued at
+    description: issued at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: pdf_path
+    label: Pdf path
+    description: pdf path
+    type: file_path
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-014
+      review_decisions:
+      - PHF-RD-003
+      support_level: explicit
+      confidence: high
+- id: InvoiceItem
+  label: InvoiceItem
+  description: InvoiceItem
+  table_name: invoice_items
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-013
+    - PHF-RA-018
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    - PHF-RD-009
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: quantity
+    label: Quantity
+    description: quantity
+    type: integer
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: unit_price
+    label: Unit price
+    description: unit price
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: print_service_price
+    label: Print service price
+    description: print service price
+    type: money
+    required: false
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: total_price
+    label: Total price
+    description: total price
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-007
+      - PHF-SU-008
+      requirement_atoms:
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: custom_text
+    label: Custom text
+    description: custom text
+    type: text
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-009
+      - PHF-SU-007
+      requirement_atoms:
+      - PHF-RA-012
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-003
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: custom_image_path
+    label: Custom image path
+    description: custom image path
+    type: file_path
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-009
+      - PHF-SU-007
+      requirement_atoms:
+      - PHF-RA-012
+      - PHF-RA-013
+      review_decisions:
+      - PHF-RD-003
+      - PHF-RD-006
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: PaymentAttempt
+  label: PaymentAttempt
+  description: PaymentAttempt
+  table_name: payment_attempts
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-015
+    review_decisions:
+    - PHF-RD-007
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: provider
+    label: Provider
+    description: provider
+    type: string
+    required: true
+    enum_values:
+    - stripe
+    - paypal
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-015
+      review_decisions:
+      - PHF-RD-007
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: status
+    label: Status
+    description: status
+    type: string
+    required: true
+    enum_values:
+    - pending
+    - succeeded
+    - failed
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-015
+      review_decisions:
+      - PHF-RD-007
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: amount
+    label: Amount
+    description: amount
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-015
+      review_decisions:
+      - PHF-RD-007
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: provider_reference
+    label: Provider reference
+    description: provider reference
+    type: string
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-015
+      review_decisions:
+      - PHF-RD-007
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: created_at
+    label: Created at
+    description: created at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-008
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-015
+      review_decisions:
+      - PHF-RD-007
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: Procurement
+  label: Procurement
+  description: Procurement
+  table_name: procurements
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-012
+    requirement_atoms:
+    - PHF-RA-016
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: procurement_identifier
+    label: Procurement identifier
+    description: procurement identifier
+    type: string
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-012
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-016
+      - PHF-RA-017
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: status
+    label: Status
+    description: status
+    type: string
+    required: true
+    enum_values:
+    - open
+    - closed
+    - awarded
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-012
+      requirement_atoms:
+      - PHF-RA-016
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: opened_at
+    label: Opened at
+    description: opened at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-012
+      requirement_atoms:
+      - PHF-RA-016
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: closes_at
+    label: Closes at
+    description: closes at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-012
+      requirement_atoms:
+      - PHF-RA-016
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: report_pdf_path
+    label: Report pdf path
+    description: report pdf path
+    type: file_path
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-017
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: ProcurementItem
+  label: ProcurementItem
+  description: ProcurementItem
+  table_name: procurement_items
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-012
+    requirement_atoms:
+    - PHF-RA-016
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: quantity
+    label: Quantity
+    description: quantity
+    type: integer
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-012
+      requirement_atoms:
+      - PHF-RA-016
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: ProcurementBid
+  label: ProcurementBid
+  description: ProcurementBid
+  table_name: procurement_bids
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: status
+    label: Status
+    description: status
+    type: string
+    required: true
+    enum_values:
+    - submitted
+    - winning
+    - rejected
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-017
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: submitted_at
+    label: Submitted at
+    description: submitted at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-017
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: total_amount
+    label: Total amount
+    description: total amount
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-017
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: ProcurementBidItem
+  label: ProcurementBidItem
+  description: ProcurementBidItem
+  table_name: procurement_bid_items
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: quantity
+    label: Quantity
+    description: quantity
+    type: integer
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-017
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: unit_price
+    label: Unit price
+    description: unit price
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-017
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+  - id: line_total
+    label: Line total
+    description: line total
+    type: money
+    required: true
+    precision: 10
+    scale: 2
+    evidence:
+      source_units:
+      - PHF-SU-010
+      - PHF-SU-013
+      requirement_atoms:
+      - PHF-RA-017
+      review_decisions:
+      - PHF-RD-008
+      - PHF-RD-011
+      support_level: explicit
+      confidence: high
+- id: ProductFeedback
+  label: ProductFeedback
+  description: ProductFeedback
+  table_name: product_feedback
+  kind: regular
+  evidence:
+    source_units:
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-018
+    review_decisions:
+    - PHF-RD-009
+    support_level: explicit
+    confidence: high
+  attributes:
+  - id: reaction
+    label: Reaction
+    description: reaction
+    type: string
+    required: true
+    enum_values:
+    - like
+    - dislike
+    evidence:
+      source_units:
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-018
+      review_decisions:
+      - PHF-RD-009
+      support_level: explicit
+      confidence: high
+  - id: comment
+    label: Comment
+    description: comment
+    type: text
+    required: false
+    evidence:
+      source_units:
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-018
+      review_decisions:
+      - PHF-RD-009
+      support_level: explicit
+      confidence: high
+  - id: created_at
+    label: Created at
+    description: created at
+    type: datetime
+    required: true
+    evidence:
+      source_units:
+      - PHF-SU-010
+      requirement_atoms:
+      - PHF-RA-018
+      review_decisions:
+      - PHF-RD-009
+      support_level: explicit
+      confidence: high
+relationships:
+- id: UserAccountInstitution
+  label: UserAccountInstitution
+  description: UserAccountInstitution
+  from: UserAccount
+  to: Institution
+  cardinality: many_to_one
+  required: false
+  evidence:
+    source_units:
+    - PHF-SU-003
+    requirement_atoms:
+    - PHF-RA-006
+    review_decisions:
+    - PHF-RD-001
+    support_level: explicit
+    confidence: high
+- id: PrintShopInstitution
+  label: PrintShopInstitution
+  description: PrintShopInstitution
+  from: PrintShop
+  to: Institution
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-003
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-006
+    - PHF-RA-009
+    review_decisions:
+    - PHF-RD-001
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: PrintShopOwner
+  label: PrintShopOwner
+  description: PrintShopOwner
+  from: PrintShop
+  to: UserAccount
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-011
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-019
+    review_decisions: []
+    support_level: explicit
+    confidence: high
+- id: PasswordResetTokenUserAccount
+  label: PasswordResetTokenUserAccount
+  description: PasswordResetTokenUserAccount
+  from: PasswordResetToken
+  to: UserAccount
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-002
+    requirement_atoms:
+    - PHF-RA-003
+    review_decisions:
+    - PHF-RD-002
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: RegistrationRequestUserAccount
+  label: RegistrationRequestUserAccount
+  description: RegistrationRequestUserAccount
+  from: RegistrationRequest
+  to: UserAccount
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-005
+    requirement_atoms:
+    - PHF-RA-004
+    review_decisions:
+    - PHF-RD-001
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: SubcategoryCategory
+  label: SubcategoryCategory
+  description: SubcategoryCategory
+  from: Subcategory
+  to: Category
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: ProductPrintShop
+  label: ProductPrintShop
+  description: ProductPrintShop
+  from: Product
+  to: PrintShop
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: ProductSubcategory
+  label: ProductSubcategory
+  description: ProductSubcategory
+  from: Product
+  to: Subcategory
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: ProductImageProduct
+  label: ProductImageProduct
+  description: ProductImageProduct
+  from: ProductImage
+  to: Product
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: ProductAvailableColors
+  label: ProductAvailableColors
+  description: ProductAvailableColors
+  from: Product
+  to: Color
+  cardinality: many_to_many
+  required: false
+  through: ProductColor
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: ProductPrintServices
+  label: ProductPrintServices
+  description: ProductPrintServices
+  from: Product
+  to: PrintService
+  cardinality: many_to_many
+  required: false
+  through: ProductPrintService
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: CartUserAccount
+  label: CartUserAccount
+  description: CartUserAccount
+  from: Cart
+  to: UserAccount
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-009
+    requirement_atoms:
+    - PHF-RA-012
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: CartItemCart
+  label: CartItemCart
+  description: CartItemCart
+  from: CartItem
+  to: Cart
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-009
+    requirement_atoms:
+    - PHF-RA-012
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: CartItemProduct
+  label: CartItemProduct
+  description: CartItemProduct
+  from: CartItem
+  to: Product
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-009
+    requirement_atoms:
+    - PHF-RA-012
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: CartItemColor
+  label: CartItemColor
+  description: CartItemColor
+  from: CartItem
+  to: Color
+  cardinality: many_to_one
+  required: false
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-009
+    requirement_atoms:
+    - PHF-RA-012
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: CartItemPrintService
+  label: CartItemPrintService
+  description: CartItemPrintService
+  from: CartItem
+  to: PrintService
+  cardinality: many_to_one
+  required: false
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-009
+    requirement_atoms:
+    - PHF-RA-012
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: InvoiceClient
+  label: InvoiceClient
+  description: InvoiceClient
+  from: Invoice
+  to: UserAccount
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: InvoicePrintShop
+  label: InvoicePrintShop
+  description: InvoicePrintShop
+  from: Invoice
+  to: PrintShop
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: InvoiceItemInvoice
+  label: InvoiceItemInvoice
+  description: InvoiceItemInvoice
+  from: InvoiceItem
+  to: Invoice
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: InvoiceItemProduct
+  label: InvoiceItemProduct
+  description: InvoiceItemProduct
+  from: InvoiceItem
+  to: Product
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: InvoiceItemColor
+  label: InvoiceItemColor
+  description: InvoiceItemColor
+  from: InvoiceItem
+  to: Color
+  cardinality: many_to_one
+  required: false
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: InvoiceItemPrintService
+  label: InvoiceItemPrintService
+  description: InvoiceItemPrintService
+  from: InvoiceItem
+  to: PrintService
+  cardinality: many_to_one
+  required: false
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: PaymentAttemptInvoice
+  label: PaymentAttemptInvoice
+  description: PaymentAttemptInvoice
+  from: PaymentAttempt
+  to: Invoice
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-015
+    review_decisions:
+    - PHF-RD-007
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementLegalClient
+  label: ProcurementLegalClient
+  description: ProcurementLegalClient
+  from: Procurement
+  to: UserAccount
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-012
+    requirement_atoms:
+    - PHF-RA-016
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementItemProcurement
+  label: ProcurementItemProcurement
+  description: ProcurementItemProcurement
+  from: ProcurementItem
+  to: Procurement
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-012
+    requirement_atoms:
+    - PHF-RA-016
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementItemProduct
+  label: ProcurementItemProduct
+  description: ProcurementItemProduct
+  from: ProcurementItem
+  to: Product
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-012
+    requirement_atoms:
+    - PHF-RA-016
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementBidProcurement
+  label: ProcurementBidProcurement
+  description: ProcurementBidProcurement
+  from: ProcurementBid
+  to: Procurement
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementBidPrintShop
+  label: ProcurementBidPrintShop
+  description: ProcurementBidPrintShop
+  from: ProcurementBid
+  to: PrintShop
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    - PHF-SU-011
+    requirement_atoms:
+    - PHF-RA-017
+    - PHF-RA-019
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementBidItemBid
+  label: ProcurementBidItemBid
+  description: ProcurementBidItemBid
+  from: ProcurementBidItem
+  to: ProcurementBid
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementBidItemProcurementItem
+  label: ProcurementBidItemProcurementItem
+  description: ProcurementBidItemProcurementItem
+  from: ProcurementBidItem
+  to: ProcurementItem
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementBidItemProduct
+  label: ProcurementBidItemProduct
+  description: ProcurementBidItemProduct
+  from: ProcurementBidItem
+  to: Product
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProductFeedbackUserAccount
+  label: ProductFeedbackUserAccount
+  description: ProductFeedbackUserAccount
+  from: ProductFeedback
+  to: UserAccount
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-018
+    review_decisions:
+    - PHF-RD-009
+    support_level: explicit
+    confidence: high
+- id: ProductFeedbackProduct
+  label: ProductFeedbackProduct
+  description: ProductFeedbackProduct
+  from: ProductFeedback
+  to: Product
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-018
+    review_decisions:
+    - PHF-RD-009
+    support_level: explicit
+    confidence: high
+- id: ProductFeedbackInvoiceItem
+  label: ProductFeedbackInvoiceItem
+  description: ProductFeedbackInvoiceItem
+  from: ProductFeedback
+  to: InvoiceItem
+  cardinality: many_to_one
+  required: true
+  evidence:
+    source_units:
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-018
+    review_decisions:
+    - PHF-RD-009
+    support_level: explicit
+    confidence: high
+constraints:
+- id: user_account_username_unique
+  type: unique
+  owner: UserAccount
+  description: user account username unique
+  fields:
+  - username
+  evidence:
+    source_units:
+    - PHF-SU-002
+    - PHF-SU-004
+    requirement_atoms:
+    - PHF-RA-002
+    review_decisions:
+    - PHF-RD-002
+    support_level: explicit
+    confidence: high
+- id: user_account_email_unique
+  type: unique
+  owner: UserAccount
+  description: user account email unique
+  fields:
+  - email
+  evidence:
+    source_units:
+    - PHF-SU-002
+    - PHF-SU-004
+    requirement_atoms:
+    - PHF-RA-002
+    review_decisions:
+    - PHF-RD-002
+    support_level: explicit
+    confidence: high
+- id: institution_registration_number_unique
+  type: unique
+  owner: Institution
+  description: institution registration number unique
+  fields:
+  - registration_number
+  evidence:
+    source_units:
+    - PHF-SU-003
+    requirement_atoms:
+    - PHF-RA-006
+    review_decisions:
+    - PHF-RD-001
+    support_level: explicit
+    confidence: high
+- id: institution_registration_number_length
+  type: length
+  owner: Institution
+  description: institution registration number length
+  field: registration_number
+  value: 8
+  evidence:
+    source_units:
+    - PHF-SU-003
+    requirement_atoms:
+    - PHF-RA-006
+    review_decisions:
+    - PHF-RD-001
+    support_level: explicit
+    confidence: high
+- id: institution_tax_number_unique
+  type: unique
+  owner: Institution
+  description: institution tax number unique
+  fields:
+  - tax_number
+  evidence:
+    source_units:
+    - PHF-SU-003
+    requirement_atoms:
+    - PHF-RA-006
+    review_decisions:
+    - PHF-RD-001
+    support_level: explicit
+    confidence: high
+- id: institution_tax_number_format
+  type: regex
+  owner: Institution
+  description: institution tax number format
+  field: tax_number
+  pattern: "^[1-9][0-9]{8}$"
+  evidence:
+    source_units:
+    - PHF-SU-003
+    requirement_atoms:
+    - PHF-RA-006
+    review_decisions:
+    - PHF-RD-001
+    support_level: explicit
+    confidence: high
+- id: password_reset_token_validity_window
+  type: check
+  owner: PasswordResetToken
+  description: password reset token validity window
+  expression: expires_at = created_at + interval 5 minutes
+  evidence:
+    source_units:
+    - PHF-SU-002
+    requirement_atoms:
+    - PHF-RA-003
+    review_decisions:
+    - PHF-RD-002
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: product_code_unique_per_print_shop
+  type: unique
+  owner: Product
+  description: product code unique per print shop
+  fields:
+  - print_shop_id
+  - code
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: product_unit_price_positive
+  type: min_exclusive
+  owner: Product
+  description: product unit price positive
+  field: unit_price
+  value: 0
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: product_stock_quantity_non_negative
+  type: min_inclusive
+  owner: Product
+  description: product stock quantity non negative
+  field: stock_quantity
+  value: 0
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-011
+    review_decisions: []
+    support_level: explicit
+    confidence: high
+- id: product_print_service_additional_price_non_negative
+  type: min_inclusive
+  owner: ProductPrintService
+  description: product print service additional price non negative
+  field: additional_price
+  value: 0
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-010
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: cart_item_quantity_positive
+  type: min_exclusive
+  owner: CartItem
+  description: cart item quantity positive
+  field: quantity
+  value: 0
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-013
+    - PHF-SU-009
+    requirement_atoms:
+    - PHF-RA-011
+    - PHF-RA-012
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: cart_item_requested_quantity_available
+  type: check
+  owner: CartItem
+  description: cart item requested quantity available
+  expression: CartItem.quantity <= related Product.stock_quantity
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-011
+    review_decisions: []
+    support_level: explicit
+    confidence: high
+- id: invoice_number_unique
+  type: unique
+  owner: Invoice
+  description: invoice number unique
+  fields:
+  - invoice_number
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: invoice_total_amount_non_negative
+  type: min_inclusive
+  owner: Invoice
+  description: invoice total amount non negative
+  field: total_amount
+  value: 0
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: procurement_identifier_unique
+  type: unique
+  owner: Procurement
+  description: procurement identifier unique
+  fields:
+  - procurement_identifier
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-012
+    requirement_atoms:
+    - PHF-RA-016
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: procurement_bid_one_per_print_shop
+  type: unique
+  owner: ProcurementBid
+  description: procurement bid one per print shop
+  fields:
+  - procurement_id
+  - print_shop_id
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: product_feedback_one_per_invoice_item_user
+  type: unique
+  owner: ProductFeedback
+  description: product feedback one per invoice item user
+  fields:
+  - user_account_id
+  - invoice_item_id
+  evidence:
+    source_units:
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-018
+    review_decisions:
+    - PHF-RD-009
+    support_level: explicit
+    confidence: high
+import_specs:
+- id: PrintShopCatalogImport
+  label: JSON import kataloga stamparije
+  description: Import lager liste proizvoda, boja, slika i usluga stampe iz JSON fajla.
+  format: json
+  source:
+    source_units:
+    - PHF-SU-020
+    - PHF-SU-021
+    source_id: ph_catalog_json
+    file: pia/raw/2025_2026/2025_2026_003_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.json
+  root: "$"
+  mappings:
+  - source_path: "$.stampaorijaId"
+    target: PrintShop.code
+  - source_path: "$.nazivStamparije"
+    target: PrintShop.display_name
+  - source_path: "$.proizvodi[*].sifra"
+    target: Product.code
+  - source_path: "$.proizvodi[*].naziv"
+    target: Product.name
+  - source_path: "$.proizvodi[*].opis"
+    target: Product.description
+  - source_path: "$.proizvodi[*].kategorija"
+    target: Category.name
+  - source_path: "$.proizvodi[*].potkategorija"
+    target: Subcategory.name
+  - source_path: "$.proizvodi[*].jedinicnaCena"
+    target: Product.unit_price
+  - source_path: "$.proizvodi[*].kolicinaNaLageru"
+    target: Product.stock_quantity
+  - source_path: "$.proizvodi[*].dostupneBoje[*]"
+    target: Color.name
+  - source_path: "$.proizvodi[*].slikaUrl"
+    target: ProductImage.storage_path
+  - source_path: "$.proizvodi[*].dodatneSlike[*]"
+    target: ProductImage.storage_path
+  - source_path: "$.proizvodi[*].uslugeStampe[*].idUsluge"
+    target: PrintService.code
+  - source_path: "$.proizvodi[*].uslugeStampe[*].tipStampe"
+    target: PrintService.name
+  - source_path: "$.proizvodi[*].uslugeStampe[*].dodatnaCenaPoKomadu"
+    target: ProductPrintService.additional_price
+  - source_path: "$.proizvodi[*].uslugeStampe[*].maxSirinaMm"
+    target: ProductPrintService.max_width_mm
+  - source_path: "$.proizvodi[*].uslugeStampe[*].maxVisinaMm"
+    target: ProductPrintService.max_height_mm
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+state_machines:
+- id: UserAccountStatusFlow
+  owner: UserAccount
+  field: account_status
+  states:
+  - pending
+  - active
+  - rejected
+  - disabled
+  initial: pending
+  terminal:
+  - rejected
+  - disabled
+  transitions:
+  - from: pending
+    to: active
+  - from: pending
+    to: rejected
+  - from: active
+    to: disabled
+  evidence:
+    source_units:
+    - PHF-SU-005
+    - PHF-SU-014
+    requirement_atoms:
+    - PHF-RA-004
+    - PHF-RA-020
+    review_decisions:
+    - PHF-RD-001
+    - PHF-RD-011
+    - PHF-RD-010
+    support_level: explicit
+    confidence: high
+- id: RegistrationRequestStatusFlow
+  owner: RegistrationRequest
+  field: status
+  states:
+  - pending
+  - accepted
+  - rejected
+  initial: pending
+  terminal:
+  - accepted
+  - rejected
+  transitions:
+  - from: pending
+    to: accepted
+  - from: pending
+    to: rejected
+  evidence:
+    source_units:
+    - PHF-SU-005
+    - PHF-SU-014
+    requirement_atoms:
+    - PHF-RA-004
+    - PHF-RA-020
+    review_decisions:
+    - PHF-RD-001
+    - PHF-RD-011
+    - PHF-RD-010
+    support_level: explicit
+    confidence: high
+- id: CartStatusFlow
+  owner: Cart
+  field: status
+  states:
+  - active
+  - confirmed
+  - abandoned
+  initial: active
+  terminal:
+  - confirmed
+  - abandoned
+  transitions:
+  - from: active
+    to: confirmed
+  - from: active
+    to: abandoned
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-013
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: InvoiceStatusFlow
+  owner: Invoice
+  field: status
+  states:
+  - ordered
+  - paid
+  - in_print
+  - delivered
+  - received
+  - cancelled
+  initial: ordered
+  terminal:
+  - received
+  - cancelled
+  transitions:
+  - from: ordered
+    to: paid
+  - from: ordered
+    to: in_print
+  - from: ordered
+    to: cancelled
+  - from: paid
+    to: in_print
+  - from: in_print
+    to: delivered
+  - from: delivered
+    to: received
+  evidence:
+    source_units:
+    - PHF-SU-007
+    - PHF-SU-008
+    - PHF-SU-010
+    - PHF-SU-011
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-013
+    - PHF-RA-015
+    - PHF-RA-019
+    review_decisions:
+    - PHF-RD-006
+    - PHF-RD-011
+    - PHF-RD-007
+    support_level: explicit
+    confidence: high
+- id: PaymentAttemptStatusFlow
+  owner: PaymentAttempt
+  field: status
+  states:
+  - pending
+  - succeeded
+  - failed
+  initial: pending
+  terminal:
+  - succeeded
+  - failed
+  transitions:
+  - from: pending
+    to: succeeded
+  - from: pending
+    to: failed
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-015
+    review_decisions:
+    - PHF-RD-007
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementStatusFlow
+  owner: Procurement
+  field: status
+  states:
+  - open
+  - closed
+  - awarded
+  initial: open
+  terminal:
+  - awarded
+  transitions:
+  - from: open
+    to: closed
+  - from: closed
+    to: awarded
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-012
+    requirement_atoms:
+    - PHF-RA-016
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementBidStatusFlow
+  owner: ProcurementBid
+  field: status
+  states:
+  - submitted
+  - winning
+  - rejected
+  initial: submitted
+  terminal:
+  - winning
+  - rejected
+  transitions:
+  - from: submitted
+    to: winning
+  - from: submitted
+    to: rejected
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+derived_views:
+- id: PublicHomeSummary
+  label: PublicHomeSummary
+  description: PublicHomeSummary
+  kind: aggregate
+  sources:
+  - PrintShop
+  - Product
+  - ProductFeedback
+  persistence: virtual
+  metrics:
+  - print_shop_count
+  - top_5_products_by_likes
+  evidence:
+    source_units:
+    - PHF-SU-006
+    requirement_atoms:
+    - PHF-RA-007
+    review_decisions:
+    - PHF-RD-010
+    support_level: explicit
+    confidence: high
+- id: PublicProductSearch
+  label: PublicProductSearch
+  description: PublicProductSearch
+  kind: projection
+  sources:
+  - Product
+  - PrintShop
+  - Category
+  - Subcategory
+  - ProductImage
+  persistence: virtual
+  filters:
+  - Product.is_active
+  - Product.stock_quantity > 0
+  - Product.name
+  - Category.name
+  evidence:
+    source_units:
+    - PHF-SU-006
+    requirement_atoms:
+    - PHF-RA-007
+    review_decisions:
+    - PHF-RD-010
+    support_level: explicit
+    confidence: high
+- id: ProductDetailFeedback
+  label: ProductDetailFeedback
+  description: ProductDetailFeedback
+  kind: projection
+  sources:
+  - Product
+  - PrintShop
+  - ProductImage
+  - ProductFeedback
+  - UserAccount
+  persistence: virtual
+  evidence:
+    source_units:
+    - PHF-SU-006
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-007
+    - PHF-RA-018
+    review_decisions:
+    - PHF-RD-010
+    - PHF-RD-009
+    support_level: explicit
+    confidence: high
+- id: ClientOrderHistory
+  label: ClientOrderHistory
+  description: ClientOrderHistory
+  kind: projection
+  sources:
+  - Invoice
+  - InvoiceItem
+  - PrintShop
+  - Product
+  persistence: virtual
+  evidence:
+    source_units:
+    - PHF-SU-007
+    requirement_atoms:
+    - PHF-RA-008
+    review_decisions: []
+    support_level: explicit
+    confidence: high
+- id: ClientProductArchive
+  label: ClientProductArchive
+  description: ClientProductArchive
+  kind: projection
+  sources:
+  - Invoice
+  - InvoiceItem
+  - Product
+  - ProductFeedback
+  persistence: virtual
+  evidence:
+    source_units:
+    - PHF-SU-010
+    requirement_atoms:
+    - PHF-RA-018
+    review_decisions:
+    - PHF-RD-009
+    support_level: explicit
+    confidence: high
+- id: AdminTrafficByPrintShop
+  label: AdminTrafficByPrintShop
+  description: AdminTrafficByPrintShop
+  kind: aggregate
+  sources:
+  - Invoice
+  - InvoiceItem
+  - PrintShop
+  persistence: virtual
+  metrics:
+  - sum(Invoice.total_amount)
+  evidence:
+    source_units:
+    - PHF-SU-014
+    requirement_atoms:
+    - PHF-RA-020
+    review_decisions:
+    - PHF-RD-010
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: AdminPopularProducts
+  label: AdminPopularProducts
+  description: AdminPopularProducts
+  kind: aggregate
+  sources:
+  - InvoiceItem
+  - Product
+  - Invoice
+  persistence: virtual
+  metrics:
+  - sum(InvoiceItem.quantity)
+  - percentage_share
+  evidence:
+    source_units:
+    - PHF-SU-014
+    requirement_atoms:
+    - PHF-RA-020
+    review_decisions:
+    - PHF-RD-010
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProductRatingTrend
+  label: ProductRatingTrend
+  description: ProductRatingTrend
+  kind: aggregate
+  sources:
+  - ProductFeedback
+  - Product
+  persistence: virtual
+  metrics:
+  - likes_count
+  - dislikes_count
+  evidence:
+    source_units:
+    - PHF-SU-014
+    requirement_atoms:
+    - PHF-RA-020
+    review_decisions:
+    - PHF-RD-010
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+- id: ProcurementBidReport
+  label: ProcurementBidReport
+  description: ProcurementBidReport
+  kind: report
+  sources:
+  - Procurement
+  - ProcurementBid
+  - ProcurementBidItem
+  - PrintShop
+  persistence: virtual
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high
+file_specs:
+- id: UserProfileImageFile
+  owner: UserAccount
+  field: profile_image_path
+  allowed_extensions:
+  - jpg
+  - jpeg
+  - png
+  - gif
+  storage: path
+  evidence:
+    source_units:
+    - PHF-SU-002
+    - PHF-SU-005
+    - PHF-SU-007
+    - PHF-SU-011
+    requirement_atoms:
+    - PHF-RA-005
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: ProductImageFile
+  owner: ProductImage
+  field: storage_path
+  allowed_extensions:
+  - jpg
+  - jpeg
+  - png
+  - gif
+  storage: path
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-011
+    - PHF-SU-013
+    - PHF-SU-020
+    - PHF-SU-021
+    requirement_atoms:
+    - PHF-RA-009
+    review_decisions:
+    - PHF-RD-004
+    - PHF-RD-005
+    support_level: explicit
+    confidence: high
+- id: CartItemCustomImageFile
+  owner: CartItem
+  field: custom_image_path
+  allowed_extensions:
+  - jpg
+  - jpeg
+  - png
+  - gif
+  storage: path
+  evidence:
+    source_units:
+    - PHF-SU-008
+    - PHF-SU-009
+    requirement_atoms:
+    - PHF-RA-012
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: InvoicePdfFile
+  owner: Invoice
+  field: pdf_path
+  allowed_extensions:
+  - pdf
+  storage: path
+  evidence:
+    source_units:
+    - PHF-SU-008
+    requirement_atoms:
+    - PHF-RA-014
+    review_decisions:
+    - PHF-RD-003
+    support_level: explicit
+    confidence: high
+- id: ProcurementReportPdfFile
+  owner: Procurement
+  field: report_pdf_path
+  allowed_extensions:
+  - pdf
+  storage: path
+  evidence:
+    source_units:
+    - PHF-SU-010
+    - PHF-SU-013
+    requirement_atoms:
+    - PHF-RA-017
+    review_decisions:
+    - PHF-RD-008
+    - PHF-RD-011
+    support_level: explicit
+    confidence: high

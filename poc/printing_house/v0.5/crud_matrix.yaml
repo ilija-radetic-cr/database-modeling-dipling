@@ -1,0 +1,210 @@
+document:
+  id: printing_house_catalog_v05_crud_matrix
+  title: "Printing House - katalogski podskup - CRUD/ISUD matrix"
+  pipeline_version: "0.5"
+  requirement_atoms_file: "requirement_atoms.yaml"
+  functional_decomposition_file: "functional_decomposition.yaml"
+  description: "Matrica operacija nad trajnim entitetima za proveru da model baze podrzava zahteve iz katalogskog podskupa."
+
+notation:
+  C: "create / insert"
+  R: "read / select"
+  U: "update"
+  D: "delete"
+  dash: "nema direktne operacije u ovom podskupu"
+
+actors:
+  - id: printer
+    label: "Stampar"
+    scope_note: "U ovom PoC-u stampar je izvor operacije JSON importa, ali se korisnicki nalog stampara ne modeluje."
+  - id: system
+    label: "Sistem"
+    scope_note: "Sistem izvrsava import mapiranje i odrzava izvedene veze."
+
+operations:
+  - id: import_print_shop_catalog
+    label: "Import lager liste iz JSON fajla"
+    functional_area: integration_and_artifacts
+    functional_pattern: json_import
+    actor: printer
+    source_atoms: [PH-RA-020]
+    source_units: [PH-SU-029, PH-SU-030, PH-SU-031, PH-SU-032, PH-SU-033, PH-SU-034, PH-SU-035, PH-SU-036]
+    description: "Stampar unosi JSON fajl kojim se postavljaju proizvodi, boje, slike i usluge za njegovu stampariju."
+
+  - id: maintain_catalog_taxonomy
+    label: "Odrzavanje kategorija i potkategorija"
+    functional_area: master_data_management
+    functional_pattern: taxonomy_management
+    actor: system
+    source_atoms: [PH-RA-006, PH-RA-007, PH-RA-008, PH-RA-021]
+    source_units: [PH-SU-007, PH-SU-008, PH-SU-009, PH-SU-010, PH-SU-011]
+    description: "Kategorije i potkategorije su predefinisani kataloski podaci koje import koristi pri klasifikaciji proizvoda."
+
+  - id: maintain_product_catalog
+    label: "Odrzavanje proizvoda u katalogu"
+    functional_area: master_data_management
+    functional_pattern: product_definition
+    actor: system
+    source_atoms: [PH-RA-001, PH-RA-005, PH-RA-008, PH-RA-009, PH-RA-010, PH-RA-011]
+    source_units: [PH-SU-001, PH-SU-002, PH-SU-006, PH-SU-011, PH-SU-012, PH-SU-013, PH-SU-014, PH-SU-015, PH-SU-033]
+    description: "Sistem cuva proizvode, njihove osnovne atribute i veze ka stampariji i potkategoriji."
+
+  - id: maintain_stock_level
+    label: "Odrzavanje trenutne kolicine na lageru"
+    functional_area: availability_and_capacity
+    functional_pattern: stock_level
+    actor: system
+    source_atoms: [PH-RA-013]
+    source_units: [PH-SU-017, PH-SU-018]
+    description: "Model cuva samo trenutno stanje lagera, bez istorije promena."
+
+  - id: maintain_product_media
+    label: "Odrzavanje slika proizvoda"
+    functional_area: integration_and_artifacts
+    functional_pattern: media_reference
+    actor: system
+    source_atoms: [PH-RA-014]
+    source_units: [PH-SU-019, PH-SU-020, PH-SU-035]
+    description: "Model cuva glavnu i dodatne slike proizvoda kao URL/reference."
+
+  - id: maintain_product_colors
+    label: "Odrzavanje dostupnih boja proizvoda"
+    functional_area: master_data_management
+    functional_pattern: product_variant_values
+    actor: system
+    source_atoms: [PH-RA-015]
+    source_units: [PH-SU-021, PH-SU-022, PH-SU-034]
+    description: "Model cuva boje i M:N vezu proizvoda i boja."
+
+  - id: maintain_product_print_services
+    label: "Odrzavanje ponudjenih usluga stampe za proizvod"
+    functional_area: master_data_management
+    functional_pattern: product_service_offer
+    actor: system
+    source_atoms: [PH-RA-016, PH-RA-017, PH-RA-018, PH-RA-019]
+    source_units: [PH-SU-023, PH-SU-024, PH-SU-025, PH-SU-026, PH-SU-027, PH-SU-028, PH-SU-036]
+    description: "Model cuva usluge stampe i M:N vezu proizvoda i usluga sa dodatnom cenom i dimenzijama."
+
+matrix:
+  - entity: PrintShop
+    table: print_shops
+    operations:
+      import_print_shop_catalog: [C, R, U]
+      maintain_catalog_taxonomy: []
+      maintain_product_catalog: [R]
+      maintain_stock_level: []
+      maintain_product_media: []
+      maintain_product_colors: []
+      maintain_product_print_services: []
+    rationale: "PrintShop nastaje ili se azurira iz korenskih JSON polja; proizvodi ga referenciraju."
+
+  - entity: Category
+    table: categories
+    operations:
+      import_print_shop_catalog: [R]
+      maintain_catalog_taxonomy: [C, R, U]
+      maintain_product_catalog: [R]
+      maintain_stock_level: []
+      maintain_product_media: []
+      maintain_product_colors: []
+      maintain_product_print_services: []
+    rationale: "Kategorije su predefinisani lookup podaci; import ih cita ili kreira u PoC interpretaciji."
+
+  - entity: Subcategory
+    table: subcategories
+    operations:
+      import_print_shop_catalog: [R]
+      maintain_catalog_taxonomy: [C, R, U]
+      maintain_product_catalog: [R]
+      maintain_stock_level: []
+      maintain_product_media: []
+      maintain_product_colors: []
+      maintain_product_print_services: []
+    rationale: "Potkategorije su lookup podaci povezani sa kategorijama i proizvodima."
+
+  - entity: Product
+    table: products
+    operations:
+      import_print_shop_catalog: [C, R, U]
+      maintain_catalog_taxonomy: []
+      maintain_product_catalog: [C, R, U]
+      maintain_stock_level: [R, U]
+      maintain_product_media: [R]
+      maintain_product_colors: [R]
+      maintain_product_print_services: [R]
+    rationale: "Proizvod je centralni kataloski entitet; import kreira ili azurira njegove atribute i veze."
+
+  - entity: ProductImage
+    table: product_images
+    operations:
+      import_print_shop_catalog: [C, R, U, D]
+      maintain_catalog_taxonomy: []
+      maintain_product_catalog: []
+      maintain_stock_level: []
+      maintain_product_media: [C, R, U, D]
+      maintain_product_colors: []
+      maintain_product_print_services: []
+    rationale: "Lista slika proizvoda se rekonstruise iz slikaUrl i dodatneSlike; delete je potreban ako se nova lista razlikuje od stare."
+
+  - entity: Color
+    table: colors
+    operations:
+      import_print_shop_catalog: [C, R]
+      maintain_catalog_taxonomy: []
+      maintain_product_catalog: []
+      maintain_stock_level: []
+      maintain_product_media: []
+      maintain_product_colors: [C, R]
+      maintain_product_print_services: []
+    rationale: "Boje su lookup vrednosti izdvojene iz ponovljive liste dostupnih boja."
+
+  - entity: ProductColor
+    table: product_colors
+    operations:
+      import_print_shop_catalog: [C, R, D]
+      maintain_catalog_taxonomy: []
+      maintain_product_catalog: []
+      maintain_stock_level: []
+      maintain_product_media: []
+      maintain_product_colors: [C, R, D]
+      maintain_product_print_services: []
+    rationale: "Spojna tabela cuva M:N dostupnost boja po proizvodu; lista se moze rekonstruisati tokom importa."
+
+  - entity: PrintService
+    table: print_services
+    operations:
+      import_print_shop_catalog: [C, R, U]
+      maintain_catalog_taxonomy: []
+      maintain_product_catalog: []
+      maintain_stock_level: []
+      maintain_product_media: []
+      maintain_product_colors: []
+      maintain_product_print_services: [C, R, U]
+    rationale: "Usluge stampe su lookup/service katalog sa sifrom i nazivom."
+
+  - entity: ProductPrintService
+    table: product_print_services
+    operations:
+      import_print_shop_catalog: [C, R, U, D]
+      maintain_catalog_taxonomy: []
+      maintain_product_catalog: []
+      maintain_stock_level: []
+      maintain_product_media: []
+      maintain_product_colors: []
+      maintain_product_print_services: [C, R, U, D]
+    rationale: "Asocijativni entitet cuva ponudu usluge za proizvod, cenu i maksimalne dimenzije; delete je potreban ako usluga vise nije ponudjena za proizvod."
+
+coverage_checks:
+  - id: every_represented_entity_has_crud_row
+    status: pass
+    description: "Svih 9 entiteta iz db_model.dsl.yaml ima red u CRUD matrici."
+  - id: every_represented_atom_has_operation_or_model_reason
+    status: pass
+    description: "Svi represented atomi su pokriveni operacijom ili su cisti constraint/relationship dokaz u modelu."
+  - id: excluded_scope_has_no_crud
+    status: pass
+    description: "PH-RA-002 je excluded_by_scope i ne proizvodi CRUD operacije."
+
+notes:
+  - "CRUD matrica u ovom PoC-u je namerno data na nivou funkcionalnih operacija, ne na nivou UI dugmadi."
+  - "Za full Printing House zadatak matrica treba da bude mnogo bogatija i da obuhvati narudzbine, fakture, statuse, komentare, javne nabavke i izvestaje."

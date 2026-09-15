@@ -1,0 +1,590 @@
+document:
+  id: printing_house_catalog_v05_requirement_atoms
+  title: "Printing House - katalogski podskup - requirement atoms"
+  pipeline_version: "0.5"
+  source_units_file: "source_units.yaml"
+  description: "Atomski zahtevi izvedeni iz source units za katalogski Printing House PoC."
+
+atom_schema:
+  atom_type: "actor | entity | attribute | relationship | constraint | import_spec | file_reference | scope_exclusion | non_model"
+  modeling_relevance: "direct_db | indirect_db | not_in_db | out_of_scope"
+  support_level: "explicit | example_based | inferred | assumption"
+  confidence: "high | medium | low"
+  modeling_outcome_status: "represented | intentionally_not_in_db | excluded_by_scope | requires_app_logic | external_system | unsupported"
+
+requirement_atoms:
+  - id: PH-RA-001
+    statement: "Katalogski PoC cuva kataloge proizvoda stamparija."
+    atom_type: entity
+    modeling_relevance: direct_db
+    source_units: [PH-SU-001, PH-SU-002]
+    functional_area: master_data_management
+    functional_pattern: catalog_management
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts:
+      entities:
+        - id: PrintShop
+        - id: Product
+    modeling_outcome:
+      status: represented
+      represented_by:
+        entities: [PrintShop, Product]
+
+  - id: PH-RA-002
+    statement: "Korisnicki nalozi i procesi narucivanja nisu deo ovog podskupa."
+    atom_type: scope_exclusion
+    modeling_relevance: out_of_scope
+    source_units: [PH-SU-003]
+    functional_area: scope_boundary
+    functional_pattern: scope_exclusion
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts: {}
+    modeling_outcome:
+      status: excluded_by_scope
+      rationale: "Ovi pojmovi su namerno van katalogskog PoC-a i ne proizvode entitete u v0.5 modelu."
+      excluded_concepts:
+        - UserAccount
+        - RegistrationRequest
+        - Cart
+        - Order
+        - Invoice
+        - Payment
+        - Procurement
+        - Bid
+        - Comment
+        - ProductRating
+        - Report
+
+  - id: PH-RA-003
+    statement: "Stamparija je trajni vlasnik kataloga."
+    atom_type: entity
+    modeling_relevance: direct_db
+    source_units: [PH-SU-004]
+    functional_area: master_data_management
+    functional_pattern: catalog_owner
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-001]
+    model_impacts:
+      entities:
+        - id: PrintShop
+          kind: regular
+    modeling_outcome:
+      status: represented
+      represented_by:
+        entities: [PrintShop]
+
+  - id: PH-RA-004
+    statement: "Za stampariju se cuvaju poslovna sifra i naziv."
+    atom_type: attribute
+    modeling_relevance: direct_db
+    source_units: [PH-SU-005, PH-SU-031, PH-SU-032]
+    functional_area: master_data_management
+    functional_pattern: catalog_owner_identity
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-007]
+    model_impacts:
+      attributes:
+        - owner: PrintShop
+          id: code
+          type: string
+          required: true
+          source_field: stampaorijaId
+        - owner: PrintShop
+          id: name
+          type: string
+          required: true
+          source_field: nazivStamparije
+    modeling_outcome:
+      status: represented
+      represented_by:
+        attributes: [PrintShop.code, PrintShop.name]
+
+  - id: PH-RA-005
+    statement: "Jedna stamparija ima vise proizvoda, a svaki proizvod pripada tacno jednoj stampariji."
+    atom_type: relationship
+    modeling_relevance: direct_db
+    source_units: [PH-SU-006]
+    functional_area: master_data_management
+    functional_pattern: catalog_ownership
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts:
+      relationships:
+        - id: ProductPrintShop
+          from: Product
+          to: PrintShop
+          cardinality: many_to_one
+          required: true
+    modeling_outcome:
+      status: represented
+      represented_by:
+        relationships: [ProductPrintShop]
+
+  - id: PH-RA-006
+    statement: "Kategorije i potkategorije su predefinisani klasifikacioni pojmovi kataloga."
+    atom_type: entity
+    modeling_relevance: direct_db
+    source_units: [PH-SU-007, PH-SU-008, PH-SU-009]
+    functional_area: master_data_management
+    functional_pattern: taxonomy_management
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-002, PH-RD-008]
+    model_impacts:
+      entities:
+        - id: Category
+          kind: lookup
+        - id: Subcategory
+          kind: lookup
+      attributes:
+        - owner: Category
+          id: name
+          type: string
+          required: true
+        - owner: Subcategory
+          id: name
+          type: string
+          required: true
+    modeling_outcome:
+      status: represented
+      represented_by:
+        entities: [Category, Subcategory]
+        attributes: [Category.name, Subcategory.name]
+
+  - id: PH-RA-007
+    statement: "Svaka potkategorija pripada tacno jednoj kategoriji."
+    atom_type: relationship
+    modeling_relevance: direct_db
+    source_units: [PH-SU-010]
+    functional_area: master_data_management
+    functional_pattern: taxonomy_relationship
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts:
+      relationships:
+        - id: SubcategoryCategory
+          from: Subcategory
+          to: Category
+          cardinality: many_to_one
+          required: true
+    modeling_outcome:
+      status: represented
+      represented_by:
+        relationships: [SubcategoryCategory]
+
+  - id: PH-RA-008
+    statement: "Svaki proizvod pripada tacno jednoj potkategoriji."
+    atom_type: relationship
+    modeling_relevance: direct_db
+    source_units: [PH-SU-011, PH-SU-012]
+    functional_area: master_data_management
+    functional_pattern: product_classification
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-002]
+    model_impacts:
+      relationships:
+        - id: ProductSubcategory
+          from: Product
+          to: Subcategory
+          cardinality: many_to_one
+          required: true
+    modeling_outcome:
+      status: represented
+      represented_by:
+        relationships: [ProductSubcategory]
+
+  - id: PH-RA-009
+    statement: "Za proizvod se cuvaju sifra, naziv, opis, jedinicna cena i kolicina na lageru."
+    atom_type: attribute
+    modeling_relevance: direct_db
+    source_units: [PH-SU-012, PH-SU-033]
+    functional_area: master_data_management
+    functional_pattern: product_definition
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts:
+      entities:
+        - id: Product
+          kind: regular
+      attributes:
+        - owner: Product
+          id: code
+          type: string
+          required: true
+          source_field: sifra
+        - owner: Product
+          id: name
+          type: string
+          required: true
+          source_field: naziv
+        - owner: Product
+          id: description
+          type: text
+          required: false
+          source_field: opis
+        - owner: Product
+          id: unit_price
+          type: money
+          required: true
+          source_field: jedinicnaCena
+        - owner: Product
+          id: stock_quantity
+          type: integer
+          required: true
+          source_field: kolicinaNaLageru
+    modeling_outcome:
+      status: represented
+      represented_by:
+        entities: [Product]
+        attributes:
+          - Product.code
+          - Product.name
+          - Product.description
+          - Product.unit_price
+          - Product.stock_quantity
+
+  - id: PH-RA-010
+    statement: "Sifra proizvoda je jedinstvena u okviru kataloga stamparije."
+    atom_type: constraint
+    modeling_relevance: direct_db
+    source_units: [PH-SU-013]
+    functional_area: master_data_management
+    functional_pattern: business_identifier
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-003]
+    model_impacts:
+      constraints:
+        - id: product_code_unique_per_print_shop
+          owner: Product
+          type: unique
+          fields: [print_shop_id, code]
+    modeling_outcome:
+      status: represented
+      represented_by:
+        constraints: [product_code_unique_per_print_shop]
+
+  - id: PH-RA-011
+    statement: "Naziv proizvoda je obavezan, a opis proizvoda je opcioni."
+    atom_type: constraint
+    modeling_relevance: direct_db
+    source_units: [PH-SU-014, PH-SU-015]
+    functional_area: master_data_management
+    functional_pattern: product_required_fields
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-004]
+    model_impacts:
+      constraints:
+        - id: product_name_required
+          owner: Product
+          type: required
+          field: name
+    modeling_outcome:
+      status: represented
+      represented_by:
+        attributes: [Product.name, Product.description]
+        constraints: [product_name_required]
+
+  - id: PH-RA-012
+    statement: "Jedinicna cena proizvoda mora biti pozitivna."
+    atom_type: constraint
+    modeling_relevance: direct_db
+    source_units: [PH-SU-016]
+    functional_area: pricing_and_finance
+    functional_pattern: price_definition
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts:
+      constraints:
+        - id: product_unit_price_positive
+          owner: Product
+          type: min_exclusive
+          field: unit_price
+          value: 0
+    modeling_outcome:
+      status: represented
+      represented_by:
+        constraints: [product_unit_price_positive]
+
+  - id: PH-RA-013
+    statement: "Kolicina proizvoda na lageru je nenegativan ceo broj i cuva se samo trenutno stanje."
+    atom_type: constraint
+    modeling_relevance: direct_db
+    source_units: [PH-SU-017, PH-SU-018]
+    functional_area: availability_and_capacity
+    functional_pattern: stock_level
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts:
+      constraints:
+        - id: product_stock_quantity_non_negative
+          owner: Product
+          type: min_inclusive
+          field: stock_quantity
+          value: 0
+    modeling_outcome:
+      status: represented
+      represented_by:
+        attributes: [Product.stock_quantity]
+        constraints: [product_stock_quantity_non_negative]
+      rationale: "Istorija promena lagera je namerno izostavljena; model cuva samo trenutnu kolicinu."
+
+  - id: PH-RA-014
+    statement: "Proizvod moze imati glavnu i dodatne slike cuvane kao URL/reference."
+    atom_type: file_reference
+    modeling_relevance: direct_db
+    source_units: [PH-SU-019, PH-SU-020, PH-SU-035]
+    functional_area: integration_and_artifacts
+    functional_pattern: media_reference
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-005]
+    model_impacts:
+      entities:
+        - id: ProductImage
+          kind: regular
+      attributes:
+        - owner: ProductImage
+          id: image_url
+          type: url
+          required: true
+          source_field: slikaUrl/dodatneSlike
+        - owner: ProductImage
+          id: is_primary
+          type: boolean
+          required: true
+      relationships:
+        - id: ProductImages
+          from: Product
+          to: ProductImage
+          cardinality: one_to_many
+          required: false
+    modeling_outcome:
+      status: represented
+      represented_by:
+        entities: [ProductImage]
+        attributes: [ProductImage.image_url, ProductImage.is_primary]
+        relationships: [ProductImages]
+
+  - id: PH-RA-015
+    statement: "Proizvod i boja imaju M:N odnos preko liste dostupnih boja."
+    atom_type: relationship
+    modeling_relevance: direct_db
+    source_units: [PH-SU-021, PH-SU-022, PH-SU-034]
+    functional_area: master_data_management
+    functional_pattern: product_variant_values
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts:
+      entities:
+        - id: Color
+          kind: lookup
+        - id: ProductColor
+          kind: association
+      attributes:
+        - owner: Color
+          id: name
+          type: string
+          required: true
+          source_field: dostupneBoje[*]
+      relationships:
+        - id: ProductAvailableColors
+          from: Product
+          to: Color
+          cardinality: many_to_many
+          through: ProductColor
+          required: false
+    modeling_outcome:
+      status: represented
+      represented_by:
+        entities: [Color, ProductColor]
+        attributes: [Color.name]
+        relationships: [ProductAvailableColors]
+
+  - id: PH-RA-016
+    statement: "Usluga stampe je tip usluge sa sifrom i nazivom."
+    atom_type: entity
+    modeling_relevance: direct_db
+    source_units: [PH-SU-023, PH-SU-026, PH-SU-036]
+    functional_area: master_data_management
+    functional_pattern: service_catalog
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-006]
+    model_impacts:
+      entities:
+        - id: PrintService
+          kind: lookup
+      attributes:
+        - owner: PrintService
+          id: code
+          type: string
+          required: true
+          source_field: idUsluge
+        - owner: PrintService
+          id: name
+          type: string
+          required: true
+          source_field: tipStampe
+    modeling_outcome:
+      status: represented
+      represented_by:
+        entities: [PrintService]
+        attributes: [PrintService.code, PrintService.name]
+
+  - id: PH-RA-017
+    statement: "Proizvod i usluga stampe imaju M:N odnos."
+    atom_type: relationship
+    modeling_relevance: direct_db
+    source_units: [PH-SU-024, PH-SU-025]
+    functional_area: master_data_management
+    functional_pattern: product_service_offer
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-006]
+    model_impacts:
+      entities:
+        - id: ProductPrintService
+          kind: association
+      relationships:
+        - id: ProductPrintServices
+          from: Product
+          to: PrintService
+          cardinality: many_to_many
+          through: ProductPrintService
+          required: false
+    modeling_outcome:
+      status: represented
+      represented_by:
+        entities: [ProductPrintService]
+        relationships: [ProductPrintServices]
+
+  - id: PH-RA-018
+    statement: "Dodatna cena i maksimalne dimenzije pripadaju ponudi usluge za konkretan proizvod."
+    atom_type: attribute
+    modeling_relevance: direct_db
+    source_units: [PH-SU-027, PH-SU-036]
+    functional_area: pricing_and_finance
+    functional_pattern: service_price_definition
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-006]
+    model_impacts:
+      attributes:
+        - owner: ProductPrintService
+          id: additional_price
+          type: money
+          required: true
+          source_field: dodatnaCenaPoKomadu
+        - owner: ProductPrintService
+          id: max_width_mm
+          type: integer
+          required: true
+          source_field: maxSirinaMm
+        - owner: ProductPrintService
+          id: max_height_mm
+          type: integer
+          required: true
+          source_field: maxVisinaMm
+    modeling_outcome:
+      status: represented
+      represented_by:
+        attributes:
+          - ProductPrintService.additional_price
+          - ProductPrintService.max_width_mm
+          - ProductPrintService.max_height_mm
+
+  - id: PH-RA-019
+    statement: "Dodatna cena usluge stampe po komadu ne sme biti negativna."
+    atom_type: constraint
+    modeling_relevance: direct_db
+    source_units: [PH-SU-028]
+    functional_area: pricing_and_finance
+    functional_pattern: service_price_constraint
+    support_level: explicit
+    confidence: high
+    requires_review: false
+    model_impacts:
+      constraints:
+        - id: product_print_service_additional_price_non_negative
+          owner: ProductPrintService
+          type: min_inclusive
+          field: additional_price
+          value: 0
+    modeling_outcome:
+      status: represented
+      represented_by:
+        constraints: [product_print_service_additional_price_non_negative]
+
+  - id: PH-RA-020
+    statement: "JSON fajl je import ulaz za katalog stamparije."
+    atom_type: import_spec
+    modeling_relevance: indirect_db
+    source_units: [PH-SU-029, PH-SU-030, PH-SU-031, PH-SU-032, PH-SU-033, PH-SU-034, PH-SU-035, PH-SU-036, PH-SU-037]
+    functional_area: integration_and_artifacts
+    functional_pattern: json_import
+    support_level: explicit
+    confidence: high
+    requires_review: true
+    review_decisions: [PH-RD-007]
+    model_impacts:
+      import_specs:
+        - id: PrintShopCatalogImport
+          format: json
+          root: "$"
+    modeling_outcome:
+      status: represented
+      represented_by:
+        import_specs: [PrintShopCatalogImport]
+
+  - id: PH-RA-021
+    statement: "Nazivi kategorija i potkategorija treba da imaju unique ogranicenja u normalizovanom katalogu."
+    atom_type: constraint
+    modeling_relevance: direct_db
+    source_units: [PH-SU-007, PH-SU-008, PH-SU-009, PH-SU-010]
+    functional_area: master_data_management
+    functional_pattern: taxonomy_constraints
+    support_level: inferred
+    confidence: medium
+    requires_review: true
+    review_decisions: [PH-RD-008]
+    model_impacts:
+      constraints:
+        - id: category_name_unique
+          owner: Category
+          type: unique
+          fields: [name]
+        - id: subcategory_name_unique_per_category
+          owner: Subcategory
+          type: unique
+          fields: [category_id, name]
+    modeling_outcome:
+      status: represented
+      represented_by:
+        constraints:
+          - category_name_unique
+          - subcategory_name_unique_per_category

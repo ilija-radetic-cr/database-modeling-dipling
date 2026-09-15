@@ -1,0 +1,114 @@
+document:
+  id: printing_house_catalog_v05_functional_decomposition
+  title: "Printing House - katalogski podskup - functional decomposition"
+  pipeline_version: "0.5"
+  requirement_atoms_file: "requirement_atoms.yaml"
+  crud_matrix_file: "crud_matrix.yaml"
+  description: "Opsta funkcionalna dekompozicija atomskih zahteva, ne vezana za konkretne nazive ekrana."
+
+functional_areas:
+  - id: master_data_management
+    label: "Maticni i kataloski podaci"
+    rationale: "Ova oblast obuhvata trajne pojmove koje sistem cuva: stamparije, proizvode, kategorije, potkategorije, boje i usluge stampe."
+    atoms:
+      - PH-RA-001
+      - PH-RA-003
+      - PH-RA-004
+      - PH-RA-005
+      - PH-RA-006
+      - PH-RA-007
+      - PH-RA-008
+      - PH-RA-009
+      - PH-RA-010
+      - PH-RA-011
+      - PH-RA-015
+      - PH-RA-016
+      - PH-RA-017
+      - PH-RA-021
+    modeling_focus:
+      entities:
+        - PrintShop
+        - Product
+        - Category
+        - Subcategory
+        - Color
+        - ProductColor
+        - PrintService
+        - ProductPrintService
+      relationships:
+        - ProductPrintShop
+        - SubcategoryCategory
+        - ProductSubcategory
+        - ProductAvailableColors
+        - ProductPrintServices
+
+  - id: availability_and_capacity
+    label: "Dostupnost i kapacitet"
+    rationale: "Kolicina na lageru je stanje dostupnosti proizvoda, ali se u ovom PoC-u ne cuva istorija promena."
+    atoms:
+      - PH-RA-013
+    modeling_focus:
+      attributes:
+        - Product.stock_quantity
+      constraints:
+        - product_stock_quantity_non_negative
+
+  - id: pricing_and_finance
+    label: "Cene i iznosi"
+    rationale: "Katalog ima osnovne cene proizvoda i dodatne cene usluga stampe, ali nema placanja ni faktura."
+    atoms:
+      - PH-RA-012
+      - PH-RA-018
+      - PH-RA-019
+    modeling_focus:
+      attributes:
+        - Product.unit_price
+        - ProductPrintService.additional_price
+      constraints:
+        - product_unit_price_positive
+        - product_print_service_additional_price_non_negative
+
+  - id: integration_and_artifacts
+    label: "Integracije i artefakti"
+    rationale: "JSON import i URL reference slika su ulazni/spoljni artefakti; oni ne treba da postanu lazne poslovne tabele osim kada cuvaju metapodatke u modelu."
+    atoms:
+      - PH-RA-014
+      - PH-RA-020
+    modeling_focus:
+      entities:
+        - ProductImage
+      attributes:
+        - ProductImage.image_url
+        - ProductImage.is_primary
+      import_specs:
+        - PrintShopCatalogImport
+
+  - id: scope_boundary
+    label: "Granica opsega"
+    rationale: "Ova oblast cuva dokaz sta je namerno iskljuceno, da LLM ne bi prosirio katalogski PoC u ceo Printing House sistem."
+    atoms:
+      - PH-RA-002
+    modeling_focus:
+      excluded_concepts:
+        - UserAccount
+        - RegistrationRequest
+        - Cart
+        - Order
+        - Invoice
+        - Payment
+        - Procurement
+        - Bid
+        - Comment
+        - ProductRating
+        - Report
+
+coverage_summary:
+  total_atoms: 21
+  represented_atoms: 20
+  excluded_by_scope_atoms: 1
+  unsupported_atoms: 0
+  functional_area_count: 5
+  notes:
+    - "Podskup namerno nema access_and_identity, transaction_lifecycle, reporting_and_analytics i content_and_feedback kao aktivne oblasti."
+    - "Te oblasti su prepoznate kao van scope-a kroz PH-RA-002, a ne kao promaseni model."
+    - "CRUD/ISUD pokrivenost je izdvojena u poseban fajl crud_matrix.yaml, jer nije isto sto i grupisanje po funkcionalnim oblastima."

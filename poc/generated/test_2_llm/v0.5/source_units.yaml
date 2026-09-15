@@ -1,0 +1,48 @@
+document:
+    id: test_2_source_units
+    title: test 2 source units
+    pipeline_version: "0.5"
+    source_file: TASK.md
+    source_language: unknown
+    granularity: sentence
+source_units:
+    - id: RAW-SU-001
+      kind: sentence
+      section: task
+      location: TASK.md#line-1
+      relevance: model_relevant
+      tags:
+        - raw_task
+      text:
+        exact: Sistem podrzava studente koji biraju ispite na fakultetu.
+        normalized: Sistem podrzava studente koji biraju ispite na fakultetu.
+    - id: RAW-SU-002
+      kind: sentence
+      section: task
+      location: TASK.md#line-1
+      relevance: model_relevant
+      tags:
+        - raw_task
+      text:
+        exact: Svaki ispit ima naziv i broj poena.
+        normalized: Svaki ispit ima naziv i broj poena.
+    - id: RAW-SU-003
+      kind: sentence
+      section: task
+      location: TASK.md#line-1
+      relevance: model_relevant
+      tags:
+        - raw_task
+      text:
+        exact: student ima ime i listu ispita.
+        normalized: student ima ime i listu ispita.
+    - id: RAW-SU-004
+      kind: sentence
+      section: task
+      location: TASK.md#line-1
+      relevance: model_relevant
+      tags:
+        - raw_task
+      text:
+        exact: postoje i profesori koji predaju taj ispit.
+        normalized: postoje i profesori koji predaju taj ispit.

@@ -1,0 +1,313 @@
+document:
+  id: printing_house_catalog_v05_source_units
+  title: "Printing House - katalogski podskup - source units"
+  pipeline_version: "0.5"
+  source_language: "sr-Latn"
+  source_file: "poc/printing_house/v0.5/TASK_SUBSET.md"
+  description: "Stabilne jedinice izvornog teksta za katalogski Printing House PoC."
+
+unit_schema:
+  id: "Stabilan ID source jedinice."
+  kind: "sentence | bullet | heading | json_field | scope_note"
+  location: "Opisna lokacija u pripremljenom tekstu."
+  relevance: "model_relevant | model_supporting | scope_boundary | non_model"
+  text:
+    exact: "Tacan tekst source jedinice."
+    normalized: "Opciona normalizacija za pretragu i kasnije imenovanje."
+
+source_units:
+  - id: PH-SU-001
+    kind: sentence
+    location: "TASK_SUBSET.md#1"
+    relevance: model_supporting
+    text:
+      exact: 'Realizovati deo web sistema "Printing House" koji sluzi za vodjenje kataloga proizvoda jedne ili vise stamparija.'
+      normalized: "Sistem vodi katalog proizvoda za stamparije."
+
+  - id: PH-SU-002
+    kind: sentence
+    location: "TASK_SUBSET.md#1"
+    relevance: model_relevant
+    text:
+      exact: "Ovaj podskup obuhvata samo podatke potrebne za katalog stamparije, proizvode, kategorije, potkategorije, dostupne boje, slike proizvoda, usluge stampe i JSON unos lager liste."
+      normalized: "Scope ukljucuje katalog, proizvode, kategorije, potkategorije, boje, slike, usluge stampe i JSON import."
+
+  - id: PH-SU-003
+    kind: scope_note
+    location: "TASK_SUBSET.md#1"
+    relevance: scope_boundary
+    text:
+      exact: "Korisnicki nalozi, registracija, autentifikacija, korpa, narudzbine, fakture, placanje, javne nabavke, licitacije, komentari, lajkovi, statistike i grafici nisu deo ovog podskupa."
+      normalized: "Access, orders, invoices, payments, procurements, comments and analytics are excluded from this PoC."
+
+  - id: PH-SU-004
+    kind: sentence
+    location: "TASK_SUBSET.md#2"
+    relevance: model_relevant
+    text:
+      exact: "Stamparija je vlasnik kataloga proizvoda."
+      normalized: "PrintShop owns product catalog."
+
+  - id: PH-SU-005
+    kind: sentence
+    location: "TASK_SUBSET.md#2"
+    relevance: model_relevant
+    text:
+      exact: "Za stampariju se cuvaju poslovna sifra stamparije i naziv stamparije."
+      normalized: "PrintShop has business code and name."
+
+  - id: PH-SU-006
+    kind: sentence
+    location: "TASK_SUBSET.md#2"
+    relevance: model_relevant
+    text:
+      exact: "Jedna stamparija moze imati vise proizvoda u svom katalogu, a svaki proizvod pripada tacno jednoj stampariji."
+      normalized: "One PrintShop has many Products; each Product belongs to exactly one PrintShop."
+
+  - id: PH-SU-007
+    kind: sentence
+    location: "TASK_SUBSET.md#3"
+    relevance: model_relevant
+    text:
+      exact: "Proizvodi se dodaju u vec predefinisane kategorije i potkategorije."
+      normalized: "Products are classified into predefined categories and subcategories."
+
+  - id: PH-SU-008
+    kind: sentence
+    location: "TASK_SUBSET.md#3"
+    relevance: model_relevant
+    text:
+      exact: 'Kategorije su: "Stampa malih formata", "Stampa velikih formata" i "Kreativne stampe".'
+      normalized: "Category has controlled predefined names."
+
+  - id: PH-SU-009
+    kind: sentence
+    location: "TASK_SUBSET.md#3"
+    relevance: model_relevant
+    text:
+      exact: "Primeri potkategorija su: olovke, vizit karte, flajeri, posteri, rollups, fototapete, solje, stampa na majicama, stampa na duksevima i stampa na cegerima."
+      normalized: "Subcategory has predefined examples."
+
+  - id: PH-SU-010
+    kind: sentence
+    location: "TASK_SUBSET.md#3"
+    relevance: model_relevant
+    text:
+      exact: "Svaka potkategorija pripada tacno jednoj kategoriji."
+      normalized: "Each Subcategory belongs to exactly one Category."
+
+  - id: PH-SU-011
+    kind: sentence
+    location: "TASK_SUBSET.md#3"
+    relevance: model_relevant
+    text:
+      exact: "Svaki proizvod pripada tacno jednoj potkategoriji."
+      normalized: "Each Product belongs to exactly one Subcategory."
+
+  - id: PH-SU-012
+    kind: sentence
+    location: "TASK_SUBSET.md#4"
+    relevance: model_relevant
+    text:
+      exact: "Za svaki proizvod potrebno je cuvati sifru proizvoda, naziv proizvoda, opis proizvoda, jedinicnu cenu, kolicinu na lageru, kategoriju i potkategoriju."
+      normalized: "Product has code, name, description, unit price, stock quantity, category and subcategory."
+
+  - id: PH-SU-013
+    kind: sentence
+    location: "TASK_SUBSET.md#4"
+    relevance: model_relevant
+    text:
+      exact: "Sifra proizvoda je poslovni identifikator proizvoda u okviru kataloga stamparije."
+      normalized: "Product code is a business identifier scoped by PrintShop catalog."
+
+  - id: PH-SU-014
+    kind: sentence
+    location: "TASK_SUBSET.md#4"
+    relevance: model_relevant
+    text:
+      exact: "Naziv proizvoda je obavezan za prikaz proizvoda u katalogu."
+      normalized: "Product name is required."
+
+  - id: PH-SU-015
+    kind: sentence
+    location: "TASK_SUBSET.md#4"
+    relevance: model_relevant
+    text:
+      exact: "Opis proizvoda moze biti prazan."
+      normalized: "Product description is optional."
+
+  - id: PH-SU-016
+    kind: sentence
+    location: "TASK_SUBSET.md#4"
+    relevance: model_relevant
+    text:
+      exact: "Jedinicna cena proizvoda mora biti pozitivna vrednost."
+      normalized: "Product unit price must be positive."
+
+  - id: PH-SU-017
+    kind: sentence
+    location: "TASK_SUBSET.md#4"
+    relevance: model_relevant
+    text:
+      exact: "Kolicina proizvoda na lageru mora biti ceo broj koji nije negativan."
+      normalized: "Product stock quantity is a non-negative integer."
+
+  - id: PH-SU-018
+    kind: sentence
+    location: "TASK_SUBSET.md#4"
+    relevance: model_relevant
+    text:
+      exact: "U ovom podskupu cuva se samo trenutno stanje lagera, a ne cuva se istorija promena kolicina."
+      normalized: "Stock history is excluded; only current stock level is stored."
+
+  - id: PH-SU-019
+    kind: sentence
+    location: "TASK_SUBSET.md#5"
+    relevance: model_relevant
+    text:
+      exact: "Proizvod moze imati jednu glavnu sliku i nula ili vise dodatnih slika."
+      normalized: "Product can have one primary image and zero or more additional images."
+
+  - id: PH-SU-020
+    kind: sentence
+    location: "TASK_SUBSET.md#5"
+    relevance: model_relevant
+    text:
+      exact: "Slike proizvoda u ovom podskupu cuvaju se kao URL ili tekstualna referenca do slike."
+      normalized: "Product images are stored as URL/text references."
+
+  - id: PH-SU-021
+    kind: sentence
+    location: "TASK_SUBSET.md#5"
+    relevance: model_relevant
+    text:
+      exact: "Za proizvod se cuva lista dostupnih boja."
+      normalized: "Product has a list of available colors."
+
+  - id: PH-SU-022
+    kind: sentence
+    location: "TASK_SUBSET.md#5"
+    relevance: model_relevant
+    text:
+      exact: "Jedan proizvod moze imati vise dostupnih boja, a ista boja moze biti dostupna za vise proizvoda."
+      normalized: "Product and Color form a many-to-many relationship."
+
+  - id: PH-SU-023
+    kind: sentence
+    location: "TASK_SUBSET.md#6"
+    relevance: model_relevant
+    text:
+      exact: "Usluge stampe su specijalizovani tipovi stampe ili preslikaca koji povecavaju cenu po proizvodu."
+      normalized: "Print services are service types that increase product price."
+
+  - id: PH-SU-024
+    kind: sentence
+    location: "TASK_SUBSET.md#6"
+    relevance: model_relevant
+    text:
+      exact: "Proizvod moze imati vise ponudjenih usluga stampe."
+      normalized: "Product can have multiple print services."
+
+  - id: PH-SU-025
+    kind: sentence
+    location: "TASK_SUBSET.md#6"
+    relevance: model_relevant
+    text:
+      exact: "Ista usluga stampe moze biti ponudjena za vise proizvoda."
+      normalized: "PrintService can be offered for multiple products."
+
+  - id: PH-SU-026
+    kind: sentence
+    location: "TASK_SUBSET.md#6"
+    relevance: model_relevant
+    text:
+      exact: "Za uslugu stampe cuvaju se sifra usluge i naziv, odnosno tip stampe."
+      normalized: "PrintService has code and name/type."
+
+  - id: PH-SU-027
+    kind: sentence
+    location: "TASK_SUBSET.md#6"
+    relevance: model_relevant
+    text:
+      exact: "Za vezu proizvoda i usluge stampe cuvaju se dodatna cena po komadu, maksimalna sirina stampe u milimetrima i maksimalna visina stampe u milimetrima."
+      normalized: "ProductPrintService stores additional price and max dimensions."
+
+  - id: PH-SU-028
+    kind: sentence
+    location: "TASK_SUBSET.md#6"
+    relevance: model_relevant
+    text:
+      exact: "Dodatna cena usluge stampe po komadu ne sme biti negativna."
+      normalized: "Additional service price must be non-negative."
+
+  - id: PH-SU-029
+    kind: sentence
+    location: "TASK_SUBSET.md#7"
+    relevance: model_relevant
+    text:
+      exact: "Stampar ima mogucnost unosenja lager liste putem dodavanja JSON fajla, cime se postavljaju definisani proizvodi i usluge za njegovu stampariju."
+      normalized: "Printer imports stock list using a JSON file."
+
+  - id: PH-SU-030
+    kind: json_field
+    location: "TASK_SUBSET.md#7"
+    relevance: model_relevant
+    text:
+      exact: 'JSON fajl ima korenska polja "stampaorijaId", "nazivStamparije" i "proizvodi".'
+      normalized: "JSON root has stampaorijaId, nazivStamparije and proizvodi."
+
+  - id: PH-SU-031
+    kind: json_field
+    location: "TASK_SUBSET.md#7"
+    relevance: model_relevant
+    text:
+      exact: 'Polje "stampaorijaId" predstavlja izvornu sifru stamparije iz JSON fajla.'
+      normalized: "stampaorijaId is source print shop code."
+
+  - id: PH-SU-032
+    kind: json_field
+    location: "TASK_SUBSET.md#7"
+    relevance: model_relevant
+    text:
+      exact: 'Polje "nazivStamparije" predstavlja naziv stamparije.'
+      normalized: "nazivStamparije is print shop name."
+
+  - id: PH-SU-033
+    kind: json_field
+    location: "TASK_SUBSET.md#7"
+    relevance: model_relevant
+    text:
+      exact: 'Svaki element liste "proizvodi" sadrzi polja "sifra", "naziv", "opis", "kategorija", "potkategorija", "jedinicnaCena", "kolicinaNaLageru", "dostupneBoje", "slikaUrl", "dodatneSlike" i "uslugeStampe".'
+      normalized: "Each JSON product has all core product/catalog fields."
+
+  - id: PH-SU-034
+    kind: json_field
+    location: "TASK_SUBSET.md#7"
+    relevance: model_relevant
+    text:
+      exact: 'Polje "dostupneBoje" je lista naziva boja.'
+      normalized: "dostupneBoje is a list of color names."
+
+  - id: PH-SU-035
+    kind: json_field
+    location: "TASK_SUBSET.md#7"
+    relevance: model_relevant
+    text:
+      exact: 'Polje "slikaUrl" predstavlja glavnu sliku proizvoda, a polje "dodatneSlike" predstavlja listu dodatnih slika proizvoda.'
+      normalized: "slikaUrl maps primary image; dodatneSlike maps additional images."
+
+  - id: PH-SU-036
+    kind: json_field
+    location: "TASK_SUBSET.md#7"
+    relevance: model_relevant
+    text:
+      exact: 'Svaki element liste "uslugeStampe" sadrzi polja "idUsluge", "tipStampe", "dodatnaCenaPoKomadu", "maxSirinaMm" i "maxVisinaMm".'
+      normalized: "Each JSON print service has code, type, additional price and max dimensions."
+
+  - id: PH-SU-037
+    kind: sentence
+    location: "TASK_SUBSET.md#8"
+    relevance: model_supporting
+    text:
+      exact: 'U primeru se pojavljuje stamparija "Copy Studio Kumanovska" sa sifrom "stampa_001" i proizvodima "Pamucna Polo Majica", "Keramicka solja 330ml" i "Promotivni Roll-up Baner 85x200cm".'
+      normalized: "JSON example provides sample print shop and products."

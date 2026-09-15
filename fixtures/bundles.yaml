@@ -1,0 +1,24 @@
+version: 1
+bundles:
+  - path: poc/printing_house_full/v0.5_granularity_sentance/db_model.dsl.yaml
+    role: golden
+    origin: curated
+    expected_validation: pass
+    expected_lint_errors: 0
+    expected_lint_warnings_max: 12
+  - path: poc/generated/test_2_llm/v0.5/db_model.dsl.yaml
+    role: negative
+    origin: real_llm_failed_experiment
+    expected_validation: fail
+  - path: poc/printing_house/v0.5/db_model.dsl.yaml
+    role: negative
+    origin: historical_incompatible_fixture
+    expected_validation: fail
+  - path: poc/printing_house_full/v0.5/db_model.dsl.yaml
+    role: negative
+    origin: historical_incompatible_fixture
+    expected_validation: fail
+  - path: poc/printing_house_full/v0.5_granularity_bundle/db_model.dsl.yaml
+    role: negative
+    origin: historical_cross_granularity_fixture
+    expected_validation: fail

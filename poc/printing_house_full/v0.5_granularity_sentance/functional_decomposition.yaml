@@ -1,0 +1,189 @@
+document:
+    crud_matrix_file: crud_matrix.yaml
+    id: printing_house_full_v05_sentence_functional_decomposition
+    pipeline_version: "0.5"
+    requirement_atoms_file: requirement_atoms.yaml
+    title: Printing House full v0.5 sentence-granularity functional decomposition
+functional_areas:
+    - id: access_and_identity
+      label: Access and identity
+      purpose: Nalozi, autentifikacija, reset lozinke i odobravanje registracije.
+      main_actors:
+        - unauthenticated_user
+        - administrator
+        - client
+        - printer
+      atoms:
+        - PHF-RA-001
+        - PHF-RA-002
+        - PHF-RA-003
+        - PHF-RA-004
+        - PHF-RA-005
+        - PHF-RA-006
+        - PHF-RA-022
+      modeling_focus:
+        - UserAccount
+        - PasswordResetToken
+        - RegistrationRequest
+        - Institution
+    - id: master_data_management
+      label: Master data management
+      purpose: Katalog, taksonomija proizvoda, stamparije, boje i usluge.
+      main_actors:
+        - printer
+        - administrator
+        - system
+      atoms:
+        - PHF-RA-011
+        - PHF-RA-023
+      modeling_focus:
+        - PrintShop
+        - Category
+        - Subcategory
+        - Product
+        - ProductImage
+        - Color
+        - PrintService
+    - id: discovery_and_selection
+      label: Discovery and selection
+      purpose: Javna i klijentska pretraga, detalji proizvoda i izbor varijanti.
+      main_actors:
+        - unauthenticated_user
+        - client
+      atoms:
+        - PHF-RA-007
+        - PHF-RA-008
+        - PHF-RA-009
+      modeling_focus:
+        - PublicHomeSummary
+        - PublicProductSearch
+        - ProductDetailFeedback
+    - id: transaction_lifecycle
+      label: Transaction lifecycle
+      purpose: Korpa, fakturisanje, placanje, javna nabavka i statusni tokovi.
+      main_actors:
+        - client
+        - client_individual
+        - client_legal
+        - printer
+        - system
+      atoms:
+        - PHF-RA-010
+        - PHF-RA-012
+        - PHF-RA-014
+        - PHF-RA-015
+        - PHF-RA-018
+        - PHF-RA-019
+      modeling_focus:
+        - Cart
+        - CartItem
+        - Invoice
+        - InvoiceItem
+        - PaymentAttempt
+        - Procurement
+        - ProcurementBid
+    - id: pricing_and_finance
+      label: Pricing and finance
+      purpose: Cene, iznosi faktura i eksterni pokusaji placanja.
+      main_actors:
+        - client_individual
+        - system
+        - external_payment_provider
+      atoms:
+        - PHF-RA-017
+      modeling_focus:
+        - Invoice.total_amount
+        - InvoiceItem.total_price
+        - PaymentAttempt
+    - id: availability_and_capacity
+      label: Availability and capacity
+      purpose: Lager, dostupnost i provera narucene kolicine.
+      main_actors:
+        - printer
+        - client
+        - system
+      atoms:
+        - PHF-RA-013
+        - PHF-RA-024
+      modeling_focus:
+        - Product.stock_quantity
+    - id: content_and_feedback
+      label: Content and feedback
+      purpose: Arhiva proizvoda, prijem, lajk/dislajk i komentar.
+      main_actors:
+        - client
+      atoms:
+        - PHF-RA-020
+        - PHF-RA-021
+      modeling_focus:
+        - ProductFeedback
+        - ClientProductArchive
+    - id: operational_processing
+      label: Operational processing
+      purpose: Radnje stampara nad porudzbinama i ponudama.
+      main_actors:
+        - printer
+      atoms:
+        - PHF-RA-026
+        - PHF-RA-027
+      modeling_focus:
+        - InvoiceStatusFlow
+        - ProcurementBid
+    - id: administration_and_moderation
+      label: Administration and moderation
+      purpose: Administratorsko upravljanje korisnicima i kategorijama.
+      main_actors:
+        - administrator
+      atoms:
+        - PHF-RA-029
+        - PHF-RA-030
+      modeling_focus:
+        - UserAccount
+        - RegistrationRequest
+        - Category
+        - Subcategory
+    - id: reporting_and_analytics
+      label: Reporting and analytics
+      purpose: Statistike i izvestaji koji se racunaju iz transakcionih podataka.
+      main_actors:
+        - administrator
+        - client_legal
+        - system
+      atoms:
+        - PHF-RA-028
+        - PHF-RA-031
+      modeling_focus:
+        - AdminTrafficByPrintShop
+        - AdminPopularProducts
+        - ProductRatingTrend
+        - ProcurementBidReport
+    - id: integration_and_artifacts
+      label: Integration and artifacts
+      purpose: Upload fajlova, JSON import, PDF artefakti i email isporuka.
+      main_actors:
+        - client
+        - printer
+        - system
+        - external_payment_provider
+      atoms:
+        - PHF-RA-016
+        - PHF-RA-025
+        - PHF-RA-036
+      modeling_focus:
+        - ImportSpecs
+        - FileSpecs
+    - id: non_model_requirements
+      label: Non-model requirements
+      purpose: UI, CSS, tehnologije, odbrana i pravila koja ne proizvode tabele.
+      main_actors:
+        - system
+      atoms:
+        - PHF-RA-032
+        - PHF-RA-033
+        - PHF-RA-034
+        - PHF-RA-035
+coverage_summary:
+    intentionally_not_in_db_atoms: 3
+    represented_atoms: 33
+    total_atoms: 36
+    unsupported_atoms: 0

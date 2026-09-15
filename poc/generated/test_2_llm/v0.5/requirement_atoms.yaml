@@ -1,0 +1,173 @@
+document:
+    generation_strategy: llm_assisted_offline_v0
+    id: test_2_requirement_atoms
+    pipeline_version: "0.5"
+    source_units_file: source_units.yaml
+    title: test 2 LLM Draft requirement atoms
+requirement_atoms:
+    - id: RA-001
+      statement: Sistem evidentira ispite.
+      atom_type: entity
+      modeling_relevance: Ispit je osnovni poslovni pojam.
+      source_units:
+        - RAW-SU-002
+      functional_area: FA-EXAMS
+      functional_pattern: master_data
+      support_level: explicit
+      confidence: high
+      requires_review: false
+      review_decisions: []
+      model_impacts:
+        entities:
+            - ENT-EXAM
+        attributes: []
+        relationships: []
+        constraints: []
+        import_specs: []
+        state_machines: []
+        derived_views: []
+        file_specs: []
+      modeling_outcome:
+        status: represented
+    - id: RA-002
+      statement: Ispit ima naziv i broj poena.
+      atom_type: attribute
+      modeling_relevance: Za svaki ispit cuvaju se naziv i broj poena.
+      source_units:
+        - RAW-SU-002
+      functional_area: FA-EXAMS
+      functional_pattern: master_data_attributes
+      support_level: explicit
+      confidence: high
+      requires_review: false
+      review_decisions: []
+      model_impacts:
+        entities:
+            - ENT-EXAM
+        attributes:
+            - ENT-EXAM.broj_poena
+            - ENT-EXAM.naziv
+        relationships: []
+        constraints:
+            - CON-EXAM-REQUIRED
+        import_specs: []
+        state_machines: []
+        derived_views: []
+        file_specs: []
+      modeling_outcome:
+        status: represented
+    - id: RA-003
+      statement: Sistem evidentira studente i njihova imena.
+      atom_type: entity
+      modeling_relevance: Student je nosilac izbora ispita i ima ime.
+      source_units:
+        - RAW-SU-001
+        - RAW-SU-003
+      functional_area: FA-STUDENT-SELECTION
+      functional_pattern: party_data
+      support_level: explicit
+      confidence: high
+      requires_review: false
+      review_decisions: []
+      model_impacts:
+        entities:
+            - ENT-STUDENT
+        attributes:
+            - ENT-STUDENT.ime
+        relationships: []
+        constraints:
+            - CON-STUDENT-NAME-REQUIRED
+        import_specs: []
+        state_machines: []
+        derived_views:
+            - VIEW-STUDENT-EXAM-LIST
+        file_specs: []
+      modeling_outcome:
+        status: represented
+    - id: RA-004
+      statement: Student bira i ima listu ispita.
+      atom_type: relationship
+      modeling_relevance: Lista izabranih ispita zahteva trajnu vezu studenta i ispita.
+      source_units:
+        - RAW-SU-001
+        - RAW-SU-003
+      functional_area: FA-STUDENT-SELECTION
+      functional_pattern: selection_relationship
+      support_level: explicit
+      confidence: high
+      requires_review: false
+      review_decisions: []
+      model_impacts:
+        entities:
+            - ENT-STUDENT-EXAM
+        attributes:
+            - ENT-STUDENT-EXAM.exam_id
+            - ENT-STUDENT-EXAM.student_id
+        relationships:
+            - REL-STUDENT-EXAM
+        constraints:
+            - CON-STUDENT-EXAM-INTEGRITY
+        import_specs: []
+        state_machines: []
+        derived_views:
+            - VIEW-STUDENT-EXAM-LIST
+        file_specs: []
+      modeling_outcome:
+        status: represented
+    - id: RA-005
+      statement: Profesori predaju ispite.
+      atom_type: relationship
+      modeling_relevance: Potrebno je povezati profesore sa ispitima koje predaju.
+      source_units:
+        - RAW-SU-004
+      functional_area: FA-TEACHING
+      functional_pattern: teaching_assignment
+      support_level: explicit
+      confidence: medium
+      requires_review: false
+      review_decisions: []
+      model_impacts:
+        entities:
+            - ENT-PROFESSOR
+            - ENT-PROFESSOR-EXAM
+        attributes:
+            - ENT-PROFESSOR-EXAM.exam_id
+            - ENT-PROFESSOR-EXAM.professor_id
+            - ENT-PROFESSOR.name
+        relationships:
+            - REL-PROFESSOR-EXAM
+        constraints:
+            - CON-PROFESSOR-EXAM-INTEGRITY
+        import_specs: []
+        state_machines: []
+        derived_views: []
+        file_specs: []
+      modeling_outcome:
+        status: represented
+    - id: RA-006
+      statement: Izbor ispita odvija se na fakultetu.
+      atom_type: scope
+      modeling_relevance: Fakultet je naveden kao kontekst, ali nisu dati njegovi podaci niti zahtev za evidenciju.
+      source_units:
+        - RAW-SU-001
+      functional_area: FA-INSTITUTIONAL-CONTEXT
+      functional_pattern: institutional_scope
+      support_level: explicit
+      confidence: low
+      requires_review: false
+      review_decisions: []
+      model_impacts:
+        entities: []
+        attributes: []
+        relationships: []
+        constraints: []
+        import_specs: []
+        state_machines: []
+        derived_views: []
+        file_specs: []
+      modeling_outcome:
+        status: deferred
+coverage_checks:
+    - id: llm_atoms_reference_source_units
+      note: Preflight checked source unit references before YAML emission.
+      status: passed

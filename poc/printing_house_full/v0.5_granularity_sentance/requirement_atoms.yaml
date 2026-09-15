@@ -1,0 +1,861 @@
+document:
+    derivation_strategy: fresh_from_task_text_not_from_prior_poc_yaml
+    id: printing_house_full_v05_sentence_requirement_atoms
+    pipeline_version: "0.5"
+    requirement_prefix: PHF-RA
+    source_unit_prefix: PHF-GSU
+    source_units_file: source_units.yaml
+    title: Printing House full v0.5 sentence-granularity requirement atoms
+requirement_atoms:
+    - id: PHF-RA-001
+      statement: Sistem ima klijente fizicka lica, klijente pravna lica, stampare i administratora.
+      atom_type: actor
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-005
+      functional_area: access_and_identity
+      functional_pattern: role_based_accounts
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-001
+      model_impacts:
+        entities:
+            - UserAccount
+        attributes:
+            - UserAccount.role
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-002
+      statement: Korisnici se prijavljuju username/password kredencijalima; username i email su jedinstveni, a lozinka se cuva kao hash.
+      atom_type: constraint
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-007
+        - PHF-GSU-015
+        - PHF-GSU-020
+        - PHF-GSU-027
+      functional_area: access_and_identity
+      functional_pattern: credentials
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-002
+      model_impacts:
+        attributes:
+            - UserAccount.username
+            - UserAccount.password_hash
+            - UserAccount.email
+        constraints:
+            - user_account_username_unique
+            - user_account_email_unique
+            - user_account_password_policy
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-003
+      statement: Reset lozinke koristi privremeni link koji vazi 5 minuta.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-010
+        - PHF-GSU-011
+      functional_area: access_and_identity
+      functional_pattern: password_reset
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-002
+      model_impacts:
+        entities:
+            - PasswordResetToken
+        constraints:
+            - password_reset_token_validity_window
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-004
+      statement: Registracija proizvodi zahtev koji administrator prihvata ili odbija pre aktiviranja korisnika.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-028
+        - PHF-GSU-029
+      functional_area: access_and_identity
+      functional_pattern: registration_approval
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-001
+        - PHF-RD-011
+      model_impacts:
+        entities:
+            - RegistrationRequest
+        state_machines:
+            - RegistrationRequestStatusFlow
+            - UserAccountStatusFlow
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-005
+      statement: Korisnicki profil cuva licne podatke, kontakt, email i profilnu sliku sa upload ogranicenjima.
+      atom_type: attribute
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-017
+        - PHF-GSU-018
+        - PHF-GSU-019
+        - PHF-GSU-021
+        - PHF-GSU-031
+        - PHF-GSU-033
+      functional_area: access_and_identity
+      functional_pattern: profile_data
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-003
+      model_impacts:
+        attributes:
+            - UserAccount.first_name
+            - UserAccount.last_name
+            - UserAccount.phone
+            - UserAccount.profile_image_path
+        file_specs:
+            - UserProfileImageFile
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-006
+      statement: 'Pravna lica i stamparije imaju institucionalne podatke: naziv, sediste, maticni broj i PIB.'
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-022
+        - PHF-GSU-023
+        - PHF-GSU-024
+        - PHF-GSU-025
+      functional_area: access_and_identity
+      functional_pattern: institution_profile
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-001
+      model_impacts:
+        entities:
+            - Institution
+        constraints:
+            - institution_registration_number_unique
+            - institution_registration_number_length
+            - institution_tax_number_unique
+            - institution_tax_number_format
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-007
+      statement: Pocetna strana prikazuje broj registrovanih stamparija i top 5 proizvoda po lajkovima.
+      atom_type: derived_view
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-035
+      functional_area: discovery_and_selection
+      functional_pattern: public_home_summary
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-010
+      model_impacts:
+        derived_views:
+            - PublicHomeSummary
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-008
+      statement: Javna pretraga koristi naziv, kategoriju, aktivne proizvode na stanju, sortiranje i javne detalje.
+      atom_type: derived_view
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-038
+        - PHF-GSU-039
+        - PHF-GSU-040
+        - PHF-GSU-041
+        - PHF-GSU-049
+        - PHF-GSU-050
+        - PHF-GSU-054
+        - PHF-GSU-074
+        - PHF-GSU-105
+      functional_area: discovery_and_selection
+      functional_pattern: public_product_search
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-010
+      model_impacts:
+        attributes:
+            - Product.is_active
+            - Product.stock_quantity
+        derived_views:
+            - PublicProductSearch
+            - PublicProductDetail
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-009
+      statement: Galerija proizvoda ima glavnu i do tri dodatne slike; izbor slike u cookie-ju nije trajni DB podatak.
+      atom_type: file_reference
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-041
+      functional_area: discovery_and_selection
+      functional_pattern: product_gallery
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-003
+      model_impacts:
+        entities:
+            - ProductImage
+        constraints:
+            - product_image_gallery_limit
+        file_specs:
+            - ProductImageFile
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-010
+      statement: Klijent na profilu vidi licne podatke i istoriju/aktuelne narudzbine kroz fakture i stavke.
+      atom_type: derived_view
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-046
+        - PHF-GSU-047
+      functional_area: transaction_lifecycle
+      functional_pattern: client_order_history
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-006
+      model_impacts:
+        entities:
+            - Invoice
+            - InvoiceItem
+        derived_views:
+            - ClientOrderHistory
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-011
+      statement: Prosireni detalji proizvoda obuhvataju opis, cenu, boju, usluge stampe, dodatnu cenu i dimenzije.
+      atom_type: relationship
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-051
+      functional_area: master_data_management
+      functional_pattern: product_detail_offer
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-005
+      model_impacts:
+        entities:
+            - Color
+            - ProductColor
+            - PrintService
+            - ProductPrintService
+        relationships:
+            - ProductColorProduct
+            - ProductColorColor
+            - ProductPrintServiceProduct
+            - ProductPrintServiceService
+        constraints:
+            - product_print_service_additional_price_non_negative
+            - product_print_service_dimensions_positive
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-012
+      statement: Klijent priprema proizvod izborom boje/usluge, tekstom ili slikom i kolicinom u korpi.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-053
+      functional_area: transaction_lifecycle
+      functional_pattern: cart_item_preparation
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-003
+      model_impacts:
+        entities:
+            - Cart
+            - CartItem
+        file_specs:
+            - CartItemCustomImageFile
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-013
+      statement: Pretraga i narucivanje moraju postovati trenutno stanje lagera.
+      atom_type: constraint
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-055
+      functional_area: availability_and_capacity
+      functional_pattern: stock_availability
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-011
+      model_impacts:
+        attributes:
+            - Product.stock_quantity
+        constraints:
+            - product_stock_quantity_non_negative
+            - cart_item_quantity_positive
+            - cart_item_requested_quantity_available
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-014
+      statement: Korpa grupise stavke po stamparijama i prikazuje naziv, kolicinu, tip stampe i cenu.
+      atom_type: derived_view
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-056
+      functional_area: transaction_lifecycle
+      functional_pattern: cart_grouping
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-006
+      model_impacts:
+        entities:
+            - Cart
+            - CartItem
+        derived_views:
+            - CurrentCartGroupedByPrintShop
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-015
+      statement: Potvrda korpe fizickog lica formira po jednu fakturu po stampariji sa statusnim tokom narudzbine.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-048
+        - PHF-GSU-057
+        - PHF-GSU-058
+      functional_area: transaction_lifecycle
+      functional_pattern: individual_checkout_invoice
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-006
+        - PHF-RD-011
+      model_impacts:
+        entities:
+            - Invoice
+            - InvoiceItem
+        constraints:
+            - invoice_cancel_before_print_only
+        state_machines:
+            - CartStatusFlow
+            - InvoiceStatusFlow
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-016
+      statement: Fakture se generisu kao PDF fajlovi i dostavljaju emailom.
+      atom_type: file_reference
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-059
+      functional_area: integration_and_artifacts
+      functional_pattern: invoice_pdf
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-003
+      model_impacts:
+        attributes:
+            - Invoice.pdf_path
+        file_specs:
+            - InvoicePdfFile
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-017
+      statement: Placanje je eksterni servis; baza cuva pokusaj placanja, status i provider referencu, ne podatke kartice.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-060
+        - PHF-GSU-066
+      functional_area: pricing_and_finance
+      functional_pattern: payment_attempt
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-007
+        - PHF-RD-011
+      model_impacts:
+        entities:
+            - PaymentAttempt
+        constraints:
+            - payment_attempt_amount_non_negative
+        state_machines:
+            - PaymentAttemptStatusFlow
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-018
+      statement: Pravno lice potvrdom korpe otvara javnu nabavku sa stavkama i rokom za licitiranje.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-067
+      functional_area: transaction_lifecycle
+      functional_pattern: procurement_creation
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-008
+        - PHF-RD-011
+      model_impacts:
+        entities:
+            - Procurement
+            - ProcurementItem
+        state_machines:
+            - ProcurementStatusFlow
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-019
+      statement: Javna nabavka prima ponude stamparija, bira najnizu ponudu koja pokriva kolicine i generise izvestaj.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-069
+        - PHF-GSU-096
+        - PHF-GSU-097
+        - PHF-GSU-098
+      functional_area: transaction_lifecycle
+      functional_pattern: procurement_bidding
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-008
+        - PHF-RD-011
+      model_impacts:
+        entities:
+            - ProcurementBid
+            - ProcurementBidItem
+        constraints:
+            - procurement_bid_item_unique_per_bid_item
+        state_machines:
+            - ProcurementBidStatusFlow
+        derived_views:
+            - ProcurementBidReport
+        file_specs:
+            - ProcurementReportPdfFile
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-020
+      statement: Arhiva proizvoda prikazuje isporucene i primljene proizvode, a klijent moze promeniti status isporuceno u primljeno.
+      atom_type: state_machine
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-070
+        - PHF-GSU-071
+      functional_area: content_and_feedback
+      functional_pattern: client_product_archive
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-011
+      model_impacts:
+        state_machines:
+            - InvoiceStatusFlow
+        derived_views:
+            - ClientProductArchive
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-021
+      statement: Za primljeni proizvod klijent ostavlja like/dislike i komentar; prikazuje se broj ocena i poslednjih pet komentara.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-073
+        - PHF-GSU-074
+        - PHF-GSU-075
+      functional_area: content_and_feedback
+      functional_pattern: product_feedback
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-009
+      model_impacts:
+        entities:
+            - ProductFeedback
+        constraints:
+            - product_feedback_one_per_invoice_item_user
+        derived_views:
+            - ProductDetailFeedback
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-022
+      statement: Stampar ima profil sa pregledom i azuriranjem licnih podataka i profilne slike.
+      atom_type: attribute
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-003
+        - PHF-GSU-005
+        - PHF-GSU-012
+        - PHF-GSU-022
+        - PHF-GSU-035
+        - PHF-GSU-041
+        - PHF-GSU-044
+        - PHF-GSU-047
+        - PHF-GSU-052
+        - PHF-GSU-055
+        - PHF-GSU-056
+        - PHF-GSU-057
+        - PHF-GSU-058
+        - PHF-GSU-067
+        - PHF-GSU-068
+        - PHF-GSU-069
+        - PHF-GSU-072
+        - PHF-GSU-076
+        - PHF-GSU-078
+        - PHF-GSU-080
+        - PHF-GSU-097
+        - PHF-GSU-105
+      functional_area: access_and_identity
+      functional_pattern: printer_profile
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-003
+      model_impacts:
+        entities:
+            - UserAccount
+        file_specs:
+            - UserProfileImageFile
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-023
+      statement: Stampar dodaje proizvode i usluge u predefinisane kategorije i potkategorije.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-080
+        - PHF-GSU-081
+        - PHF-GSU-085
+        - PHF-GSU-091
+      functional_area: master_data_management
+      functional_pattern: catalog_management
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-004
+        - PHF-RD-005
+      model_impacts:
+        entities:
+            - PrintShop
+            - Category
+            - Subcategory
+            - Product
+            - PrintService
+            - ProductPrintService
+        relationships:
+            - ProductPrintShop
+            - ProductSubcategory
+            - SubcategoryCategory
+            - ProductPrintServiceProduct
+            - ProductPrintServiceService
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-024
+      statement: Stampar azurira kolicine postojecih proizvoda.
+      atom_type: attribute
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-090
+      functional_area: availability_and_capacity
+      functional_pattern: stock_update
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-011
+      model_impacts:
+        attributes:
+            - Product.stock_quantity
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-025
+      statement: Stampar unosi lager listu iz JSON fajla, a zatim dodaje slike.
+      atom_type: import_spec
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-091
+        - PHF-GSU-093
+      functional_area: integration_and_artifacts
+      functional_pattern: json_catalog_import
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-003
+      model_impacts:
+        import_specs:
+            - PrintShopCatalogImport
+        file_specs:
+            - ProductImageFile
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-026
+      statement: Stampar menja statuse porudzbina fizickih lica iz naruceno u u stampi i zatim isporuceno.
+      atom_type: state_machine
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-094
+      functional_area: operational_processing
+      functional_pattern: printer_invoice_processing
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-011
+      model_impacts:
+        state_machines:
+            - InvoiceStatusFlow
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-027
+      statement: Stampar salje jednu zvanicnu ponudu po javnoj nabavci sa svim trazenim proizvodima.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-095
+        - PHF-GSU-097
+      functional_area: operational_processing
+      functional_pattern: bid_submission
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-008
+      model_impacts:
+        entities:
+            - ProcurementBid
+            - ProcurementBidItem
+        constraints:
+            - procurement_bid_one_per_print_shop
+            - procurement_bid_item_unique_per_bid_item
+            - procurement_bid_item_quantity_positive
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-028
+      statement: Posle licitacije ustanova dobija PDF izvestaj o svim ponudama i pobednickoj ponudi.
+      atom_type: file_reference
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-098
+      functional_area: reporting_and_analytics
+      functional_pattern: procurement_report
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-008
+      model_impacts:
+        derived_views:
+            - ProcurementBidReport
+        file_specs:
+            - ProcurementReportPdfFile
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-029
+      statement: Administrator pregleda, azurira, brise korisnike i odobrava registracije.
+      atom_type: state_machine
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-101
+        - PHF-GSU-102
+      functional_area: administration_and_moderation
+      functional_pattern: user_management
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-001
+        - PHF-RD-011
+      model_impacts:
+        state_machines:
+            - UserAccountStatusFlow
+            - RegistrationRequestStatusFlow
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-030
+      statement: Administrator upravlja kategorijama i potkategorijama stamparskih proizvoda.
+      atom_type: entity
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-103
+        - PHF-GSU-104
+      functional_area: administration_and_moderation
+      functional_pattern: taxonomy_management
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-004
+      model_impacts:
+        entities:
+            - Category
+            - Subcategory
+        constraints:
+            - category_name_unique
+            - subcategory_name_unique_per_category
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-031
+      statement: Administrator vidi graficke statistike prometa, popularnosti proizvoda i kretanja ocene proizvoda.
+      atom_type: derived_view
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-105
+      functional_area: reporting_and_analytics
+      functional_pattern: admin_statistics
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-010
+      model_impacts:
+        derived_views:
+            - AdminTrafficByPrintShop
+            - AdminPopularProducts
+            - ProductRatingTrend
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-032
+      statement: Server mora efikasno validirati nekorektne podatke.
+      atom_type: constraint
+      modeling_relevance: indirect_db
+      source_units:
+        - PHF-GSU-107
+        - PHF-GSU-112
+        - PHF-GSU-130
+      functional_area: non_model_requirements
+      functional_pattern: server_validation
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-011
+      model_impacts:
+        constraints:
+            - server_side_validation_required
+      modeling_outcome:
+        status: represented
+    - id: PHF-RA-033
+      statement: Baza se inicijalno kreira i popunjava nezavisno od aplikacije; aplikacija ne treba da kreira tabele.
+      atom_type: scope_exclusion
+      modeling_relevance: out_of_scope
+      source_units:
+        - PHF-GSU-131
+        - PHF-GSU-132
+      functional_area: non_model_requirements
+      functional_pattern: database_lifecycle_boundary
+      support_level: explicit
+      confidence: high
+      requires_review: false
+      review_decisions: []
+      modeling_outcome:
+        status: intentionally_not_in_db
+    - id: PHF-RA-034
+      statement: Na odbranu treba doneti dovoljno popunjenu bazu za prikaz funkcionalnosti.
+      atom_type: scope_exclusion
+      modeling_relevance: indirect_db
+      source_units:
+        - PHF-GSU-133
+      functional_area: non_model_requirements
+      functional_pattern: seed_data_requirement
+      support_level: explicit
+      confidence: high
+      requires_review: false
+      review_decisions: []
+      modeling_outcome:
+        status: intentionally_not_in_db
+    - id: PHF-RA-035
+      statement: UI, CSS, responsive dizajn, browser testiranje, tehnologije i pravila odbrane ne proizvode relacione tabele.
+      atom_type: non_model
+      modeling_relevance: not_in_db
+      source_units:
+        - PHF-GSU-108
+        - PHF-GSU-113
+        - PHF-GSU-114
+        - PHF-GSU-122
+        - PHF-GSU-128
+        - PHF-GSU-129
+      functional_area: non_model_requirements
+      functional_pattern: ui_technology_exam_rules
+      support_level: explicit
+      confidence: high
+      requires_review: false
+      review_decisions: []
+      modeling_outcome:
+        status: intentionally_not_in_db
+    - id: PHF-RA-036
+      statement: JSON prilog definise polja stamparije, proizvoda, boja, slika i usluga stampe za import.
+      atom_type: import_spec
+      modeling_relevance: direct_db
+      source_units:
+        - PHF-GSU-139
+        - PHF-GSU-140
+        - PHF-GSU-141
+        - PHF-GSU-152
+        - PHF-GSU-155
+        - PHF-GSU-160
+        - PHF-GSU-173
+        - PHF-GSU-176
+        - PHF-GSU-189
+        - PHF-GSU-192
+      functional_area: integration_and_artifacts
+      functional_pattern: json_catalog_shape
+      support_level: explicit
+      confidence: high
+      requires_review: true
+      review_decisions:
+        - PHF-RD-003
+        - PHF-RD-005
+      model_impacts:
+        entities:
+            - PrintShop
+            - Product
+            - Color
+            - PrintService
+            - ProductPrintService
+        attributes:
+            - PrintShop.code
+            - PrintShop.display_name
+        constraints:
+            - print_shop_code_unique
+        import_specs:
+            - PrintShopCatalogImport
+      modeling_outcome:
+        status: represented
+coverage_checks:
+    - description: Svaki requirement atom ima bar jednu granularnu source jedinicu.
+      id: all_atoms_have_source_units
+      status: pass
+    - description: Svaki represented atom ima eksplicitno navedene model_impacts.
+      id: represented_atoms_have_model_impacts
+      status: pass

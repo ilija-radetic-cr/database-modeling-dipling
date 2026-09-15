@@ -1,0 +1,591 @@
+dsl:
+  name: "DB-DSL"
+  version: "0.5"
+  compatibility:
+    structural_base: "0.2"
+
+model:
+  id: "printing_house_catalog_v05"
+  name: "Printing House Catalog v0.5"
+  domain_slice: "catalog"
+  status: "reviewed_poc_model"
+  description: "Katalogski model baze za Printing House podskup, generisan kroz v0.5 pipeline source_units -> requirement_atoms -> functional_decomposition -> DB-DSL."
+
+source:
+  pipeline_version: "0.5"
+  task_text_file: "poc/printing_house/v0.5/TASK_SUBSET.md"
+  source_units_file: "poc/printing_house/v0.5/source_units.yaml"
+  requirement_atoms_file: "poc/printing_house/v0.5/requirement_atoms.yaml"
+  functional_decomposition_file: "poc/printing_house/v0.5/functional_decomposition.yaml"
+  crud_matrix_file: "poc/printing_house/v0.5/crud_matrix.yaml"
+  review_decisions_file: "poc/printing_house/v0.5/review_decisions.yaml"
+  review_state: "simulated_review_complete"
+
+entities:
+  - id: PrintShop
+    label: "Stamparija"
+    description: "Stamparija kao vlasnik kataloga proizvoda."
+    table_name: print_shops
+    kind: regular
+    evidence:
+      source_units: [PH-SU-001, PH-SU-002, PH-SU-004, PH-SU-005, PH-SU-030, PH-SU-031, PH-SU-032]
+      requirement_atoms: [PH-RA-001, PH-RA-003, PH-RA-004]
+      review_decisions: [PH-RD-001, PH-RD-007]
+      support_level: explicit
+      confidence: high
+      notes:
+        - "Korisnicki nalog stampara je izvan opsega; modeluje se samo PrintShop."
+    attributes:
+      - id: code
+        label: "Sifra stamparije"
+        description: "Normalizovani poslovni identifikator stamparije iz JSON polja stampaorijaId."
+        type: string
+        required: true
+        source_field: "stampaorijaId"
+        evidence:
+          source_units: [PH-SU-005, PH-SU-030, PH-SU-031]
+          requirement_atoms: [PH-RA-004, PH-RA-020]
+          review_decisions: [PH-RD-007]
+          support_level: explicit
+          confidence: high
+          notes:
+            - "Izvorni naziv polja ostaje u source_field, a model koristi code."
+      - id: name
+        label: "Naziv stamparije"
+        description: "Naziv stamparije kojoj pripada katalog."
+        type: string
+        required: true
+        source_field: "nazivStamparije"
+        evidence:
+          source_units: [PH-SU-005, PH-SU-030, PH-SU-032]
+          requirement_atoms: [PH-RA-004, PH-RA-020]
+          review_decisions: []
+          support_level: explicit
+          confidence: high
+
+  - id: Category
+    label: "Kategorija"
+    description: "Gornji nivo klasifikacije proizvoda u katalogu."
+    table_name: categories
+    kind: lookup
+    evidence:
+      source_units: [PH-SU-007, PH-SU-008]
+      requirement_atoms: [PH-RA-006]
+      review_decisions: [PH-RD-002, PH-RD-008]
+      support_level: explicit
+      confidence: high
+    attributes:
+      - id: name
+        label: "Naziv kategorije"
+        description: "Naziv kategorije proizvoda."
+        type: string
+        required: true
+        source_field: "kategorija"
+        evidence:
+          source_units: [PH-SU-008, PH-SU-033]
+          requirement_atoms: [PH-RA-006, PH-RA-009]
+          review_decisions: [PH-RD-002]
+          support_level: explicit
+          confidence: high
+
+  - id: Subcategory
+    label: "Potkategorija"
+    description: "Nizi nivo klasifikacije proizvoda u okviru kategorije."
+    table_name: subcategories
+    kind: lookup
+    evidence:
+      source_units: [PH-SU-007, PH-SU-009, PH-SU-010, PH-SU-011]
+      requirement_atoms: [PH-RA-006, PH-RA-007, PH-RA-008]
+      review_decisions: [PH-RD-002, PH-RD-008]
+      support_level: explicit
+      confidence: high
+    attributes:
+      - id: name
+        label: "Naziv potkategorije"
+        description: "Naziv potkategorije proizvoda."
+        type: string
+        required: true
+        source_field: "potkategorija"
+        evidence:
+          source_units: [PH-SU-009, PH-SU-033]
+          requirement_atoms: [PH-RA-006, PH-RA-009]
+          review_decisions: [PH-RD-002]
+          support_level: explicit
+          confidence: high
+
+  - id: Product
+    label: "Proizvod"
+    description: "Proizvod u katalogu stamparije."
+    table_name: products
+    kind: regular
+    evidence:
+      source_units: [PH-SU-001, PH-SU-002, PH-SU-006, PH-SU-011, PH-SU-012, PH-SU-033]
+      requirement_atoms: [PH-RA-001, PH-RA-005, PH-RA-008, PH-RA-009]
+      review_decisions: [PH-RD-002]
+      support_level: explicit
+      confidence: high
+    attributes:
+      - id: code
+        label: "Sifra proizvoda"
+        description: "Poslovna sifra proizvoda u okviru kataloga stamparije."
+        type: string
+        required: true
+        source_field: "sifra"
+        evidence:
+          source_units: [PH-SU-012, PH-SU-013, PH-SU-033]
+          requirement_atoms: [PH-RA-009, PH-RA-010]
+          review_decisions: [PH-RD-003]
+          support_level: explicit
+          confidence: high
+      - id: name
+        label: "Naziv proizvoda"
+        description: "Naziv proizvoda za katalogski prikaz."
+        type: string
+        required: true
+        source_field: "naziv"
+        evidence:
+          source_units: [PH-SU-012, PH-SU-014, PH-SU-033]
+          requirement_atoms: [PH-RA-009, PH-RA-011]
+          review_decisions: [PH-RD-004]
+          support_level: explicit
+          confidence: high
+      - id: description
+        label: "Opis proizvoda"
+        description: "Tekstualni opis proizvoda."
+        type: text
+        required: false
+        source_field: "opis"
+        evidence:
+          source_units: [PH-SU-012, PH-SU-015, PH-SU-033]
+          requirement_atoms: [PH-RA-009, PH-RA-011]
+          review_decisions: [PH-RD-004]
+          support_level: explicit
+          confidence: high
+      - id: unit_price
+        label: "Jedinicna cena"
+        description: "Osnovna jedinicna cena proizvoda."
+        type: money
+        required: true
+        precision: 10
+        scale: 2
+        source_field: "jedinicnaCena"
+        evidence:
+          source_units: [PH-SU-012, PH-SU-016, PH-SU-033]
+          requirement_atoms: [PH-RA-009, PH-RA-012]
+          review_decisions: []
+          support_level: explicit
+          confidence: high
+      - id: stock_quantity
+        label: "Kolicina na lageru"
+        description: "Trenutna kolicina proizvoda na lageru; istorija promena nije deo ovog podskupa."
+        type: integer
+        required: true
+        source_field: "kolicinaNaLageru"
+        evidence:
+          source_units: [PH-SU-012, PH-SU-017, PH-SU-018, PH-SU-033]
+          requirement_atoms: [PH-RA-009, PH-RA-013]
+          review_decisions: []
+          support_level: explicit
+          confidence: high
+
+  - id: ProductImage
+    label: "Slika proizvoda"
+    description: "Slika povezana sa proizvodom, cuvana kao URL ili tekstualna referenca."
+    table_name: product_images
+    kind: regular
+    evidence:
+      source_units: [PH-SU-019, PH-SU-020, PH-SU-035]
+      requirement_atoms: [PH-RA-014]
+      review_decisions: [PH-RD-005]
+      support_level: explicit
+      confidence: high
+    attributes:
+      - id: image_url
+        label: "URL slike"
+        description: "URL ili tekstualna referenca na sliku proizvoda."
+        type: url
+        required: true
+        source_field: "slikaUrl/dodatneSlike"
+        evidence:
+          source_units: [PH-SU-020, PH-SU-035]
+          requirement_atoms: [PH-RA-014]
+          review_decisions: [PH-RD-005]
+          support_level: explicit
+          confidence: high
+      - id: is_primary
+        label: "Glavna slika"
+        description: "Oznacava da li je slika glavna slika proizvoda."
+        type: boolean
+        required: true
+        default: false
+        evidence:
+          source_units: [PH-SU-019, PH-SU-035]
+          requirement_atoms: [PH-RA-014]
+          review_decisions: [PH-RD-005]
+          support_level: inferred
+          confidence: high
+
+  - id: Color
+    label: "Boja"
+    description: "Dostupna boja proizvoda."
+    table_name: colors
+    kind: lookup
+    evidence:
+      source_units: [PH-SU-021, PH-SU-022, PH-SU-034]
+      requirement_atoms: [PH-RA-015]
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+    attributes:
+      - id: name
+        label: "Naziv boje"
+        description: "Naziv dostupne boje."
+        type: string
+        required: true
+        source_field: "dostupneBoje[*]"
+        evidence:
+          source_units: [PH-SU-021, PH-SU-034]
+          requirement_atoms: [PH-RA-015]
+          review_decisions: []
+          support_level: explicit
+          confidence: high
+
+  - id: ProductColor
+    label: "Boja proizvoda"
+    description: "Asocijativni entitet za M:N vezu proizvoda i dostupnih boja."
+    table_name: product_colors
+    kind: association
+    evidence:
+      source_units: [PH-SU-022, PH-SU-034]
+      requirement_atoms: [PH-RA-015]
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+    attributes: []
+
+  - id: PrintService
+    label: "Usluga stampe"
+    description: "Tip usluge stampe ili preslikaca koji moze biti ponudjen za proizvod."
+    table_name: print_services
+    kind: lookup
+    evidence:
+      source_units: [PH-SU-023, PH-SU-026, PH-SU-036]
+      requirement_atoms: [PH-RA-016]
+      review_decisions: [PH-RD-006]
+      support_level: explicit
+      confidence: high
+    attributes:
+      - id: code
+        label: "Sifra usluge"
+        description: "Identifikator usluge stampe iz JSON priloga."
+        type: string
+        required: true
+        source_field: "idUsluge"
+        evidence:
+          source_units: [PH-SU-026, PH-SU-036]
+          requirement_atoms: [PH-RA-016]
+          review_decisions: [PH-RD-006]
+          support_level: explicit
+          confidence: high
+      - id: name
+        label: "Naziv usluge"
+        description: "Tip ili naziv usluge stampe."
+        type: string
+        required: true
+        source_field: "tipStampe"
+        evidence:
+          source_units: [PH-SU-026, PH-SU-036]
+          requirement_atoms: [PH-RA-016]
+          review_decisions: [PH-RD-006]
+          support_level: explicit
+          confidence: high
+
+  - id: ProductPrintService
+    label: "Usluga stampe za proizvod"
+    description: "Asocijativni entitet za M:N vezu proizvoda i usluge stampe, sa cenom i dimenzijama za konkretan proizvod."
+    table_name: product_print_services
+    kind: association
+    evidence:
+      source_units: [PH-SU-023, PH-SU-024, PH-SU-025, PH-SU-027, PH-SU-036]
+      requirement_atoms: [PH-RA-017, PH-RA-018]
+      review_decisions: [PH-RD-006]
+      support_level: explicit
+      confidence: high
+      notes:
+        - "Cena i dimenzije su na asocijaciji jer zavise od ponude usluge za konkretan proizvod."
+    attributes:
+      - id: additional_price
+        label: "Dodatna cena"
+        description: "Dodatna cena usluge stampe po komadu za konkretan proizvod."
+        type: money
+        required: true
+        precision: 10
+        scale: 2
+        source_field: "dodatnaCenaPoKomadu"
+        evidence:
+          source_units: [PH-SU-027, PH-SU-028, PH-SU-036]
+          requirement_atoms: [PH-RA-018, PH-RA-019]
+          review_decisions: [PH-RD-006]
+          support_level: explicit
+          confidence: high
+      - id: max_width_mm
+        label: "Maksimalna sirina"
+        description: "Maksimalna sirina stampe u milimetrima za konkretnu uslugu na proizvodu."
+        type: integer
+        required: true
+        source_field: "maxSirinaMm"
+        evidence:
+          source_units: [PH-SU-027, PH-SU-036]
+          requirement_atoms: [PH-RA-018]
+          review_decisions: [PH-RD-006]
+          support_level: explicit
+          confidence: high
+      - id: max_height_mm
+        label: "Maksimalna visina"
+        description: "Maksimalna visina stampe u milimetrima za konkretnu uslugu na proizvodu."
+        type: integer
+        required: true
+        source_field: "maxVisinaMm"
+        evidence:
+          source_units: [PH-SU-027, PH-SU-036]
+          requirement_atoms: [PH-RA-018]
+          review_decisions: [PH-RD-006]
+          support_level: explicit
+          confidence: high
+
+relationships:
+  - id: ProductPrintShop
+    label: "Proizvod pripada stampariji"
+    description: "Jedna stamparija ima vise proizvoda, a proizvod pripada tacno jednoj stampariji."
+    from: Product
+    to: PrintShop
+    cardinality: many_to_one
+    required: true
+    evidence:
+      source_units: [PH-SU-004, PH-SU-006]
+      requirement_atoms: [PH-RA-003, PH-RA-005]
+      review_decisions: [PH-RD-001, PH-RD-003]
+      support_level: explicit
+      confidence: high
+
+  - id: SubcategoryCategory
+    label: "Potkategorija pripada kategoriji"
+    description: "Svaka potkategorija pripada tacno jednoj kategoriji."
+    from: Subcategory
+    to: Category
+    cardinality: many_to_one
+    required: true
+    evidence:
+      source_units: [PH-SU-010]
+      requirement_atoms: [PH-RA-007]
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+
+  - id: ProductSubcategory
+    label: "Proizvod pripada potkategoriji"
+    description: "Svaki proizvod pripada tacno jednoj potkategoriji."
+    from: Product
+    to: Subcategory
+    cardinality: many_to_one
+    required: true
+    evidence:
+      source_units: [PH-SU-011, PH-SU-012, PH-SU-033]
+      requirement_atoms: [PH-RA-008, PH-RA-009]
+      review_decisions: [PH-RD-002]
+      support_level: explicit
+      confidence: high
+
+  - id: ProductImages
+    label: "Proizvod ima slike"
+    description: "Proizvod moze imati jednu glavnu sliku i vise dodatnih slika."
+    from: Product
+    to: ProductImage
+    cardinality: one_to_many
+    required: false
+    evidence:
+      source_units: [PH-SU-019, PH-SU-020, PH-SU-035]
+      requirement_atoms: [PH-RA-014]
+      review_decisions: [PH-RD-005]
+      support_level: explicit
+      confidence: high
+
+  - id: ProductAvailableColors
+    label: "Proizvod ima dostupne boje"
+    description: "Proizvod moze imati vise dostupnih boja, a boja moze biti dostupna za vise proizvoda."
+    from: Product
+    to: Color
+    cardinality: many_to_many
+    through: ProductColor
+    required: false
+    evidence:
+      source_units: [PH-SU-021, PH-SU-022, PH-SU-034]
+      requirement_atoms: [PH-RA-015]
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+
+  - id: ProductPrintServices
+    label: "Proizvod ima usluge stampe"
+    description: "Proizvod moze imati vise usluga stampe, a usluga stampe moze biti ponudjena za vise proizvoda."
+    from: Product
+    to: PrintService
+    cardinality: many_to_many
+    through: ProductPrintService
+    required: false
+    evidence:
+      source_units: [PH-SU-023, PH-SU-024, PH-SU-025]
+      requirement_atoms: [PH-RA-016, PH-RA-017]
+      review_decisions: [PH-RD-006]
+      support_level: explicit
+      confidence: high
+
+constraints:
+  - id: product_code_unique_per_print_shop
+    type: unique
+    owner: Product
+    fields: [print_shop_id, code]
+    description: "Sifra proizvoda je jedinstvena u okviru stamparije."
+    evidence:
+      source_units: [PH-SU-013]
+      requirement_atoms: [PH-RA-010]
+      review_decisions: [PH-RD-003]
+      support_level: explicit
+      confidence: high
+
+  - id: product_name_required
+    type: required
+    owner: Product
+    field: name
+    description: "Naziv proizvoda je obavezan za katalogski prikaz."
+    evidence:
+      source_units: [PH-SU-014]
+      requirement_atoms: [PH-RA-011]
+      review_decisions: [PH-RD-004]
+      support_level: explicit
+      confidence: high
+
+  - id: product_unit_price_positive
+    type: min_exclusive
+    owner: Product
+    field: unit_price
+    value: 0
+    description: "Jedinicna cena proizvoda mora biti pozitivna."
+    evidence:
+      source_units: [PH-SU-016]
+      requirement_atoms: [PH-RA-012]
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+
+  - id: product_stock_quantity_non_negative
+    type: min_inclusive
+    owner: Product
+    field: stock_quantity
+    value: 0
+    description: "Kolicina proizvoda na lageru ne sme biti negativna."
+    evidence:
+      source_units: [PH-SU-017, PH-SU-018]
+      requirement_atoms: [PH-RA-013]
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+
+  - id: product_print_service_additional_price_non_negative
+    type: min_inclusive
+    owner: ProductPrintService
+    field: additional_price
+    value: 0
+    description: "Dodatna cena usluge stampe ne sme biti negativna."
+    evidence:
+      source_units: [PH-SU-028]
+      requirement_atoms: [PH-RA-019]
+      review_decisions: []
+      support_level: explicit
+      confidence: high
+
+  - id: category_name_unique
+    type: unique
+    owner: Category
+    fields: [name]
+    description: "Naziv kategorije je jedinstven."
+    evidence:
+      source_units: [PH-SU-007, PH-SU-008]
+      requirement_atoms: [PH-RA-021]
+      review_decisions: [PH-RD-008]
+      support_level: inferred
+      confidence: medium
+
+  - id: subcategory_name_unique_per_category
+    type: unique
+    owner: Subcategory
+    fields: [category_id, name]
+    description: "Naziv potkategorije je jedinstven u okviru kategorije."
+    evidence:
+      source_units: [PH-SU-007, PH-SU-009, PH-SU-010]
+      requirement_atoms: [PH-RA-021]
+      review_decisions: [PH-RD-008]
+      support_level: inferred
+      confidence: medium
+
+import_specs:
+  - id: PrintShopCatalogImport
+    label: "JSON import kataloga stamparije"
+    description: "Import lager liste proizvoda, boja, slika i usluga stampe iz JSON fajla."
+    format: json
+    source:
+      source_units: [PH-SU-029, PH-SU-030, PH-SU-031, PH-SU-032, PH-SU-033, PH-SU-034, PH-SU-035, PH-SU-036, PH-SU-037]
+      source_id: ph_catalog_json
+      file: "pia/raw/2025_2026/2025_2026_003_projektni_zadatak_za_avgustovski_i_septembarski_rok_za_skolsku_2025_2026_godine_mozete_preuzeti_ovde_minimalni_zahtevi_z.json"
+    root: "$"
+    mappings:
+      - source_path: "$.stampaorijaId"
+        target: PrintShop.code
+        notes:
+          - "Izvorni naziv polja je sacuvan, a model koristi PrintShop.code."
+      - source_path: "$.nazivStamparije"
+        target: PrintShop.name
+      - source_path: "$.proizvodi[*].sifra"
+        target: Product.code
+      - source_path: "$.proizvodi[*].naziv"
+        target: Product.name
+      - source_path: "$.proizvodi[*].opis"
+        target: Product.description
+      - source_path: "$.proizvodi[*].kategorija"
+        target: Category.name
+      - source_path: "$.proizvodi[*].potkategorija"
+        target: Subcategory.name
+      - source_path: "$.proizvodi[*].jedinicnaCena"
+        target: Product.unit_price
+      - source_path: "$.proizvodi[*].kolicinaNaLageru"
+        target: Product.stock_quantity
+      - source_path: "$.proizvodi[*].dostupneBoje[*]"
+        target: Color.name
+      - source_path: "$.proizvodi[*].slikaUrl"
+        target: ProductImage.image_url
+        notes:
+          - "Mapira glavnu sliku proizvoda; ProductImage.is_primary je true za ovaj izvor."
+      - source_path: "$.proizvodi[*].dodatneSlike[*]"
+        target: ProductImage.image_url
+        notes:
+          - "Mapira dodatne slike proizvoda; ProductImage.is_primary je false za ovaj izvor."
+      - source_path: "$.proizvodi[*].uslugeStampe[*].idUsluge"
+        target: PrintService.code
+      - source_path: "$.proizvodi[*].uslugeStampe[*].tipStampe"
+        target: PrintService.name
+      - source_path: "$.proizvodi[*].uslugeStampe[*].dodatnaCenaPoKomadu"
+        target: ProductPrintService.additional_price
+      - source_path: "$.proizvodi[*].uslugeStampe[*].maxSirinaMm"
+        target: ProductPrintService.max_width_mm
+      - source_path: "$.proizvodi[*].uslugeStampe[*].maxVisinaMm"
+        target: ProductPrintService.max_height_mm
+    evidence:
+      source_units: [PH-SU-029, PH-SU-030, PH-SU-031, PH-SU-032, PH-SU-033, PH-SU-034, PH-SU-035, PH-SU-036, PH-SU-037]
+      requirement_atoms: [PH-RA-020]
+      review_decisions: [PH-RD-007]
+      support_level: explicit
+      confidence: high
+
+state_machines: []
+derived_views: []
+file_specs: []
