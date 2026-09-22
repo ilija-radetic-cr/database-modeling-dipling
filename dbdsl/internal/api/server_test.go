@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -221,6 +222,164 @@ func TestProcessSourcesEndpointWritesCombinedDocumentWithMock(t *testing.T) {
 	if docRec.Code != http.StatusOK || !strings.Contains(docRec.Body.String(), "OD-S-0001") {
 		t.Fatalf("expected combined document, got %d: %s", docRec.Code, docRec.Body.String())
 	}
+	if !strings.Contains(docRec.Body.String(), `"llm_assisted":true`) || strings.Contains(docRec.Body.String(), `"fallback_used":true`) {
+		t.Fatalf("mock processing did not expose LLM-assisted segmentation: %s", docRec.Body.String())
+	}
+	segmentationReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/source-segmentation", nil)
+	segmentationRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(segmentationRec, segmentationReq)
+	if segmentationRec.Code != http.StatusOK || !strings.Contains(segmentationRec.Body.String(), `"candidates_total":1`) {
+		t.Fatalf("expected segmentation audit artifact, got %d: %s", segmentationRec.Code, segmentationRec.Body.String())
+	}
+}
+
+func TestCanonicalProcessSourcesStageRunsWithoutLLM(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	server := newTestServer(t)
+	projectID, revision := createProjectAndAddPastedText(t, server, "First sentence. Second sentence.")
+
+	stageReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/stages", nil)
+	stageRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(stageRec, stageReq)
+	if stageRec.Code != http.StatusOK || !strings.Contains(stageRec.Body.String(), `"next_stage":"process_sources"`) {
+		t.Fatalf("expected process_sources as next stage, got %d: %s", stageRec.Code, stageRec.Body.String())
+	}
+
+	runReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/stages/process_sources/run", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d,"model":"mock-model"}`, revision))))
+	runRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(runRec, runReq)
+	if runRec.Code != http.StatusAccepted {
+		t.Fatalf("canonical process_sources stage returned %d: %s", runRec.Code, runRec.Body.String())
+	}
+	var started struct {
+		Job struct {
+			ID    string `json:"id"`
+			Stage string `json:"stage"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(runRec.Body.Bytes(), &started); err != nil {
+		t.Fatalf("decode process job: %v", err)
+	}
+	if started.Job.Stage != "process_sources" {
+		t.Fatalf("unexpected stage name: %+v", started.Job)
+	}
+	waitForTestJob(t, server, started.Job.ID)
+
+	docReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/combined-document", nil)
+	docRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(docRec, docReq)
+	if docRec.Code != http.StatusOK || !strings.Contains(docRec.Body.String(), `"sentence_count":2`) {
+		t.Fatalf("canonical stage did not sentence-segment the document: %d %s", docRec.Code, docRec.Body.String())
+	}
+	if !strings.Contains(docRec.Body.String(), `"fallback_used":true`) || !strings.Contains(docRec.Body.String(), `"segmentation_strategy":"deterministic_fallback"`) {
+		t.Fatalf("LLM-free fallback is not visible in the combined-document summary: %s", docRec.Body.String())
+	}
+}
+
+func TestValidationLintIsAvailableThroughStageDispatcher(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	server := newTestServer(t)
+	projectID, revision := createProjectAndAddPastedText(t, server, "Product has a name.")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/stages/validation_lint/run", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d}`, revision))))
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("validation_lint stage was not dispatched: %d %s", rec.Code, rec.Body.String())
+	}
+	var started struct {
+		Job struct {
+			ID string `json:"id"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil {
+		t.Fatalf("decode validation job: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		job, ok := server.jobs.Get(started.Job.ID)
+		if !ok {
+			t.Fatalf("validation job disappeared")
+		}
+		if job.Status == jobs.StatusFailed || job.Status == jobs.StatusCompleted {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("validation_lint job did not reach a terminal state")
+}
+
+func TestResourceEndpointsRejectStaleBaseRevision(t *testing.T) {
+	server := newTestServer(t)
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects", bytes.NewReader([]byte(`{"name":"Revisions","language":"en"}`)))
+	createRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(createRec, createReq)
+	var created struct {
+		Project struct {
+			ID              string `json:"id"`
+			CurrentRevision int    `json:"current_revision"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+	addReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+created.Project.ID+"/resources", bytes.NewReader([]byte(fmt.Sprintf(`{"title":"Task","content":"Product has a name.","base_revision":%d}`, created.Project.CurrentRevision))))
+	addRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(addRec, addReq)
+	if addRec.Code != http.StatusOK {
+		t.Fatalf("add with current revision returned %d: %s", addRec.Code, addRec.Body.String())
+	}
+	var added struct {
+		Resource struct {
+			ID string `json:"id"`
+		} `json:"resource"`
+		ProjectRevision int `json:"project_revision"`
+	}
+	if err := json.Unmarshal(addRec.Body.Bytes(), &added); err != nil {
+		t.Fatalf("decode resource: %v", err)
+	}
+
+	staleReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+created.Project.ID+"/resources", bytes.NewReader([]byte(fmt.Sprintf(`{"title":"Stale","content":"Stale.","base_revision":%d}`, created.Project.CurrentRevision))))
+	staleRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(staleRec, staleReq)
+	if staleRec.Code != http.StatusConflict || !strings.Contains(staleRec.Body.String(), "revision_conflict") {
+		t.Fatalf("stale resource write returned %d: %s", staleRec.Code, staleRec.Body.String())
+	}
+	var upload bytes.Buffer
+	writer := multipart.NewWriter(&upload)
+	if err := writer.WriteField("base_revision", fmt.Sprint(created.Project.CurrentRevision)); err != nil {
+		t.Fatalf("write upload revision: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", "stale.txt")
+	if err != nil {
+		t.Fatalf("create upload part: %v", err)
+	}
+	if _, err := part.Write([]byte("Stale upload.")); err != nil {
+		t.Fatalf("write upload: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close upload: %v", err)
+	}
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+created.Project.ID+"/resources/upload", &upload)
+	uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+	uploadRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusConflict {
+		t.Fatalf("stale resource upload returned %d: %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/projects/%s/resources/%s?base_revision=%d", created.Project.ID, added.Resource.ID, created.Project.CurrentRevision), nil)
+	deleteRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusConflict {
+		t.Fatalf("stale resource delete returned %d: %s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	deleteReq = httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/projects/%s/resources/%s?base_revision=%d", created.Project.ID, added.Resource.ID, added.ProjectRevision), nil)
+	deleteRec = httptest.NewRecorder()
+	server.Handler().ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("current resource delete returned %d: %s", deleteRec.Code, deleteRec.Body.String())
+	}
 }
 
 func TestSourceUnitEndpointRunsRealRunnerAndReturnsQA(t *testing.T) {
@@ -295,10 +454,10 @@ func TestSourceUnitReviewEndpointResolvesAttentionGate(t *testing.T) {
 		t.Fatalf("write QA fixture: %v", err)
 	}
 
-	reviewReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/source-units/SU-001/review", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d,"decision":"revise","normalized_text":"Each product has a name.","note":"Clarified wording."}`, revision))))
+	reviewReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/source-units/SU-001/review", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d,"decision":"revise","normalized_text":"Products have names.","note":"Confirmed deterministic normalization."}`, revision))))
 	reviewRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(reviewRec, reviewReq)
-	if reviewRec.Code != http.StatusOK || !strings.Contains(reviewRec.Body.String(), `"remaining_needs_attention":0`) || !strings.Contains(reviewRec.Body.String(), "Each product has a name.") {
+	if reviewRec.Code != http.StatusOK || !strings.Contains(reviewRec.Body.String(), `"remaining_needs_attention":0`) || !strings.Contains(reviewRec.Body.String(), "Products have names.") {
 		t.Fatalf("unexpected review response %d: %s", reviewRec.Code, reviewRec.Body.String())
 	}
 

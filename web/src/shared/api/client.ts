@@ -13,6 +13,7 @@ import type {
   JobRef,
   LlmStatus,
 	LLMRunSummary,
+	LLMOptimizationReport,
   ModelElementDetails,
   ModelGraph,
   MutationResult,
@@ -28,6 +29,9 @@ import type {
 	SourceUnit,
 	SourceUnitQA,
 	SourceUnitReviewResult,
+	SourceFidelityReport,
+	SourceSegmentationProposal,
+	SourceSegmentationQA,
   StructuredExample,
   TraceIndex,
 } from "./types";
@@ -123,15 +127,17 @@ export const api = {
     request<MutationResult>(`/projects/${projectId}/resources/${encodeURIComponent(resourceId)}`, { method: "DELETE" }),
   sourceManifest: (projectId: string) => request<{ manifest: SourceManifest }>(`/projects/${projectId}/source-manifest`),
   combinedDocument: (projectId: string) => request<{ combined_document: CombinedDocument }>(`/projects/${projectId}/combined-document`),
-  sourceFidelity: (projectId: string) => request<{ source_fidelity: { ok: boolean; normative_coverage: number; needs_attention: string[] } }>(`/projects/${projectId}/source-fidelity`),
+	sourceSegmentation: (projectId: string) =>
+		request<{ proposal: SourceSegmentationProposal; qa: SourceSegmentationQA }>(`/projects/${projectId}/source-segmentation`),
+  sourceFidelity: (projectId: string) => request<{ source_fidelity: SourceFidelityReport }>(`/projects/${projectId}/source-fidelity`),
   processSources: (
     projectId: string,
     baseRevision: number,
-    body: { model?: string; reasoning_effort?: string; max_output_tokens?: number; mock?: boolean } = {},
+		options: { model?: string; reasoning_effort?: string; max_output_tokens?: number; mock?: boolean } = {},
   ) =>
     request<JobRef>(`/projects/${projectId}/process-sources`, {
       method: "POST",
-      body: JSON.stringify({ base_revision: baseRevision, ...body }),
+			body: JSON.stringify({ base_revision: baseRevision, ...options }),
     }),
 	runStage: (projectId: string, stage: ProjectStageName, baseRevision: number, mock = false) =>
 		request<JobRef>(`/projects/${projectId}/stages/${stage}/run`, {
@@ -162,7 +168,7 @@ export const api = {
 	reviewSourceUnit: (
 		projectId: string,
 		sourceUnitId: string,
-		body: { base_revision: number; decision: "accept" | "revise" | "exclude"; normalized_text?: string; note?: string },
+		body: { base_revision: number; decision: "accept" | "revise" | "exclude"; note?: string },
 	) =>
 		request<SourceUnitReviewResult>(`/projects/${projectId}/source-units/${encodeURIComponent(sourceUnitId)}/review`, {
 			method: "POST",
@@ -187,6 +193,16 @@ export const api = {
       method: "POST",
 		body: JSON.stringify({ base_revision: baseRevision, selected_option: selectedOption, mock }),
     }),
+	answerReviewBatch: (
+		projectId: string,
+		baseRevision: number,
+		selections: Array<{ candidate_id: string; selected_option_id: string }>,
+		activeReviewMs: number,
+	) =>
+		request<JobRef>(`/projects/${projectId}/review-decisions/batch`, {
+			method: "POST",
+			body: JSON.stringify({ base_revision: baseRevision, selections, reviewed_by: "web_user", active_review_ms: activeReviewMs }),
+		}),
   applyRecommended: (projectId: string, baseRevision: number) =>
     request<JobRef & { project_revision: number }>(`/projects/${projectId}/review-candidates/apply-recommended`, {
       method: "POST",
@@ -235,6 +251,7 @@ export const api = {
 	jobs: (projectId: string) => request<{ items: Job[] }>(`/projects/${projectId}/jobs`),
 	job: (projectId: string, jobId: string) => request<{ job: Job }>(`/projects/${projectId}/jobs/${jobId}`),
 	llmRuns: (projectId: string) => request<{ items: LLMRunSummary[] }>(`/projects/${projectId}/llm-runs`),
+	optimizationReport: (projectId: string) => request<{ report: LLMOptimizationReport }>(`/projects/${projectId}/optimization-report`),
 	retryJob: (projectId: string, jobId: string, baseRevision: number) =>
 		request<JobRef>(`/projects/${projectId}/jobs/${jobId}/retry`, { method: "POST", body: JSON.stringify({ base_revision: baseRevision }) }),
   exportURL: (projectId: string, kind: "dbml" | "report" | "bundle") => `${baseURL}/projects/${projectId}/exports/${kind}`,

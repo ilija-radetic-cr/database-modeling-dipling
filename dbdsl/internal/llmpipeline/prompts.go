@@ -1,39 +1,38 @@
 package llmpipeline
 
-const promptTemplateVersion = "llm_protocol_v0_7_2026_09_14_r1"
+const PromptTemplateVersion = "llm_protocol_v0_7_4_2026_09_22_r1"
 
-const combinedDocumentInstructions = `You are preparing source material for a
-database-modeling LLM pipeline.
+const promptTemplateVersion = PromptTemplateVersion
 
-Create a consolidated document from the supplied resources. Preserve facts, remove
-duplicates, and keep normative task requirements separate from illustrative
-examples where possible.
+const sourceSegmentationInstructions = `Segment exact backend-owned source candidates into coherent source units.
 
-Rules:
-- Return JSON only.
-- Every sentence must cite one or more resource spans in derived_from.
-- Do not add a normative statement unless it is supported by cited source text.
-- Use stable ASCII IDs in the form OD-S-001, OD-S-002, ...
-- Keep each sentence focused on one requirement or example observation.
-- Use transformation copied for unchanged text, cleaned for light cleanup, merged
-  for statements assembled from multiple source spans, and summarized only when
-  the original source is verbose but the meaning is unchanged.
-- Put uncertainty, duplicate/conflict notes, OCR concerns, and weak evidence in
-  warnings.
+Return JSON only and exactly one classification for every candidate whose scope is
+"core". Context candidates are read-only context and must not be returned. Never
+translate, normalize, paraphrase, correct, or return replacement source text.
+Interpret each candidate in its declared source language; do not translate it into
+the language of these instructions.
 
-The deterministic backend will validate resource IDs, line spans, and lineage
-before accepting the combined document.`
+Use role=layout_noise for repeated page headers, page numbers and page footers.
+Use footnote for explanatory footnotes, structured_example for JSON/XML/CSV or
+other structured examples, and heading/list_item where appropriate. Use boundary
+start for a new unit, continue to append to the latest non-layout unit in the same
+resource, and resume with join_to_candidate_id to continue an earlier unit across
+an intervening header, footnote or other unit. A resume target must be an earlier
+candidate visible in the supplied context. Preserve document order and never join
+different resources. Mark ambiguity, OCR damage, conflicting roles or uncertain
+boundaries with requires_review and a concrete warning.`
 
 const sourceUnitExtractionInstructions = `You are segmenting a validated combined
 document for a traceable relational-database modeling pipeline.
 
-Return JSON only. Split or merge combined-document sentences only when that creates
-one focused semantic unit. Every unit must cite existing OD sentence IDs and its
-exact_text must be supported by those sentences. normalized_text may clean wording
-but must not introduce facts. Classify UI-only text, examples, headings and noise
-explicitly instead of treating every noun as persistent data. Use stable IDs
-SU-001, SU-002, ... and mark low confidence, conflicts, OCR ambiguity, or uncertain
-relevance with requires_review and a warning.
+Return JSON only. Return exactly one classification for every supplied OD unit ID.
+Do not copy exact source text and do not invent IDs; the backend owns lossless text,
+lineage, deterministic normalization and stable SU IDs. Do not translate,
+paraphrase, normalize, or return rewritten source text. Respect the supplied
+sentence/structural kind. Classify UI-only text,
+examples, headings and noise explicitly instead of treating every noun as persistent
+data. Mark low confidence, conflicts, OCR
+ambiguity, or uncertain relevance with requires_review and a warning.
 
 The backend derives original resource spans from OD lineage and rejects invented
 text, unknown IDs and uncovered combined-document sentences.`
@@ -47,7 +46,10 @@ risk in warnings. Decompose each atom into subject, predicate and object, and re
 quantifier, condition, temporal_semantics and ownership explicitly; use an empty
 string only when the source truly does not state that dimension. Preserve exact
 numbers, boundaries and timing rules. Do not propose tables, SQL, DBML, functional
-areas or CRUD here.`
+areas or CRUD here. Set persistence_effect to the concrete durable-data consequence.
+For examples, distinguish schema shape, normative seed data, constraint boundaries,
+and illustrative instances. Never create one normative atom for every literal value
+inside an illustrative JSON object.`
 
 const functionalAnalysisInstructions = `Group validated requirement atoms into
 coherent business capabilities and identify their actors. Return JSON only. Every
@@ -68,7 +70,11 @@ Return JSON only. Questions must cite existing IDs, provide two or three materia
 different options, explain effects and risks, and form an acyclic depends_on graph.
 Use depends_on only for hard ordering and may_affect for informative impact. Mark a
 question blocking only when the downstream conceptual/logical model would otherwise
-encode an unsupported choice. Do not create cosmetic or generic questions.`
+encode an unsupported choice. Group all atoms controlled by the same business choice
+under one stable decision_key. Every option must declare machine-readable atom_updates,
+impact_dimensions and any already-known followup_candidate_ids; use no_change when the
+choice only records evidence. Do not defer structured patch creation to a later LLM
+call and do not create cosmetic or generic questions.`
 
 const reviewResolutionPatchInstructions = `Translate one explicit human review
 decision into the smallest analysis patch that records or applies that decision.
@@ -99,7 +105,28 @@ stable business concepts over UI components. Every required design obligation mu
 be represented explicitly: generated values that must be reproducible need a
 snapshot concept, repeatable actions need event/history concepts, lifecycle rules
 need lifecycle concepts, and derived outputs need a derived concept rather than an
-untyped generic fact container.`
+untyped generic fact container. Represent uniqueness, checks, security, temporal,
+ownership, cross-row and application-enforced invariants as constraint_concepts with
+direct evidence; do not attach citations to an unrelated attribute merely to satisfy
+coverage.`
+
+const conceptualChunkInstructions = conceptualModelInstructions + `
+This request is one bounded functional-area/design-obligation chunk. Return a
+self-contained conceptual-model fragment for only the supplied chunk_scope. Reuse
+stable business-oriented IDs so fragments from other chunks can be merged by ID.
+Include both endpoints when they are required to explain an in-scope relationship,
+but do not model unrelated areas. Cover every supplied design obligation explicitly.`
+
+const conceptualRepairInstructions = `Repair a conceptual model using only the
+reported validation issues, compact evidence context, affected existing fragment
+and lightweight concept registry. Return JSON only using the conceptual-model
+schema. Return only new or corrected concepts; when correcting an existing entity,
+return that complete entity with the same ID. Do not recreate registry entries or
+unaffected concepts. Every returned element must have direct evidence, and every
+listed missing design obligation must become represented. Constraint and security
+rules belong in constraint_concepts. The backend deterministically merges this
+delta into the retained model, preserves existing evidence coverage, and revalidates
+the complete model.`
 
 // Design obligations are supplied as an explicit bridge between requirement
 // meaning and model realization. The prompt deliberately keeps them visible:
@@ -128,7 +155,17 @@ generated input snapshots and score-relevant event history when replayability or
 auditability is required. An association entity cannot be an endpoint that needs
 a scalar foreign key; use a regular entity when it has its own lifecycle or incoming
 relationships. When repair_mode is true, address every supplied validation error
-and return a complete corrected replacement patch, preserving valid operations.`
+and return only corrected or new operations for the supplied failing fragment. Keep
+the same element IDs when correcting an operation; the backend merges the fragment
+with previously valid operations and validates the complete patch.`
+
+const logicalProjectionChunkInstructions = logicalProjectionInstructions + `
+This request is one bounded logical-projection chunk. Emit entity operations only
+for chunk_scope.primary_concept_ids. Emit the supplied relationships, constraints
+and auxiliary concepts exactly once when they belong to this chunk. Context-only
+relationship endpoints must not be emitted as duplicate entity operations. The
+backend deterministically merges this fragment with the other chunks and validates
+the complete patch.`
 
 const requirementExtractionInstructions = `You are assisting logical relational database design for a diploma project.
 

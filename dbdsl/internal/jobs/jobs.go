@@ -129,10 +129,11 @@ func (m *Manager) StartWithRevision(projectID, jobType string, inputRevision int
 		CreatedAt: now,
 	})
 	m.persistLocked()
+	job := state.job
 	m.mu.Unlock()
 
 	go m.run(id, steps, runner)
-	return state.job
+	return job
 }
 
 func (m *Manager) List(projectID string) []Job {
@@ -413,14 +414,16 @@ func terminal(status Status) bool {
 
 func humanStep(step string) string {
 	switch step {
-	case "extract_text":
-		return "Extracting text."
+	case "load_extracted_resources":
+		return "Loading extracted resources."
 	case "write_source_manifest":
 		return "Writing source manifest."
-	case "build_combined_document":
-		return "Building combined source document."
-	case "validate_lineage":
-		return "Validating source lineage."
+	case "segment_source_sentences":
+		return "Segmenting source sentences."
+	case "validate_source_fidelity":
+		return "Validating source fidelity."
+	case "write_combined_document":
+		return "Writing combined source document."
 	case "detect_examples":
 		return "Detecting structured examples."
 	case "create_source_units":

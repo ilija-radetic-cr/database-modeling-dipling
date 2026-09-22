@@ -104,12 +104,10 @@ export function NewProjectPage() {
   });
   const process = useMutation({
     mutationFn: (id: string) =>
-      api.processSources(id, project.data?.project.current_revision ?? projectRevision, {
-        model: llmUseMock ? "mock-model" : llmModel.trim() || llmStatus.data?.default_model || "gpt-5.6-sol",
-        reasoning_effort: "low",
-        max_output_tokens: 12000,
-        mock: llmUseMock,
-      }),
+		api.processSources(id, project.data?.project.current_revision ?? projectRevision, {
+			model: llmModel.trim() || undefined,
+			mock: llmUseMock,
+		}),
     onSuccess: ({ job }) => setJob(job),
   });
   const importExisting = useMutation({
@@ -159,7 +157,7 @@ export function NewProjectPage() {
   const readyResourceCount = resourceItems.filter((item) => item.extraction_status === "ready" || item.extraction_status === "needs_attention").length;
   const activeRevision = project.data?.project.current_revision ?? projectRevision;
   const manifestSummary = sourceManifest.data?.manifest.summary;
-	const actionState = newProjectActionState({ created: ready, name, sourceText, readyResources: readyResourceCount, llmAvailable });
+	const actionState = newProjectActionState({ created: ready, name, sourceText, readyResources: readyResourceCount });
 
   async function addTextToCurrentProject() {
     if (!projectId) return;
@@ -213,9 +211,10 @@ export function NewProjectPage() {
 				disabled={!actionState.canBuildCombinedDocument || process.isPending || !!job}
               >
                 <Play size={18} />
-				Build Combined Document
+				Build LLM-assisted Source Document
               </Button>
             </div>
+			<p className="muted">The backend owns exact spans and fidelity validation. The LLM may only group candidate spans into sentences; if it is unavailable or invalid, processing completes with a visible deterministic fallback.</p>
             <Field label="Upload documents">
               <input
                 className="input"
@@ -278,7 +277,7 @@ export function NewProjectPage() {
 			</div>
 			</details>
             {job && projectId && (
-			<JobProgress projectId={projectId} job={job} onDone={() => navigate(`/projects/${projectId}/analysis/overview`)} />
+			<JobProgress projectId={projectId} job={job} onDone={() => navigate(`/projects/${projectId}/analysis/sources`)} />
             )}
           </div>
         </Panel>
@@ -331,6 +330,8 @@ export function NewProjectPage() {
                 <StatusBadge value={project.data?.artifact_health.source_manifest_status ?? "not_generated"} />
                 <span>Combined document</span>
                 <StatusBadge value={project.data?.artifact_health.combined_document_status ?? "not_generated"} />
+				<span>Segmentation</span>
+				<StatusBadge value={project.data?.artifact_health.source_segmentation_status ?? "not_generated"} />
               </div>
               {resources.isLoading ? (
                 <LoadingState />
@@ -346,6 +347,9 @@ export function NewProjectPage() {
                 <div className="artifact-preview">
                   <div className="toolbar">
                     <Badge tone="good">{combinedDocument.data.combined_document.summary.sentence_count} OD sentences</Badge>
+					<Badge tone={combinedDocument.data.combined_document.summary.fallback_used ? "warn" : "good"}>
+						{combinedDocument.data.combined_document.summary.fallback_used ? "deterministic fallback" : "LLM-assisted segmentation"}
+					</Badge>
                     <Badge tone={combinedDocument.data.combined_document.summary.warning_count ? "warn" : "good"}>
                       {combinedDocument.data.combined_document.summary.warning_count} warnings
                     </Badge>

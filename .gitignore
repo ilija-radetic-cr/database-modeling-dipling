@@ -2,15 +2,27 @@
 .env
 .env.*
 !.env.example
+.codex/
+.agents/
+.venv/
+__pycache__/
+*.pyc
 
 # Runtime state and generated outputs
 .dbdsl_workbench/
 output/
+bin/
+tmp/
+.cache/
+*.log
+*.zip
 
 # Go
 dbdsl/dbdsl
 dbdsl/dbdsl-server
 dbdsl/*.test
+*.prof
+coverage.out
 
 # Frontend
 web/node_modules/
@@ -18,4 +30,3 @@ web/dist/
 web/*.tsbuildinfo
 web/vite.config.js
 web/vite.config.d.ts
-

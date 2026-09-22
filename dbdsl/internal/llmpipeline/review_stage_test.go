@@ -2,15 +2,32 @@ package llmpipeline
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"dbdsl/internal/dsl"
 	"dbdsl/internal/llm"
 )
 
+func TestReviewStageSkipsProviderWhenNoSemanticNeed(t *testing.T) {
+	dir := t.TempDir()
+	atoms := []RequirementAtomProposal{{ID: "RA-001", SourceUnits: []string{"SU-001"}, SupportLevel: "explicit", Confidence: "high", ModelingOutcome: "represented", PersistenceEffect: "required"}}
+	proposal, qa, err := RunProjectReview(context.Background(), nil, ProjectReviewOptions{
+		OutDir: dir, SourceUnits: []dsl.SourceUnit{{ID: "SU-001"}}, RequirementAtoms: atoms,
+		FunctionalAreas: []FunctionalAreaProposal{{ID: "core", Atoms: []string{"RA-001"}}},
+	})
+	if err != nil || !qa.OK || len(proposal.ReviewCandidates) != 0 {
+		t.Fatalf("deterministic review call gate failed: proposal=%+v qa=%+v err=%v", proposal, qa, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "llm_runs", "review_candidate_call_gate.json")); err != nil {
+		t.Fatalf("call-gate audit event was not written: %v", err)
+	}
+}
+
 func TestReviewStageAndResolutionPatchWithMock(t *testing.T) {
 	units := []dsl.SourceUnit{{ID: "SU-001", Text: dsl.SourceUnitText{Exact: "Products exist.", Normalized: "Products exist."}}}
-	atoms := []RequirementAtomProposal{{ID: "RA-001", Statement: "Products exist.", SourceUnits: []string{"SU-001"}, SupportLevel: "explicit", Confidence: "high", ModelingOutcome: "represented"}}
+	atoms := []RequirementAtomProposal{{ID: "RA-001", Statement: "Products exist.", SourceUnits: []string{"SU-001"}, SupportLevel: "explicit", Confidence: "high", ModelingOutcome: "represented", RequiresReview: true}}
 	areas := []FunctionalAreaProposal{{ID: "core", MainActors: []string{"system"}, Atoms: []string{"RA-001"}}}
 	actors := []ActorProposal{{ID: "system"}}
 	operations := []CRUDOperationProposal{{ID: "OP-001", ActorID: "system", FunctionalAreaID: "core", RequirementAtoms: []string{"RA-001"}, SourceUnits: []string{"SU-001"}}}
@@ -56,6 +73,24 @@ func TestReviewResolutionNormalizesExactDecisionOptionComposite(t *testing.T) {
 	normalizeReviewDecisionLinks(&unexpected, "RD-001", "RC-001-O2")
 	if ValidateReviewResolutionPatch(unexpected, ProjectReviewCandidateProposal{AffectedAtoms: []string{"RA-001"}}, "RD-001", []RequirementAtomProposal{{ID: "RA-001"}}).OK {
 		t.Fatal("unexpected composite reference must remain rejected")
+	}
+}
+
+func TestDeterministicReviewResolutionAppliesDeclaredEffects(t *testing.T) {
+	atoms := []RequirementAtomProposal{{ID: "RA-001"}, {ID: "RA-002"}}
+	candidate := ProjectReviewCandidateProposal{ID: "RC-001", AffectedAtoms: []string{"RA-001", "RA-002"}}
+	option := ReviewOptionProposal{ID: "RC-001-O1", Effects: &ReviewOptionEffects{
+		ModelingOutcome: "represented", PersistenceEffect: "required", SupportLevel: "explicit",
+	}}
+	if !HasStructuredReviewEffects(option) {
+		t.Fatal("option with declared effects must use deterministic resolution")
+	}
+	patch, qa := BuildDeterministicReviewResolutionPatch(candidate, option, "RD-001", atoms)
+	if !qa.OK {
+		t.Fatalf("deterministic patch failed QA: %+v", qa)
+	}
+	if len(patch.Operations) != 8 || len(patch.NewReviewCandidates) != 0 || patch.RequiresHumanReview {
+		t.Fatalf("unexpected deterministic patch: %+v", patch)
 	}
 }
 

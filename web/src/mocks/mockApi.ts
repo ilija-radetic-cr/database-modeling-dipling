@@ -6,6 +6,8 @@ import type {
   ProjectSummary,
   ReviewCandidate,
   SourceManifest,
+	SourceSegmentationProposal,
+	SourceSegmentationQA,
   SourceUnit,
 } from "@/shared/api/types";
 
@@ -37,7 +39,7 @@ const sourceManifest: SourceManifest = {
     id: "project_phf_source_manifest",
     project_id: "project_phf",
     project_name: "Printing House Full",
-    pipeline_version: "0.6",
+	pipeline_version: "0.7.4",
     workspace_path: ".dbdsl_workbench/projects/project_phf",
     generated_at: new Date().toISOString(),
   },
@@ -52,29 +54,35 @@ const sourceManifest: SourceManifest = {
 };
 
 const combinedDocument: CombinedDocument = {
-  markdown: "# Combined Document\n\n[OD-S-001] Postoje tri vrste korisnika: klijenti, stampari i administrator web sistema.\n",
+  markdown: "# Combined Document\n\n[OD-S-001] Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.\n",
   lineage: {
     document: {
       id: "project_phf_combined_document_lineage",
       project_id: "project_phf",
       project_name: "Printing House Full",
       source_manifest_file: "source_manifest.yaml",
-      pipeline_version: "0.6",
+		pipeline_version: "0.7.4",
       created_at: new Date().toISOString(),
     },
     sentences: [
       {
         id: "OD-S-001",
-        text: "Postoje tri vrste korisnika: klijenti, stampari i administrator web sistema.",
+        kind: "sentence",
+        text: "Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.",
         derived_from: [
           {
             resource_id: "R-001",
+			source_segment_id: "R-001-S-0009",
             line_start: 9,
             line_end: 9,
-            exact_text: "Postoje tri vrste korisnika: klijenti, stampari i administrator web sistema.",
+			start_byte: 0,
+			end_byte: 81,
+            exact_text: "Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.",
           },
         ],
         transformation: "copied",
+		role: "semantic",
+		segmentation_strategy: "llm_candidate_grouping_v1",
         confidence: "high",
         warnings: [],
       },
@@ -84,10 +92,34 @@ const combinedDocument: CombinedDocument = {
   },
   summary: {
     status: "ready",
+	unit_count: 1,
     sentence_count: 1,
+	structural_unit_count: 0,
     resource_count: 1,
     warning_count: 0,
+	segmentation_strategy: "llm_candidate_grouping_v1",
+	llm_assisted: true,
+	fallback_used: false,
+	needs_attention_count: 0,
+	layout_segment_count: 0,
   },
+};
+
+const sourceSegmentation: { proposal: SourceSegmentationProposal; qa: SourceSegmentationQA } = {
+	proposal: {
+		candidates: [{
+			id: "SC-000001", segment_id: "R-001-S-0009", resource_id: "R-001",
+			line_start: 9, line_end: 9, start_byte: 0, end_byte: 81,
+			exact_text: "Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.", suggested_role: "semantic",
+		}],
+		groups: [{ id: "SG-000001", role: "semantic", candidate_ids: ["SC-000001"], confidence: "high", requires_review: false, warnings: [], od_sentence_id: "OD-S-001" }],
+		strategy: "llm_candidate_grouping_v1", llm_assisted: true, fallback_used: false, warnings: [], confidence_summary: { overall: "high" },
+	},
+	qa: {
+		ok: true, strategy: "llm_candidate_grouping_v1", candidates_total: 1, candidates_assigned: 1,
+		semantic_groups: 1, structural_groups: 0, layout_groups: 0, needs_attention: [], errors: [], warnings: [],
+		role_counts: { semantic: 1 }, fallback_used: false,
+	},
 };
 
 const project: ProjectSummary = {
@@ -155,7 +187,26 @@ const sourceUnits: SourceUnit[] = [
     kind: "sentence",
     section: "document_title",
     normalized_text: "Postoje tri vrste korisnika: klijenti, stampari i administrator web sistema.",
-    exact_text: "Postoje tri vrste korisnika: klijenti, stampari i administrator web sistema.",
+    normalization: {
+      version: "source_text_normalizer_v1",
+      strategy: "backend_deterministic",
+      exact_hash: "sha256:mock-exact-source-text",
+      normalized_hash: "sha256:mock-normalized-source-text",
+      changed: true,
+      operations: [
+        {
+          kind: "compact_whitespace",
+          before: "Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.",
+          after: "Postoje tri vrste korisnika : klijenti, stampari i administrator web sistema.",
+        },
+        {
+          kind: "normalize_punctuation_spacing",
+          before: "Postoje tri vrste korisnika : klijenti, stampari i administrator web sistema.",
+          after: "Postoje tri vrste korisnika: klijenti, stampari i administrator web sistema.",
+        },
+      ],
+    },
+    exact_text: "Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.",
     relevance: "model_relevant",
     confidence: "high",
     review_status: "open_review",
@@ -163,6 +214,8 @@ const sourceUnits: SourceUnit[] = [
     linked_examples: [],
     linked_requirements: ["PHF-RA-001"],
     open_review_candidates: ["PHF-RC-DEMO-001"],
+    od_sentence_ids: ["OD-S-001"],
+    warnings: [],
   },
 ];
 
@@ -196,7 +249,7 @@ export const mockApi = {
         default_model: "mock-model",
         mock_available: true,
         provider: "mock",
-        pipeline_version: "0.5",
+		pipeline_version: "0.7.4",
       } as T;
     }
     if (path === "/bundles") {
@@ -279,6 +332,8 @@ export const mockApi = {
           analysis_status: "needs_attention",
           source_manifest_status: "ready",
           combined_document_status: "ready",
+			source_segmentation_status: "ready",
+			source_fidelity_status: "ready",
 			source_units_status: "ready",
 			requirement_atoms_status: "ready",
 			functional_analysis_status: "ready",
@@ -306,6 +361,7 @@ export const mockApi = {
 			return {
 				artifact_health: {
 					analysis_status: "needs_attention", source_manifest_status: "ready", combined_document_status: "ready",
+					source_segmentation_status: "ready", source_fidelity_status: "ready",
 					source_units_status: "ready", requirement_atoms_status: "ready", functional_analysis_status: "ready", crud_mapping_status: "ready",
 					review_candidates_status: "ready", conceptual_model_status: "not_generated", model_status: "not_generated", dbml_status: "not_generated",
 					open_review_questions: 1, can_generate_model: false, can_continue_to_dbml: false, can_complete_project: false,
@@ -335,11 +391,18 @@ export const mockApi = {
 			} as T;
 		}
 		if (path === "/projects/project_phf/llm-runs") return { items: [] } as T;
+		if (path === "/projects/project_phf/optimization-report") return { report: {
+			version: 1, project_id: project.id, policy_version: "design_obligations/v0.7.1", budget_policy: "adaptive_v1",
+			context_policy: "minimal_context_v1", call_gate_policy: "semantic_need_v1", risk_policy: "review_risk_value_v1",
+			totals: { runs: 0, provider_calls: 0, cache_hits: 0, retries: 0, input_tokens: 0, output_tokens: 0, total_tokens: 0, wasted_tokens: 0, unknown_usage_attempts: 0, context_bytes: 0, full_context_bytes: 0, context_bytes_saved: 0, context_reduction_ratio: 0 },
+			by_stage: {}, calls_by_reason: {}, avoided_review_resolution_calls: 0, avoided_generation_calls: 0, auto_applied_decisions: 0,
+			batched_manual_decisions: 0, active_review_ms: 0, unresolved_review_questions: 1,
+		} } as T;
 		if (path === "/projects/project_phf/conceptual-model") {
 			return { conceptual_model: { entity_concepts: [], relationships: [], lifecycle_concepts: [], derived_concepts: [], file_concepts: [], import_concepts: [], unresolved_review_ids: [], warnings: [], confidence_summary: {} }, qa: { ok: true, errors: [], warnings: [], coverage: {} } } as T;
 		}
 		if (path === "/projects/project_phf/source-units/qa") {
-			return { qa: { ok: true, derivation_strategy: "llm", od_sentences_total: 1, od_sentences_referenced: 1, unreferenced_od_sentences: [], needs_attention: [], origin_chains: { "PHF-GSU-005": ["OD-S-001", "R-001"] }, errors: [], warnings: [] } } as T;
+			return { qa: { ok: true, derivation_strategy: "llm_classification_backend_normalization", od_sentences_total: 1, od_sentences_referenced: 1, unreferenced_od_sentences: [], needs_attention: [], origin_chains: { "PHF-GSU-005": ["OD-S-001", "R-001"] }, errors: [], warnings: [], review_decisions: [] } } as T;
 		}
 		if (/\/projects\/[^/]+\/source-units\/[^/]+\/review$/.test(path) && method === "POST") {
 			return { project_revision: project.current_revision + 1, source_unit: { ...sourceUnits[0], review_status: "reviewed" }, remaining_needs_attention: 0 } as T;
@@ -361,6 +424,25 @@ export const mockApi = {
     }
     if (path === "/projects/project_phf/combined-document") {
       return { combined_document: combinedDocument } as T;
+    }
+	if (path === "/projects/project_phf/source-segmentation") {
+		return sourceSegmentation as T;
+	}
+    if (path === "/projects/project_phf/source-fidelity") {
+      return { source_fidelity: {
+        ok: true,
+		pipeline_version: "0.7.4",
+        segments_total: 194,
+        normative_segments: 194,
+        normative_covered: 194,
+        normative_coverage: 1,
+        disposition_counts: { retained: 194 },
+        uncovered_segment_ids: [],
+        needs_attention: [],
+        dispositions: [{ segment_id: "R-001-S-0001", status: "retained", od_sentence_ids: ["OD-S-001"] }],
+        errors: [],
+        warnings: [],
+      } } as T;
     }
     if (path.includes("/examples")) {
       return { project_revision: project.current_revision, items: [] } as T;
@@ -385,6 +467,9 @@ export const mockApi = {
     if (path.includes("/review-candidates") && method === "GET") {
       return { project_revision: project.current_revision, items: reviewCandidates, page: { limit: 50, next_cursor: null } } as T;
     }
+		if (path.endsWith("/review-decisions/batch") && method === "POST") {
+			return { job: { id: "job_mock", project_id: project.id, type: "mock", stage: "apply_review_decision_batch", status: "queued", events_url: "/mock", attempt: 1, progress: 0, message: "Job queued.", input_revision: project.current_revision, created_at: new Date().toISOString(), updated_at: new Date().toISOString() } } as T;
+		}
     if (path.includes("/review-decisions")) {
       return { project_revision: project.current_revision, items: [] } as T;
     }

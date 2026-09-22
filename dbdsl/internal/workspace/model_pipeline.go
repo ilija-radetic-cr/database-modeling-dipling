@@ -34,10 +34,35 @@ type ConceptualModelArtifacts struct {
 	QA         llmpipeline.StageQA                  `json:"qa"`
 }
 
+func (s *Store) ConceptualOptimizationPreview(projectID string) (map[string]int, error) {
+	project, units, atoms, functional, crud, decisions, err := s.modelStageInputs(projectID, 0)
+	if err != nil {
+		return nil, err
+	}
+	obligations, err := s.DesignObligations(project.ID)
+	if err != nil {
+		return nil, err
+	}
+	refreshed, qa := llmpipeline.ReclassifyDesignObligations(obligations.Accepted, atoms.RequirementAtoms)
+	if !qa.OK {
+		return nil, fmt.Errorf("design-obligation preview failed: %s", strings.Join(qa.Errors, "; "))
+	}
+	return llmpipeline.ConceptualInputMetrics(llmpipeline.ConceptualModelOptions{
+		SourceUnits: units, RequirementAtoms: atoms.RequirementAtoms, FunctionalAreas: functional.FunctionalAreas,
+		Actors: functional.Actors, Operations: crud.Operations, ReviewDecisions: reviewDecisionIDs(decisions),
+		ReviewDecisionContext: conceptualReviewDecisionInputs(decisions), DesignObligations: refreshed.DesignObligations,
+	}), nil
+}
+
 func (s *Store) GenerateConceptualModel(ctx context.Context, client llm.Client, projectID string, opts ModelStageOptions) (int, []string, error) {
+	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "conceptual_model", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, units, atoms, functional, crud, decisions, err := s.modelStageInputs(projectID, opts.BaseRevision)
 	if err != nil {
 		return 0, nil, err
+	}
+	resolvedProfile := defaultLLMExecutionProfile(opts.Model)
+	if project.LLMExecutionProfile != nil {
+		resolvedProfile = *project.LLMExecutionProfile
 	}
 	if client == nil {
 		return 0, nil, errors.New("LLM client is required for conceptual modeling")
@@ -46,24 +71,57 @@ func (s *Store) GenerateConceptualModel(ctx context.Context, client llm.Client, 
 	if err != nil {
 		return 0, nil, errors.New("design obligations are not ready; rerun the v0.7 requirement stage")
 	}
+	previousObligations := obligationArtifacts.Accepted
+	refreshedObligations, refreshedObligationQA := llmpipeline.ReclassifyDesignObligations(previousObligations, atoms.RequirementAtoms)
+	if !refreshedObligationQA.OK {
+		return 0, nil, fmt.Errorf("design-obligation compatibility migration failed: %s", strings.Join(refreshedObligationQA.Errors, "; "))
+	}
+	requiredObligations := 0
+	for _, obligation := range refreshedObligations.DesignObligations {
+		if obligation.Status != "not_required" && obligation.Persistence != "not_required" {
+			requiredObligations++
+		}
+	}
+	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "conceptual_model", opts.MaxOutputTokens, stageBudgetInput{RequiredObligations: requiredObligations})
 	emit := stageEmitter(opts.OnProgress)
-	emit("propose_conceptual_model", "Proposing a source-backed conceptual model.", 22, nil)
+	migrationReport := designObligationMigrationReport(previousObligations, refreshedObligations)
+	emit("propose_conceptual_model", "Proposing a source-backed conceptual model from v0.7.1 obligations.", 22, map[string]any{"required_obligations": migrationReport["required_after"], "not_required_obligations": migrationReport["not_required_after"]})
 	decisionIDs := reviewDecisionIDs(decisions)
+	controls := s.resolveLLMExecutionControls(projectID)
 	proposal, qa, err := llmpipeline.RunConceptualModel(ctx, client, llmpipeline.ConceptualModelOptions{
 		OutDir: s.projectWorkspaceDir(projectID), SourceUnits: units, RequirementAtoms: atoms.RequirementAtoms,
 		FunctionalAreas: functional.FunctionalAreas, Actors: functional.Actors, Operations: crud.Operations,
 		ReviewDecisions: decisionIDs, ReviewDecisionContext: conceptualReviewDecisionInputs(decisions),
-		DesignObligations: obligationArtifacts.Accepted.DesignObligations,
+		DesignObligations: refreshedObligations.DesignObligations,
 		Model:             opts.Model, ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
+		MaxParallelism: controls.MaxParallelism, MaxRepairAttempts: controls.MaxRepairAttempts,
+		PromptVersion: controls.PromptVersion,
+		OnChunkProgress: func(phase string, completed, total int) {
+			if total <= 0 {
+				return
+			}
+			progress := 22 + completed*42/total
+			message := fmt.Sprintf("Generated conceptual-model chunk %d/%d.", completed, total)
+			if phase == "repair" {
+				progress = 64 + completed*6/total
+				message = fmt.Sprintf("Applied conceptual delta-repair chunk %d/%d.", completed, total)
+			}
+			emit("propose_conceptual_model", message, progress, map[string]any{"phase": phase, "completed_chunks": completed, "total_chunks": total})
+		},
 	})
 	if err != nil {
 		return 0, nil, err
 	}
 	emit("validate_conceptual_model", "Validating conceptual evidence and cardinalities.", 72, coverageMetadata(qa.Coverage))
 	paths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
-		"conceptual_model.proposed.json": {Value: proposal, JSON: true},
-		"conceptual_model_qa.json":       {Value: qa, JSON: true},
-		"conceptual_model_diff.json":     {Value: conceptualModelDiff(s, project, proposal), JSON: true},
+		"conceptual_model.proposed.json":          {Value: proposal, JSON: true},
+		"conceptual_model_qa.json":                {Value: qa, JSON: true},
+		"conceptual_model_diff.json":              {Value: conceptualModelDiff(s, project, proposal), JSON: true},
+		"design_obligations.proposed.json":        {Value: refreshedObligations, JSON: true},
+		"design_obligations.yaml":                 {Value: refreshedObligations},
+		"design_obligation_qa.json":               {Value: refreshedObligationQA, JSON: true},
+		"design_obligation_migration_report.json": {Value: migrationReport, JSON: true},
+		"llm_execution_profile.json":              {Value: map[string]any{"profile": resolvedProfile, "resolved_stage": map[string]any{"stage": "conceptual_model", "model": opts.Model, "reasoning_effort": opts.ReasoningEffort, "max_output_tokens": opts.MaxOutputTokens}}, JSON: true},
 	})
 	if err != nil {
 		return 0, nil, err
@@ -74,6 +132,13 @@ func (s *Store) GenerateConceptualModel(ctx context.Context, client llm.Client, 
 		current.ConceptualModelAcceptedPath = ""
 		current.ConceptualModelQAPath = paths["conceptual_model_qa.json"]
 		current.ConceptualModelDiffPath = paths["conceptual_model_diff.json"]
+		current.DesignObligationsProposalPath = paths["design_obligations.proposed.json"]
+		current.DesignObligationsPath = paths["design_obligations.yaml"]
+		current.DesignObligationQAPath = paths["design_obligation_qa.json"]
+		if current.LLMExecutionProfile == nil {
+			profile := resolvedProfile
+			current.LLMExecutionProfile = &profile
+		}
 		current.LifecycleStatus = "conceptual_review"
 		current.LastActivity = "Conceptual proposal passed deterministic checks and awaits explicit acceptance."
 		return nil
@@ -85,7 +150,37 @@ func (s *Store) GenerateConceptualModel(ctx context.Context, client llm.Client, 
 	return current.CurrentRevision, []string{"conceptual_model"}, nil
 }
 
+func designObligationMigrationReport(before, after llmpipeline.DesignObligationsFile) map[string]any {
+	count := func(file llmpipeline.DesignObligationsFile, persistence string) int {
+		total := 0
+		for _, item := range file.DesignObligations {
+			if item.Persistence == persistence {
+				total++
+			}
+		}
+		return total
+	}
+	changed := []map[string]string{}
+	byID := map[string]llmpipeline.DesignObligation{}
+	for _, item := range before.DesignObligations {
+		byID[item.ID] = item
+	}
+	for _, item := range after.DesignObligations {
+		old := byID[item.ID]
+		if old.Persistence != item.Persistence || old.Status != item.Status {
+			changed = append(changed, map[string]string{"id": item.ID, "from_persistence": old.Persistence, "to_persistence": item.Persistence, "from_status": old.Status, "to_status": item.Status, "rationale": item.Rationale})
+		}
+	}
+	return map[string]any{
+		"policy_version": "design_obligations/v0.7.1", "total": len(after.DesignObligations),
+		"required_before": count(before, "required"), "required_after": count(after, "required"),
+		"not_required_before": count(before, "not_required"), "not_required_after": count(after, "not_required"),
+		"changed": changed,
+	}
+}
+
 func (s *Store) GenerateLogicalModel(ctx context.Context, client llm.Client, projectID string, opts ModelStageOptions) (int, []string, error) {
+	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "logical_model", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, units, atoms, functional, crud, decisions, err := s.modelStageInputs(projectID, opts.BaseRevision)
 	if err != nil {
 		return 0, nil, err
@@ -104,6 +199,9 @@ func (s *Store) GenerateLogicalModel(ctx context.Context, client llm.Client, pro
 	if err := readJSON(s.absoluteWorkspacePath(project.ConceptualModelAcceptedPath), &conceptual); err != nil {
 		return 0, nil, err
 	}
+	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "logical_model", opts.MaxOutputTokens, stageBudgetInput{
+		Entities: len(conceptual.EntityConcepts), Relationships: len(conceptual.Relationships), Constraints: len(conceptual.ConstraintConcepts),
+	})
 	emit := stageEmitter(opts.OnProgress)
 	previousProposal, validationErrors := s.failedLogicalRepairContext(project)
 	message := "Projecting the conceptual model into DB-DSL."
@@ -112,6 +210,7 @@ func (s *Store) GenerateLogicalModel(ctx context.Context, client llm.Client, pro
 	}
 	emit("project_logical_model", message, 18, map[string]any{"repair_mode": len(validationErrors) > 0, "validation_errors": len(validationErrors)})
 	decisionIDs := reviewDecisionIDs(decisions)
+	controls := s.resolveLLMExecutionControls(projectID)
 	patch, patchQA, err := llmpipeline.RunLogicalProjection(ctx, client, llmpipeline.LogicalProjectionOptions{
 		OutDir: s.projectWorkspaceDir(projectID), ConceptualModel: conceptual, SourceUnits: units,
 		RequirementAtoms: atoms.RequirementAtoms, ReviewDecisions: decisionIDs,
@@ -119,6 +218,12 @@ func (s *Store) GenerateLogicalModel(ctx context.Context, client llm.Client, pro
 		DesignObligations: obligationArtifacts.Accepted.DesignObligations,
 		PreviousProposal:  previousProposal, ValidationErrors: validationErrors,
 		ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
+		MaxParallelism: controls.MaxParallelism, PromptVersion: controls.PromptVersion,
+		OnChunkProgress: func(completed, total int) {
+			if total > 1 {
+				emit("project_logical_model", fmt.Sprintf("Generated logical-projection chunk %d/%d.", completed, total), 18+completed*24/total, map[string]any{"completed_chunks": completed, "total_chunks": total})
+			}
+		},
 	})
 	if err != nil {
 		return 0, nil, err

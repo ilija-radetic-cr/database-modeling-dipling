@@ -1,6 +1,6 @@
 # Database Modeling Dipling
 
-Evidence-aware LLM + DB-DSL workbench for generating database models from textual task specifications.
+Evidence-aware LLM + DB-DSL workbench for turning textual task specifications into traceable relational database models.
 
 ## Requirements
 
@@ -28,11 +28,13 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. The Vite development server proxies `/api` to the backend on port 8080.
 
-The backend creates local runtime state in `.dbdsl_workbench/`; this directory is intentionally ignored by Git.
+The backend creates local runtime state, project artifacts and LLM audit logs in `.dbdsl_workbench/`; this directory is intentionally ignored by Git.
+
+The application workflow covers source intake, source segmentation, deterministic text normalization, source-unit review, requirement extraction, functional and CRUD analysis, human review, conceptual modeling, logical DB-DSL projection, validation and final DBML generation.
 
 ## Offline development
 
-The UI supports mock LLM calls. Select mock mode when creating a project, or use CLI commands with `--mock` where offered.
+The UI and backend support mock LLM calls. Select mock mode when creating a project, or use CLI commands with `--mock` where offered. To run the frontend without a backend, start it with `VITE_API_MODE=mock npm run dev`.
 
 ## Verify
 
@@ -52,5 +54,6 @@ npm run build
 - `web/` — React/Vite workbench
 - `poc/` — canonical startup bundle and fixtures required by the backend/test suite
 - `fixtures/` — integration-test manifest
+- `go.work` — repository-level Go workspace configuration
 
 Secrets, runtime projects, generated exports, dependency directories and build outputs are not included.

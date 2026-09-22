@@ -36,6 +36,9 @@ type ReviewDecisionRecord struct {
 	ApplyStatus       string    `json:"apply_status" yaml:"apply_status"`
 	ValidationResult  string    `json:"validation_result" yaml:"validation_result"`
 	NewCandidateIDs   []string  `json:"new_candidate_ids" yaml:"new_candidate_ids"`
+	DecisionMode      string    `json:"decision_mode,omitempty" yaml:"decision_mode,omitempty"`
+	PolicyVersion     string    `json:"policy_version,omitempty" yaml:"policy_version,omitempty"`
+	ActiveReviewMS    int64     `json:"active_review_ms,omitempty" yaml:"active_review_ms,omitempty"`
 }
 
 type ReviewDecisionsArtifact struct {
@@ -100,13 +103,13 @@ func (s *Store) CreateModelCorrectionCandidate(projectID string, request ModelCo
 	correctionType := nonEmpty(strings.TrimSpace(request.CorrectionType), "other")
 	note := nonEmpty(strings.TrimSpace(request.Note), "The user requested a controlled correction from the model element drawer.")
 	candidate := llmpipeline.ProjectReviewCandidateProposal{
-		ID: id, Question: fmt.Sprintf("How should model element %s be corrected?", request.ElementID),
+		ID: id, DecisionKey: "model_correction:" + request.ElementID, Question: fmt.Sprintf("How should model element %s be corrected?", request.ElementID),
 		Description: note, Category: "model_correction:" + correctionType, Phase: "final_model_review", Severity: "high", Blocking: true,
 		AffectedSourceUnits: append([]string(nil), details.Evidence.SourceUnits...), AffectedAtoms: append([]string(nil), details.Evidence.RequirementAtoms...),
 		AffectedModelCandidates: []string{request.ElementID}, MayAffect: []string{"conceptual_model", "logical_model", "validation", "lint", "dbml", "trace"},
 		Options: []llmpipeline.ReviewOptionProposal{
-			{ID: "revise_model", Label: "Revise the model", Rationale: note, EffectSummary: "Invalidate the current model draft and regenerate affected downstream artifacts from a reviewed patch.", Benefits: []string{"Keeps the correction traceable"}, Risks: []string{"May change related model elements"}, AffectedArtifactKinds: []string{"requirement_atoms", "conceptual_model", "logical_model"}, Recommended: true},
-			{ID: "keep_current", Label: "Keep the current model", Rationale: "Record the concern but retain the current interpretation.", EffectSummary: "Link the decision as evidence and regenerate the accepted projection without the requested semantic change.", Benefits: []string{"Preserves the current design"}, Risks: []string{"The reported concern remains"}, AffectedArtifactKinds: []string{"review_decisions"}},
+			{ID: "revise_model", Label: "Revise the model", Rationale: note, EffectSummary: "Invalidate the current model draft and regenerate affected downstream artifacts from a reviewed patch.", Benefits: []string{"Keeps the correction traceable"}, Risks: []string{"May change related model elements"}, AffectedArtifactKinds: []string{"requirement_atoms", "conceptual_model", "logical_model"}, Recommended: true, Effects: noChangeReviewEffects(details.Evidence.RequirementAtoms, []string{"enforceability"})},
+			{ID: "keep_current", Label: "Keep the current model", Rationale: "Record the concern but retain the current interpretation.", EffectSummary: "Link the decision as evidence and regenerate the accepted projection without the requested semantic change.", Benefits: []string{"Preserves the current design"}, Risks: []string{"The reported concern remains"}, AffectedArtifactKinds: []string{"review_decisions"}, Effects: noChangeReviewEffects(details.Evidence.RequirementAtoms, []string{"documentation"})},
 		},
 		RecommendedOptionID: "revise_model", RecommendationConfidence: "high", Warnings: []string{},
 	}
@@ -155,13 +158,34 @@ func (s *Store) CreateModelCorrectionCandidate(projectID string, request ModelCo
 	return current.CurrentRevision, id, nil
 }
 
+func noChangeReviewEffects(atomIDs, dimensions []string) *llmpipeline.ReviewOptionEffects {
+	updates := make([]llmpipeline.ReviewAtomUpdate, 0, len(atomIDs))
+	for _, atomID := range atomIDs {
+		updates = append(updates, llmpipeline.ReviewAtomUpdate{AtomID: atomID, ModelingOutcome: "no_change", PersistenceEffect: "no_change", SupportLevel: "no_change", Confidence: "no_change"})
+	}
+	return &llmpipeline.ReviewOptionEffects{ModelingOutcome: "no_change", PersistenceEffect: "no_change", SupportLevel: "no_change", AtomUpdates: updates, ImpactDimensions: dimensions, FollowupCandidateIDs: []string{}}
+}
+
+func (s *Store) ReviewCandidateGenerationNeedsLLM(projectID string) (bool, error) {
+	project, ok := s.Project(projectID)
+	if !ok {
+		return false, ErrNotFound
+	}
+	if project.RequirementAtomsProposalPath == "" {
+		return false, errors.New("requirement atoms are not ready")
+	}
+	var atoms llmpipeline.RequirementAtomExtractionProposal
+	if err := readJSON(s.absoluteWorkspacePath(project.RequirementAtomsProposalPath), &atoms); err != nil {
+		return false, err
+	}
+	return llmpipeline.HasReviewSemanticNeed(atoms.RequirementAtoms), nil
+}
+
 func (s *Store) GenerateReviewCandidates(ctx context.Context, client llm.Client, projectID string, opts AnalysisStageOptions) (int, []string, error) {
+	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "review_candidates", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, units, err := s.analysisStageInputs(projectID, opts.BaseRevision)
 	if err != nil {
 		return 0, nil, err
-	}
-	if client == nil {
-		return 0, nil, errors.New("LLM client is required for review proposal")
 	}
 	if project.CRUDMappingProposalPath == "" {
 		return 0, nil, errors.New("CRUD mapping is not ready")
@@ -178,6 +202,16 @@ func (s *Store) GenerateReviewCandidates(ctx context.Context, client llm.Client,
 	if err := readJSON(s.absoluteWorkspacePath(project.CRUDMappingProposalPath), &crud); err != nil {
 		return 0, nil, err
 	}
+	reviewClusters := 0
+	for _, atom := range atoms.RequirementAtoms {
+		if atom.RequiresReview || atom.ModelingOutcome == "deferred" || atom.ModelingOutcome == "unsupported" || atom.PersistenceEffect == "unclear" || atom.SupportLevel == "assumption" || atom.Confidence == "low" {
+			reviewClusters++
+		}
+	}
+	if reviewClusters > 0 && client == nil {
+		return 0, nil, errors.New("LLM client is required for review proposal")
+	}
+	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "review_candidates", opts.MaxOutputTokens, stageBudgetInput{ReviewClusters: reviewClusters})
 	emit := stageEmitter(opts.OnProgress)
 	emit("propose_review_candidates", "Identifying project-specific modeling decisions.", 24, nil)
 	proposal, qa, err := llmpipeline.RunProjectReview(ctx, client, llmpipeline.ProjectReviewOptions{
@@ -227,19 +261,20 @@ func (s *Store) GenerateReviewCandidates(ctx context.Context, client llm.Client,
 		return 0, nil, err
 	}
 	current, _ := s.Project(projectID)
+	if automatic := autoReviewSelections(proposal.ReviewCandidates); len(automatic) > 0 {
+		return s.ApplyProjectReviewDecisionBatch(projectID, ApplyReviewBatchOptions{BaseRevision: current.CurrentRevision, Selections: automatic, ReviewedBy: "system_policy", DecisionMode: "auto_low_risk"})
+	}
 	return current.CurrentRevision, []string{"review_candidates", "review_decisions"}, nil
 }
 
 func (s *Store) ApplyProjectReviewDecision(ctx context.Context, client llm.Client, projectID, candidateID string, opts ApplyReviewDecisionOptions) (int, []string, error) {
+	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "review_resolution", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, ok := s.Project(projectID)
 	if !ok {
 		return 0, nil, ErrNotFound
 	}
 	if opts.BaseRevision > 0 && opts.BaseRevision != project.CurrentRevision {
 		return 0, nil, ErrRevisionConflict
-	}
-	if client == nil {
-		return 0, nil, errors.New("LLM client is required for review resolution")
 	}
 	candidates, decisions, err := s.loadProjectReviewArtifacts(project)
 	if err != nil {
@@ -284,13 +319,23 @@ func (s *Store) ApplyProjectReviewDecision(ctx context.Context, client llm.Clien
 	}
 	emit := stageEmitter(opts.OnProgress)
 	emit("apply_review_decision", "Creating a minimal resolution patch.", 25, map[string]any{"candidate_id": candidate.ID})
-	patch, qa, err := llmpipeline.RunReviewResolutionPatch(ctx, client, llmpipeline.ReviewResolutionOptions{
-		OutDir: s.projectWorkspaceDir(projectID), Candidate: candidate, SelectedOption: option, DecisionID: decisionID,
-		ReservedCandidateIDs: reviewCandidateIDs(candidates.ReviewCandidates), RequirementAtoms: atoms.RequirementAtoms,
-		ValidSourceUnitIDs: sourceUnitIDs(acceptedSourceUnits), ValidFunctionalAreaIDs: functionalAreaIDs(functional.FunctionalAreas),
-		ValidOperationIDs: operationIDs(crud.Operations),
-		Model:             opts.Model, ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
-	})
+	var patch llmpipeline.ReviewResolutionPatchProposal
+	var qa llmpipeline.StageQA
+	if llmpipeline.HasStructuredReviewEffects(option) {
+		patch, qa = llmpipeline.BuildDeterministicReviewResolutionPatch(candidate, option, decisionID, atoms.RequirementAtoms)
+		emit("apply_review_decision", "Applying declared review effects deterministically.", 45, map[string]any{"candidate_id": candidate.ID, "llm_call": false})
+	} else {
+		if client == nil {
+			return 0, nil, errors.New("LLM client is required for legacy review resolution")
+		}
+		patch, qa, err = llmpipeline.RunReviewResolutionPatch(ctx, client, llmpipeline.ReviewResolutionOptions{
+			OutDir: s.projectWorkspaceDir(projectID), Candidate: candidate, SelectedOption: option, DecisionID: decisionID,
+			ReservedCandidateIDs: reviewCandidateIDs(candidates.ReviewCandidates), RequirementAtoms: atoms.RequirementAtoms,
+			ValidSourceUnitIDs: sourceUnitIDs(acceptedSourceUnits), ValidFunctionalAreaIDs: functionalAreaIDs(functional.FunctionalAreas),
+			ValidOperationIDs: operationIDs(crud.Operations),
+			Model:             opts.Model, ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
+		})
+	}
 	if err != nil {
 		return 0, nil, err
 	}
@@ -741,6 +786,9 @@ func applyReviewPatch(input llmpipeline.RequirementAtomExtractionProposal, patch
 		case "update_modeling_outcome":
 			atom.ModelingOutcome = operation.Value
 			semantic = true
+		case "update_persistence_effect":
+			atom.PersistenceEffect = operation.Value
+			semantic = true
 		case "update_support_level":
 			atom.SupportLevel = operation.Value
 			semantic = true
@@ -799,9 +847,9 @@ func (s *Store) projectReviewCandidates(projectID string) ([]ReviewCandidate, bo
 		}
 		options := make([]ReviewOption, 0, len(item.Options))
 		for _, choice := range item.Options {
-			options = append(options, ReviewOption{ID: choice.ID, Label: choice.Label, Recommended: choice.Recommended, Rationale: choice.Rationale, EffectSummary: choice.EffectSummary, Benefits: choice.Benefits, Risks: choice.Risks, AffectedArtifactKinds: choice.AffectedArtifactKinds})
+			options = append(options, ReviewOption{ID: choice.ID, Label: choice.Label, Recommended: choice.Recommended, Rationale: choice.Rationale, EffectSummary: choice.EffectSummary, Benefits: choice.Benefits, Risks: choice.Risks, AffectedArtifactKinds: choice.AffectedArtifactKinds, Effects: choice.Effects})
 		}
-		out = append(out, ReviewCandidate{ID: item.ID, Question: item.Question, Description: item.Description, Status: status, AffectedAtoms: item.AffectedAtoms,
+		out = append(out, ReviewCandidate{ID: item.ID, DecisionKey: item.DecisionKey, Question: item.Question, Description: item.Description, Status: status, AffectedAtoms: item.AffectedAtoms,
 			DependsOn: item.DependsOn, MayAffect: item.MayAffect, Options: options, SelectedOption: option, RecommendedID: item.RecommendedOptionID,
 			Category: item.Category, Phase: item.Phase, Severity: item.Severity, Blocking: item.Blocking, AffectedSourceUnits: item.AffectedSourceUnits,
 			AffectedFunctionalAreas: item.AffectedFunctionalAreas, AffectedOperations: item.AffectedOperations, AffectedModelCandidates: item.AffectedModelCandidates,
@@ -827,7 +875,8 @@ func (s *Store) projectReviewDecisions(projectID string) ([]ReviewDecision, bool
 		out = append(out, ReviewDecision{ID: item.ID, Question: item.QuestionSnapshot, SelectedOption: item.SelectedOption,
 			AffectedAtoms: item.AffectedAtoms,
 			Status:        item.ValidationResult, Rationale: item.RationaleSnapshot, ReviewedBy: item.ReviewedBy, ReviewedAt: item.ReviewedAt,
-			ProjectRevision: item.ProjectRevision, AffectedArtifacts: item.AffectedArtifacts, AppliedPatchID: item.AppliedPatchID, ApplyStatus: item.ApplyStatus, NewCandidateIDs: item.NewCandidateIDs})
+			ProjectRevision: item.ProjectRevision, AffectedArtifacts: item.AffectedArtifacts, AppliedPatchID: item.AppliedPatchID, ApplyStatus: item.ApplyStatus, NewCandidateIDs: item.NewCandidateIDs,
+			DecisionMode: item.DecisionMode, PolicyVersion: item.PolicyVersion, ActiveReviewMS: item.ActiveReviewMS})
 	}
 	return out, true, nil
 }

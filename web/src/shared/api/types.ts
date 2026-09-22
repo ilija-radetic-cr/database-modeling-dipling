@@ -29,6 +29,21 @@ export interface ProjectSummary {
   last_activity?: string;
   created_at: string;
   updated_at: string;
+  llm_execution_profile?: {
+    provider: string;
+    model: string;
+    reasoning_effort: string;
+    max_output_tokens: number;
+    max_repair_attempts: number;
+    max_parallelism: number;
+    prompt_version: string;
+    policy_version: string;
+		budget_policy?: string;
+		context_policy?: string;
+		call_gate_policy?: string;
+		risk_policy?: string;
+		stage_output_limits?: Record<string, number>;
+  };
 }
 
 export interface ProjectCounts {
@@ -83,6 +98,7 @@ export interface ArtifactHealth {
   analysis_status: "not_started" | "processing" | "sources_ready" | "ready" | "needs_attention" | "outdated";
   source_manifest_status: "not_generated" | "ready";
   combined_document_status: "not_generated" | "ready";
+	source_segmentation_status: "not_generated" | "ready" | "fallback";
 	source_fidelity_status: "not_generated" | "ready" | "needs_attention";
 	source_units_status: "not_generated" | "ready" | "needs_attention";
 	requirement_atoms_status: "not_generated" | "ready";
@@ -171,26 +187,88 @@ export interface CombinedDocument {
   };
   summary: {
     status: string;
+	unit_count: number;
     sentence_count: number;
+	structural_unit_count: number;
     resource_count: number;
     warning_count: number;
+	segmentation_strategy: string;
+	llm_assisted: boolean;
+	fallback_used: boolean;
+	needs_attention_count: number;
+	layout_segment_count: number;
   };
 }
 
 export interface CombinedDocumentSentence {
   id: string;
+  kind?: "sentence" | "structural";
+	role?: "semantic" | "structural" | "layout_noise" | "example" | "metadata" | string;
   text: string;
   derived_from: CombinedDocumentOrigin[];
-  transformation: "copied" | "cleaned" | "merged" | "summarized";
+	transformation: "copied" | "cleaned" | "merged" | "summarized" | "llm_grouped";
+	segmentation_strategy?: string;
   confidence: "high" | "medium" | "low";
   warnings: string[];
 }
 
 export interface CombinedDocumentOrigin {
   resource_id: string;
+	source_segment_id?: string;
   line_start: number;
   line_end: number;
+	start_byte?: number;
+	end_byte?: number;
   exact_text: string;
+}
+
+export interface SourceSegmentationCandidate {
+	id: string;
+	segment_id: string;
+	resource_id: string;
+	line_start: number;
+	line_end: number;
+	start_byte: number;
+	end_byte: number;
+	exact_text: string;
+	suggested_role?: string;
+}
+
+export interface SourceSegmentationGroup {
+	id: string;
+	role: "semantic" | "structural" | "layout_noise" | "example" | "metadata" | string;
+	candidate_ids: string[];
+	confidence: "high" | "medium" | "low";
+	requires_review: boolean;
+	warnings: string[];
+	od_sentence_id?: string;
+}
+
+export interface SourceSegmentationProposal {
+	candidates: SourceSegmentationCandidate[];
+	groups: SourceSegmentationGroup[];
+	strategy: string;
+	llm_assisted: boolean;
+	fallback_used: boolean;
+	fallback_reason?: string;
+	warnings: string[];
+	confidence_summary: Record<string, string>;
+}
+
+export interface SourceSegmentationQA {
+	ok: boolean;
+	strategy: string;
+	candidates_total: number;
+	candidates_assigned: number;
+	semantic_groups: number;
+	structural_groups: number;
+	layout_groups: number;
+	needs_attention: string[];
+	errors: string[];
+	warnings: string[];
+	role_counts: Record<string, number>;
+	fallback_used: boolean;
+	fallback_reason?: string;
 }
 
 export interface OriginSpan {
@@ -203,11 +281,49 @@ export interface OriginSpan {
   end_offset?: number;
 }
 
+export interface SourceNormalizationOperation {
+  kind: "trim_boundary_whitespace" | "compact_whitespace" | "normalize_punctuation_spacing" | string;
+  before: string;
+  after: string;
+}
+
+export interface SourceTextNormalization {
+  version: string;
+  strategy: "backend_deterministic" | string;
+  exact_hash: string;
+  normalized_hash: string;
+  changed: boolean;
+  operations: SourceNormalizationOperation[];
+}
+
+export interface SourceSegmentDisposition {
+  segment_id: string;
+  status: "retained" | "uncovered" | string;
+  od_sentence_ids: string[];
+  reason?: string;
+}
+
+export interface SourceFidelityReport {
+  ok: boolean;
+  pipeline_version: string;
+  segments_total: number;
+  normative_segments: number;
+  normative_covered: number;
+  normative_coverage: number;
+  disposition_counts: Record<string, number>;
+  uncovered_segment_ids: string[];
+  needs_attention: string[];
+  dispositions: SourceSegmentDisposition[];
+  errors: string[];
+  warnings: string[];
+}
+
 export interface SourceUnit {
   id: string;
   kind: string;
   section?: string;
   normalized_text: string;
+  normalization: SourceTextNormalization;
   exact_text?: string;
   relevance: string;
   confidence: "high" | "medium" | "low";
@@ -222,7 +338,7 @@ export interface SourceUnit {
 
 export interface SourceUnitQA {
 	ok: boolean;
-	derivation_strategy: "llm" | "deterministic_fallback";
+	derivation_strategy: "llm_classification_backend_normalization" | "llm" | "llm_chunked" | "deterministic_fallback";
 	od_sentences_total: number;
 	od_sentences_referenced: number;
 	unreferenced_od_sentences: string[];
@@ -233,6 +349,11 @@ export interface SourceUnitQA {
 	review_decisions?: Array<{
 		source_unit_id: string;
 		decision: "accept" | "revise" | "exclude";
+		previous_normalized_text: string;
+		normalized_text: string;
+		normalization: SourceTextNormalization;
+		previous_relevance: string;
+		relevance: string;
 		note?: string;
 		reviewed_by: string;
 		reviewed_at: string;
@@ -342,6 +463,7 @@ export interface CrudOperation {
 
 export interface ReviewCandidate {
   id: string;
+	decision_key?: string;
   question: string;
   description: string;
   status: "open" | "answered" | "resolved";
@@ -372,6 +494,21 @@ export interface ReviewOption {
 	benefits?: string[];
 	risks?: string[];
 	affected_artifact_kinds?: string[];
+	effects?: {
+		modeling_outcome: string;
+		persistence_effect: string;
+		support_level: string;
+		requires_followup?: boolean;
+		atom_updates?: Array<{
+			atom_id: string;
+			modeling_outcome: string;
+			persistence_effect: string;
+			support_level: string;
+			confidence: string;
+		}>;
+		impact_dimensions?: string[];
+		followup_candidate_ids?: string[];
+	};
 }
 
 export interface ReviewDecision {
@@ -383,6 +520,9 @@ export interface ReviewDecision {
   rationale?: string;
   reviewed_by?: string;
   reviewed_at?: string;
+	decision_mode?: string;
+	policy_version?: string;
+	active_review_ms?: number;
 }
 
 export interface EvidenceRef {
@@ -563,6 +703,49 @@ export interface LLMRunSummary {
 	duration_ms?: number;
 	validation_ok: boolean;
 	errors: string[];
+	cached?: boolean;
+	context_bytes?: number;
+	full_context_bytes?: number;
+	context_reduction_ratio?: number;
+	retry_count?: number;
+	call_reason?: string;
+	call_gate_policy?: string;
+	wasted_tokens?: number;
+}
+
+export interface LLMOptimizationStageMetrics {
+	runs: number;
+	provider_calls: number;
+	cache_hits: number;
+	retries: number;
+	input_tokens: number;
+	output_tokens: number;
+	total_tokens: number;
+	wasted_tokens: number;
+	unknown_usage_attempts: number;
+	context_bytes: number;
+	full_context_bytes: number;
+	context_bytes_saved: number;
+	context_reduction_ratio: number;
+}
+
+export interface LLMOptimizationReport {
+	version: number;
+	project_id: string;
+	policy_version: string;
+	budget_policy: string;
+	context_policy: string;
+	call_gate_policy: string;
+	risk_policy: string;
+	totals: LLMOptimizationStageMetrics;
+	by_stage: Record<string, LLMOptimizationStageMetrics>;
+	calls_by_reason: Record<string, number>;
+	avoided_review_resolution_calls: number;
+	avoided_generation_calls: number;
+	auto_applied_decisions: number;
+	batched_manual_decisions: number;
+	active_review_ms: number;
+	unresolved_review_questions: number;
 }
 
 export interface MutationResult {

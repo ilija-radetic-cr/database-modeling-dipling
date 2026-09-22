@@ -25,12 +25,15 @@ func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	_, revision, err := store.AddPastedTextResource(project.ID, "Task", "Products have names.")
+	_, revision, err := store.AddPastedTextResource(project.ID, 0, "Task", "Products have names.")
 	if err != nil {
 		t.Fatalf("add resource: %v", err)
 	}
 	mock := llm.NewDefaultMockClient()
-	revision, _, err = store.ProcessSources(context.Background(), mock, project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+	mock.Structured["requirement_atom_extraction"] = json.RawMessage(`{
+		"requirement_atoms":[{"id":"RA-001","statement":"Products have names.","subject":"product","predicate":"has","object":"name","quantifier":"","condition":"","temporal_semantics":"","ownership":"system","atom_type":"data_requirement","modeling_relevance":"direct_db","source_units":["SU-001"],"functional_area":"core","functional_pattern":"domain_management","support_level":"explicit","confidence":"high","requires_review":true,"modeling_outcome":"represented","persistence_effect":"required","warnings":["identity is unresolved"]}],
+		"warnings":[],"confidence_summary":{"overall":"test"}}`)
+	revision, _, err = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 	if err != nil {
 		t.Fatalf("combined document: %v", err)
 	}
@@ -75,9 +78,9 @@ func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 	if err != nil || len(candidates) != 1 || !candidates[0].Blocking {
 		t.Fatalf("unexpected review candidates: items=%+v err=%v", candidates, err)
 	}
-	revision, _, err = store.ApplyProjectReviewDecision(context.Background(), mock, project.ID, candidates[0].ID, ApplyReviewDecisionOptions{BaseRevision: revision, SelectedOption: candidates[0].RecommendedID, ReviewedBy: "test", Model: "mock-model"})
+	revision, _, err = store.ApplyProjectReviewDecisionBatch(project.ID, ApplyReviewBatchOptions{BaseRevision: revision, Selections: []ReviewSelection{{CandidateID: candidates[0].ID, SelectedOptionID: candidates[0].RecommendedID}}, ReviewedBy: "test", DecisionMode: "manual_batch", ActiveReviewMS: 1250})
 	if err != nil {
-		t.Fatalf("apply review decision: %v", err)
+		t.Fatalf("apply review decision batch: %v", err)
 	}
 	decisions, err := store.ReviewDecisions(project.ID)
 	if err != nil || len(decisions) != 1 || decisions[0].ApplyStatus != "applied" {
@@ -86,6 +89,10 @@ func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 	state, _ = store.Project(project.ID)
 	if len(state.OpenReviewIDs) != 0 || state.LifecycleStatus != "ready_for_model_generation" {
 		t.Fatalf("review gate did not open: %+v", state)
+	}
+	optimization, err := store.LLMOptimizationReport(project.ID)
+	if err != nil || optimization.AvoidedReviewCalls != 1 || optimization.BatchedManualDecisions != 1 || optimization.ActiveReviewMS != 1250 {
+		t.Fatalf("unexpected optimization report after review batch: report=%+v err=%v", optimization, err)
 	}
 	revision, _, err = store.GenerateConceptualModel(context.Background(), mock, project.ID, ModelStageOptions{BaseRevision: revision, Model: "mock-model"})
 	if err != nil {
@@ -153,7 +160,7 @@ func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("export bundle: %v", err)
 	}
-	assertExportFiles(t, bundle, []string{"TASK.md", "source_manifest.yaml", "combined_document.md", "combined_document_lineage.json", "source_units.proposed.json", "source_units.yaml", "source_unit_qa.json", "requirement_atoms.proposed.json", "requirement_atoms.yaml", "functional_analysis.proposed.json", "functional_decomposition.yaml", "crud_mapping.proposed.json", "crud_matrix.yaml", "review_candidates.proposed.json", "review_candidates.yaml", "review_decisions.yaml", "conceptual_model.proposed.json", "conceptual_model.accepted.json", "dbdsl_patch.proposed.json", "db_model.dsl.yaml", "model.dbml", "traceability_report.md", "validation_report.json", "lint_report.json", "quality_report.json", "export_manifest.json"})
+	assertExportFiles(t, bundle, []string{"TASK.md", "source_manifest.yaml", "source_segmentation.proposed.json", "source_segmentation_qa.json", "combined_document.md", "combined_document_lineage.json", "source_units.proposed.json", "source_units.yaml", "source_unit_qa.json", "requirement_atoms.proposed.json", "requirement_atoms.yaml", "functional_analysis.proposed.json", "functional_decomposition.yaml", "crud_mapping.proposed.json", "crud_matrix.yaml", "review_candidates.proposed.json", "review_candidates.yaml", "review_decisions.yaml", "conceptual_model.proposed.json", "conceptual_model.accepted.json", "dbdsl_patch.proposed.json", "db_model.dsl.yaml", "model.dbml", "traceability_report.md", "validation_report.json", "lint_report.json", "quality_report.json", "llm_optimization_report.json", "llm_optimization_report.md", "export_manifest.json"})
 	completedSummary, completedSnapshot, err := store.CompleteProject(project.ID, revision)
 	if err != nil || completedSummary.LifecycleStatus != "completed" || completedSnapshot.ID == "" {
 		t.Fatalf("complete project: summary=%+v snapshot=%+v err=%v", completedSummary, completedSnapshot, err)
@@ -298,9 +305,9 @@ func assertExportFiles(t *testing.T, data []byte, expected []string) {
 func TestGranularAnalysisRejectsStaleRevision(t *testing.T) {
 	store := newIngestionTestStore(t)
 	project, _ := store.CreateProject("Products", "", "en", "catalog")
-	_, revision, _ := store.AddPastedTextResource(project.ID, "Task", "Products have names.")
+	_, revision, _ := store.AddPastedTextResource(project.ID, 0, "Task", "Products have names.")
 	mock := llm.NewDefaultMockClient()
-	revision, _, _ = store.ProcessSources(context.Background(), mock, project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+	revision, _, _ = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 	revision, _, _ = store.GenerateSourceUnits(context.Background(), mock, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision, Model: "mock-model"})
 	if _, _, err := store.GenerateRequirementAtoms(context.Background(), mock, project.ID, AnalysisStageOptions{BaseRevision: revision - 1}); err != ErrRevisionConflict {
 		t.Fatalf("expected revision conflict, got %v", err)

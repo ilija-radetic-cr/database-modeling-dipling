@@ -59,6 +59,7 @@ type DesignObligationArtifacts struct {
 }
 
 func (s *Store) GenerateRequirementAtoms(ctx context.Context, client llm.Client, projectID string, opts AnalysisStageOptions) (int, []string, error) {
+	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "requirement_atoms", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, units, err := s.analysisStageInputs(projectID, opts.BaseRevision)
 	if err != nil {
 		return 0, nil, err
@@ -66,11 +67,18 @@ func (s *Store) GenerateRequirementAtoms(ctx context.Context, client llm.Client,
 	if client == nil {
 		return 0, nil, errors.New("LLM client is required for requirement extraction")
 	}
+	chunkUnits := len(units)
+	if chunkUnits > 40 {
+		chunkUnits = 40
+	}
+	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "requirement_atoms", opts.MaxOutputTokens, stageBudgetInput{Units: chunkUnits})
+	controls := s.resolveLLMExecutionControls(projectID)
 	emit := stageEmitter(opts.OnProgress)
 	emit("extract_requirement_atoms", "Extracting atomic requirements.", 20, map[string]any{"source_units": len(units)})
 	proposal, qa, err := llmpipeline.RunRequirementAtomExtraction(ctx, client, llmpipeline.RequirementAtomStageOptions{
 		OutDir: s.projectWorkspaceDir(projectID), SourceUnits: units, Model: opts.Model,
 		ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
+		MaxParallelism: controls.MaxParallelism, PromptVersion: controls.PromptVersion,
 	})
 	if err != nil {
 		return 0, nil, err
@@ -135,7 +143,25 @@ func (s *Store) DesignObligations(projectID string) (DesignObligationArtifacts, 
 	return out, nil
 }
 
+func (s *Store) DesignObligationMigrationPreview(projectID string) (map[string]any, llmpipeline.DesignObligationQA, error) {
+	project, ok := s.Project(projectID)
+	if !ok {
+		return nil, llmpipeline.DesignObligationQA{}, ErrNotFound
+	}
+	artifacts, err := s.DesignObligations(projectID)
+	if err != nil {
+		return nil, llmpipeline.DesignObligationQA{}, err
+	}
+	var atoms llmpipeline.RequirementAtomExtractionProposal
+	if err := readJSON(s.absoluteWorkspacePath(project.RequirementAtomsProposalPath), &atoms); err != nil {
+		return nil, llmpipeline.DesignObligationQA{}, err
+	}
+	updated, qa := llmpipeline.ReclassifyDesignObligations(artifacts.Accepted, atoms.RequirementAtoms)
+	return designObligationMigrationReport(artifacts.Accepted, updated), qa, nil
+}
+
 func (s *Store) GenerateFunctionalAnalysis(ctx context.Context, client llm.Client, projectID string, opts AnalysisStageOptions) (int, []string, error) {
+	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "functional_analysis", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, units, err := s.analysisStageInputs(projectID, opts.BaseRevision)
 	if err != nil {
 		return 0, nil, err
@@ -150,6 +176,7 @@ func (s *Store) GenerateFunctionalAnalysis(ctx context.Context, client llm.Clien
 	if err := readJSON(s.absoluteWorkspacePath(project.RequirementAtomsProposalPath), &atoms); err != nil {
 		return 0, nil, err
 	}
+	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "functional_analysis", opts.MaxOutputTokens, stageBudgetInput{Atoms: len(atoms.RequirementAtoms)})
 	emit := stageEmitter(opts.OnProgress)
 	emit("build_functional_analysis", "Grouping requirements into business capabilities.", 25, map[string]any{"requirement_atoms": len(atoms.RequirementAtoms)})
 	proposal, qa, err := llmpipeline.RunFunctionalAnalysis(ctx, client, llmpipeline.FunctionalAnalysisStageOptions{
@@ -186,6 +213,7 @@ func (s *Store) GenerateFunctionalAnalysis(ctx context.Context, client llm.Clien
 }
 
 func (s *Store) GenerateCRUDMapping(ctx context.Context, client llm.Client, projectID string, opts AnalysisStageOptions) (int, []string, error) {
+	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "crud_mapping", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, units, err := s.analysisStageInputs(projectID, opts.BaseRevision)
 	if err != nil {
 		return 0, nil, err
@@ -204,6 +232,7 @@ func (s *Store) GenerateCRUDMapping(ctx context.Context, client llm.Client, proj
 	if err := readJSON(s.absoluteWorkspacePath(project.FunctionalAnalysisProposalPath), &functional); err != nil {
 		return 0, nil, err
 	}
+	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "crud_mapping", opts.MaxOutputTokens, stageBudgetInput{Atoms: len(atoms.RequirementAtoms), Areas: len(functional.FunctionalAreas)})
 	emit := stageEmitter(opts.OnProgress)
 	emit("build_crud_mapping", "Mapping business operations and persistence effects.", 25, map[string]any{"functional_areas": len(functional.FunctionalAreas)})
 	proposal, qa, err := llmpipeline.RunCRUDMapping(ctx, client, llmpipeline.CRUDMappingStageOptions{

@@ -337,6 +337,200 @@ a {
   gap: 8px;
 }
 
+.button.active {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  color: #0f766e;
+}
+
+.source-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.source-flow-stage {
+  position: relative;
+  display: grid;
+  min-height: 130px;
+  align-content: start;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #ffffff, #f8fafc);
+  color: #344054;
+  font-size: 13px;
+}
+
+.source-flow-stage .badge {
+  justify-self: start;
+}
+
+.source-flow-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #172033;
+}
+
+.source-flow-arrow {
+  position: absolute;
+  top: 50%;
+  right: -17px;
+  z-index: 2;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid #dbe2ea;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0f766e;
+  font-weight: 800;
+}
+
+.fidelity-coverage {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.od-sentence-list {
+  display: grid;
+  max-height: 360px;
+  gap: 9px;
+  overflow: auto;
+}
+
+.od-sentence-card {
+  padding: 11px;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.od-sentence-card p {
+  margin: 9px 0;
+  color: #27364a;
+  line-height: 1.5;
+}
+
+.source-trace {
+  display: grid;
+  gap: 10px;
+}
+
+.source-trace-legend {
+  padding: 2px 0 8px;
+}
+
+.source-trace-canvas {
+  height: min(650px, calc(100vh - 250px));
+  min-height: 480px;
+  overflow: hidden;
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.source-trace-node-content {
+  display: grid;
+  gap: 7px;
+  padding: 11px;
+  text-align: left;
+}
+
+.source-trace-node-content strong {
+  color: #172033;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.source-trace-node-content span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.normalization-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.normalization-comparison > div {
+  display: grid;
+  gap: 6px;
+}
+
+.normalization-comparison pre,
+.normalization-operation pre {
+  margin: 0;
+  overflow: auto;
+  border: 1px solid #dbe2ea;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #27364a;
+  padding: 10px;
+  font: 12px/1.5 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+}
+
+.normalization-audit,
+.review-audit-list {
+  display: grid;
+  gap: 10px;
+}
+
+.hash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.hash-grid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+  border-radius: 7px;
+  background: #f8fafc;
+}
+
+.hash-grid code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.normalization-operation,
+.review-audit-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.normalization-operation > div {
+  display: grid;
+  gap: 4px;
+}
+
+.normalization-operation span {
+  color: #66758b;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
 .tabs {
   display: flex;
   flex-wrap: wrap;
@@ -457,6 +651,22 @@ a {
 .artifact-preview {
   display: grid;
   gap: 10px;
+}
+
+.review-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid #f3c969;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #854d0e;
+}
+
+.review-banner p {
+  margin: 4px 0 0;
 }
 
 .artifact-preview pre {
@@ -676,6 +886,11 @@ a {
   box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.14);
 }
 
+.review-option-card[aria-selected="true"] {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
 .review-option-card .button {
   margin-top: auto;
 }
@@ -704,6 +919,17 @@ a {
 @media (max-width: 900px) {
   .pipeline-stepper {
     grid-template-columns: repeat(8, 130px);
+  }
+
+  .source-flow {
+    grid-template-columns: repeat(4, minmax(210px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .normalization-comparison,
+  .hash-grid {
+    grid-template-columns: 1fr;
   }
 }
 

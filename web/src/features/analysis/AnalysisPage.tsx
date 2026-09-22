@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, GitBranch, Play } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileCheck2, GitBranch, Languages, Play, ScanText, Sparkles } from "lucide-react";
 import { api } from "@/shared/api/client";
 import type {
   CrudOperation,
+	CombinedDocumentSentence,
   FunctionalArea,
   InputResource,
   Job,
@@ -12,11 +13,15 @@ import type {
   SourceUnit,
   StructuredExample,
 	ProjectStageName,
+	SourceFidelityReport,
+	SourceSegmentationProposal,
+	SourceUnitQA,
 } from "@/shared/api/types";
 import { Badge, Button, Drawer, Field, LoadingState, Metric, Panel, StatusBadge } from "@/shared/components/ui";
 import { useRouter } from "@/shared/lib/router";
 import { JobProgress } from "@/features/jobs/JobProgress";
 import { PipelineStepper } from "./PipelineStepper";
+import { SourceTraceGraph } from "./SourceTraceGraph";
 	import { isRunnableStage, nextStageLabel, shouldRecoverLatestJob, unresolvedReviewDependencies } from "@/shared/lib/pipeline";
 
 const tabs = [
@@ -41,7 +46,7 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 		mutationFn: (stage: ProjectStageName) => {
 			const revision = project.data?.project.current_revision ?? 0;
 			return stage === "combined_document"
-				? api.processSources(projectId, revision, { reasoning_effort: "low", max_output_tokens: 12000 })
+				? api.processSources(projectId, revision)
 				: api.runStage(projectId, stage, revision);
 		},
 		onSuccess: ({ job: started }) => {
@@ -161,9 +166,24 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 function ActivityView({ projectId }: { projectId: string }) {
 	const jobs = useQuery({ queryKey: ["jobs", projectId], queryFn: () => api.jobs(projectId), retry: false });
 	const runs = useQuery({ queryKey: ["llm-runs", projectId], queryFn: () => api.llmRuns(projectId), retry: false });
-	if (jobs.isLoading || runs.isLoading) return <LoadingState />;
+	const optimization = useQuery({ queryKey: ["optimization-report", projectId], queryFn: () => api.optimizationReport(projectId), retry: false });
+	if (jobs.isLoading || runs.isLoading || optimization.isLoading) return <LoadingState />;
+	const metrics = optimization.data?.report;
 	return (
 		<div className="grid-2">
+			<Panel title="LLM optimization report">
+				<div className="grid-3">
+					<Metric label="Provider calls" value={metrics?.totals.provider_calls ?? 0} />
+					<Metric label="Cache hits" value={metrics?.totals.cache_hits ?? 0} />
+					<Metric label="Retries" value={metrics?.totals.retries ?? 0} />
+					<Metric label="Tokens" value={metrics?.totals.total_tokens ?? 0} />
+					<Metric label="Context saved" value={`${((metrics?.totals.context_reduction_ratio ?? 0) * 100).toFixed(1)}%`} />
+					<Metric label="Review calls avoided" value={metrics?.avoided_review_resolution_calls ?? 0} />
+					<Metric label="Generation calls avoided" value={metrics?.avoided_generation_calls ?? 0} />
+					<Metric label="Usage unknown" value={metrics?.totals.unknown_usage_attempts ?? 0} />
+				</div>
+				<p className="muted">Policies: {metrics?.budget_policy ?? "-"} · {metrics?.context_policy ?? "-"} · {metrics?.call_gate_policy ?? "-"}</p>
+			</Panel>
 			<Panel title={`Jobs · ${jobs.data?.items.length ?? 0}`}>
 				<table className="data-table"><thead><tr><th>Stage</th><th>Status</th><th>Revision</th><th>Progress</th></tr></thead><tbody>
 					{(jobs.data?.items ?? []).map((job) => <tr key={job.id}><td><strong>{stageLabel(job.stage)}</strong><div className="muted">{job.id}</div></td><td><StatusBadge value={job.status} />{job.error && <div className="error-text">{job.error}</div>}</td><td>{job.input_revision || "-"} → {job.output_revision || "-"}</td><td>{job.progress}%</td></tr>)}
@@ -201,13 +221,140 @@ function stageLabel(stage: string) {
 	return stage.replace(/_/g, " ").replace(/\b\w/g, (letter: string) => letter.toUpperCase());
 }
 
+function SourceProcessingFlow() {
+	const stages = [
+		{ icon: FileCheck2, title: "Input resources", detail: "Extracted text and physical lines", tone: "Deterministic" },
+		{ icon: Sparkles, title: "Sentence segmentation", detail: "LLM groups backend-owned exact spans", tone: "LLM-assisted" },
+		{ icon: ScanText, title: "Fidelity validation", detail: "Backend rebuilds text and verifies complete coverage", tone: "Deterministic" },
+		{ icon: Sparkles, title: "Source classification", detail: "Kind, relevance, confidence and warnings", tone: "LLM-assisted" },
+		{ icon: Languages, title: "Normalization & review", detail: "Backend-owned text and auditable decisions", tone: "Backend + human" },
+	];
+	return (
+		<section className="source-flow" aria-label="Source processing flow">
+			{stages.map((stage, index) => {
+				const Icon = stage.icon;
+				return (
+					<div className="source-flow-stage" key={stage.title}>
+						<div className="source-flow-heading"><Icon size={18} /><strong>{stage.title}</strong></div>
+						<span>{stage.detail}</span>
+						<Badge tone={stage.tone === "LLM-assisted" ? "warn" : "good"}>{stage.tone}</Badge>
+						{index < stages.length - 1 && <span className="source-flow-arrow" aria-hidden="true">→</span>}
+					</div>
+				);
+			})}
+		</section>
+	);
+}
+
+function SourceFidelityPanel({ report }: { report: SourceFidelityReport }) {
+	const coverage = Math.round(report.normative_coverage * 100);
+	return (
+		<Panel title="Source fidelity gate">
+			<div className="grid-3 compact-metrics">
+				<Metric label="Physical source segments" value={report.segments_total} />
+				<Metric label="Normative segments covered" value={`${report.normative_covered}/${report.normative_segments}`} />
+				<Metric label="Normative coverage" value={`${coverage}%`} />
+			</div>
+			<div className="fidelity-coverage" aria-label={`${coverage}% normative source coverage`}>
+				<div className="progress-track"><div className="progress-bar" style={{ width: `${coverage}%` }} /></div>
+				<div className="toolbar">
+					<Badge tone={report.ok ? "good" : "bad"}>{report.ok ? "Lossless coverage passed" : "Coverage blocked"}</Badge>
+					<Badge>pipeline {report.pipeline_version}</Badge>
+					{report.needs_attention.length > 0 && <Badge tone="warn">{report.needs_attention.length} need attention</Badge>}
+				</div>
+			</div>
+			<p className="muted">Physical lines remain the lossless fidelity layer. The backend creates exact candidate spans, the LLM only groups their IDs, and the backend verifies that no normative source span was lost.</p>
+			{report.errors.length > 0 && <div className="error-text">{report.errors.join(" ")}</div>}
+		</Panel>
+	);
+}
+
+function CombinedSentenceList({ items }: { items: CombinedDocumentSentence[] }) {
+	if (!items.length) return <p className="muted">No OD units generated.</p>;
+	return (
+		<div className="od-sentence-list">
+			{items.map((item) => (
+				<article className="od-sentence-card" key={item.id}>
+					<div className="toolbar">
+						<strong>{item.id}</strong>
+						<Badge>{item.kind ?? "sentence"}</Badge>
+						{item.role && <Badge>{item.role}</Badge>}
+						<Badge tone={item.transformation === "merged" ? "warn" : "default"}>{item.transformation}</Badge>
+						<Badge tone={item.confidence === "low" ? "warn" : "good"}>{item.confidence}</Badge>
+					</div>
+					<p>{item.text}</p>
+					<div className="muted">{item.derived_from.map((origin) => `${origin.resource_id} · lines ${origin.line_start}–${origin.line_end}${origin.source_segment_id ? ` · ${origin.source_segment_id} bytes ${origin.start_byte ?? 0}–${origin.end_byte ?? 0}` : ""}`).join(", ")}</div>
+					{item.warnings.length > 0 && <div className="error-text">{item.warnings.join(" ")}</div>}
+				</article>
+			))}
+		</div>
+	);
+}
+
+function SegmentationGroupList({ proposal }: { proposal: SourceSegmentationProposal }) {
+	const candidates = new Map(proposal.candidates.map((candidate) => [candidate.id, candidate]));
+	if (!proposal.groups.length) return <p className="muted">No segmentation groups generated.</p>;
+	return (
+		<div className="od-sentence-list">
+			{proposal.groups.map((group) => {
+				const members = group.candidate_ids.map((id) => candidates.get(id)).filter((item) => item !== undefined);
+				return (
+					<article className="od-sentence-card" key={group.id}>
+						<div className="toolbar">
+							<strong>{group.id}</strong>
+							<Badge tone={group.role === "layout_noise" ? "warn" : "default"}>{group.role}</Badge>
+							<Badge tone={group.requires_review ? "warn" : "good"}>{group.confidence}</Badge>
+							{group.od_sentence_id && <Badge>{group.od_sentence_id}</Badge>}
+						</div>
+						<p>{members.map((member) => member?.exact_text).join(" ")}</p>
+						<div className="muted">{members.map((member) => `${member?.id} · ${member?.segment_id} · lines ${member?.line_start}–${member?.line_end} · bytes ${member?.start_byte}–${member?.end_byte}`).join(", ")}</div>
+						{group.warnings.length > 0 && <div className="error-text">{group.warnings.join(" ")}</div>}
+					</article>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReviewAuditSummary({ decisions }: { decisions: NonNullable<SourceUnitQA["review_decisions"]> }) {
+	if (!decisions.length) return <p className="muted">No source-unit review decisions have been recorded.</p>;
+	return (
+		<div className="review-audit-list">
+			{decisions.slice().reverse().map((decision) => (
+				<article className="review-audit-item" key={`${decision.source_unit_id}-${decision.project_revision}`}>
+					<div className="toolbar">
+						<strong>{decision.source_unit_id}</strong>
+						<StatusBadge value={decision.decision} />
+						<Badge>rev {decision.project_revision}</Badge>
+					</div>
+					<div className="muted">{decision.reviewed_by} · {new Date(decision.reviewed_at).toLocaleString()}</div>
+					{decision.note && <p>{decision.note}</p>}
+					{decision.normalization ? (
+						<>
+							<div className="toolbar">
+								<Badge>{decision.normalization.version || "legacy"}</Badge>
+								<Badge tone={decision.normalization.changed ? "warn" : "good"}>{decision.normalization.changed ? "Changed" : "Unchanged"}</Badge>
+								<span className="muted">{decision.normalization.operations.length} operations</span>
+							</div>
+							<div className="muted">{shortAuditHash(decision.normalization.exact_hash)} → {shortAuditHash(decision.normalization.normalized_hash)}</div>
+						</>
+					) : <div className="muted">Normalization audit unavailable for this legacy decision.</div>}
+				</article>
+			))}
+		</div>
+	);
+}
+
 function SourcesTab({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
   const [filter, setFilter] = useState("all");
 	const [reviewFilterSelected, setReviewFilterSelected] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<SourceUnit | null>(null);
+	const [sourceView, setSourceView] = useState<"table" | "trace">("table");
+	const [combinedView, setCombinedView] = useState<"semantic" | "layout" | "raw">("semantic");
 	const [sourceJob, setSourceJob] = useState<Job | null>(null);
+	const [segmentationJob, setSegmentationJob] = useState<Job | null>(null);
 	const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
 	const sourceQA = useQuery({
 		queryKey: ["source-unit-qa", projectId],
@@ -218,9 +365,14 @@ function SourcesTab({ projectId }: { projectId: string }) {
 		mutationFn: () => api.generateSourceUnits(projectId, project.data?.project.current_revision ?? 0),
 		onSuccess: ({ job }) => setSourceJob(job),
 	});
+	const retrySegmentation = useMutation({
+		mutationFn: () => api.processSources(projectId, project.data?.project.current_revision ?? 0),
+		onSuccess: ({ job }) => setSegmentationJob(job),
+	});
   const resources = useQuery({ queryKey: ["resources", projectId], queryFn: () => api.listResources(projectId) });
 	const sourceManifest = useQuery({ queryKey: ["source-manifest", projectId], queryFn: () => api.sourceManifest(projectId) });
 	const sourceFidelity = useQuery({ queryKey: ["source-fidelity", projectId], queryFn: () => api.sourceFidelity(projectId), retry: false });
+	const sourceSegmentation = useQuery({ queryKey: ["source-segmentation", projectId], queryFn: () => api.sourceSegmentation(projectId), retry: false });
   const combinedDocument = useQuery({
     queryKey: ["combined-document", projectId],
     queryFn: () => api.combinedDocument(projectId),
@@ -248,21 +400,31 @@ function SourcesTab({ projectId }: { projectId: string }) {
 
   return (
     <>
+		<SourceProcessingFlow />
       <div className="grid-3">
         <Metric label="Resources" value={sourceManifest.data?.manifest.summary.total ?? resources.data?.items.length ?? "-"} />
         <Metric label="Ready resources" value={sourceManifest.data?.manifest.summary.ready ?? "-"} />
         <Metric label="OD sentences" value={combinedDocument.data?.combined_document.summary.sentence_count ?? 0} />
       </div>
-		{sourceFidelity.data?.source_fidelity && (
-			<Panel title="Source fidelity gate">
-				<div className="toolbar">
-					<Badge tone={sourceFidelity.data.source_fidelity.ok ? "good" : "bad"}>{sourceFidelity.data.source_fidelity.ok ? "Lossless source coverage passed" : "Coverage blocked"}</Badge>
-					<Badge>{Math.round(sourceFidelity.data.source_fidelity.normative_coverage * 100)}% normative segments retained</Badge>
-				</div>
+		{sourceFidelity.data?.source_fidelity && <SourceFidelityPanel report={sourceFidelity.data.source_fidelity} />}
+		{segmentationJob && (
+			<Panel title="Sentence segmentation">
+				<JobProgress
+					projectId={projectId}
+					job={segmentationJob}
+					onDone={() => {
+						setSegmentationJob(null);
+						void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+						void queryClient.invalidateQueries({ queryKey: ["source-segmentation", projectId] });
+						void queryClient.invalidateQueries({ queryKey: ["source-fidelity", projectId] });
+						void queryClient.invalidateQueries({ queryKey: ["combined-document", projectId] });
+						void queryClient.invalidateQueries({ queryKey: ["source-units", projectId] });
+					}}
+				/>
 			</Panel>
 		)}
 		{sourceJob && (
-			<Panel title="Source-unit extraction">
+			<Panel title="Source-unit classification">
 				<JobProgress
 					projectId={projectId}
 					job={sourceJob}
@@ -280,15 +442,20 @@ function SourcesTab({ projectId }: { projectId: string }) {
           {resources.isLoading ? <LoadingState /> : <ResourceSummaryTable items={resources.data?.items ?? []} />}
         </Panel>
 		<Panel
-			title="Combined Document"
+			title="Validated Combined Document"
 			action={
-				<Button
-					variant="primary"
-					disabled={!combinedDocument.data?.combined_document || generateSourceUnits.isPending || !!sourceJob}
-					onClick={() => generateSourceUnits.mutate()}
-				>
-					Generate Source Units
-				</Button>
+				<div className="toolbar">
+					<Button className={combinedView === "semantic" ? "active" : ""} onClick={() => setCombinedView("semantic")}>Sentences</Button>
+					<Button className={combinedView === "layout" ? "active" : ""} onClick={() => setCombinedView("layout")}>Segmentation audit</Button>
+					<Button className={combinedView === "raw" ? "active" : ""} onClick={() => setCombinedView("raw")}>Raw</Button>
+					<Button
+						variant="primary"
+						disabled={!combinedDocument.data?.combined_document || generateSourceUnits.isPending || !!sourceJob}
+						onClick={() => generateSourceUnits.mutate()}
+					>
+						Classify Source Units
+					</Button>
+				</div>
 			}
 		>
           {combinedDocument.isLoading ? (
@@ -296,12 +463,33 @@ function SourcesTab({ projectId }: { projectId: string }) {
           ) : combinedDocument.data?.combined_document ? (
             <div className="artifact-preview">
               <div className="toolbar">
+				<Badge tone={combinedDocument.data.combined_document.summary.fallback_used ? "warn" : "good"}>
+					{combinedDocument.data.combined_document.summary.fallback_used ? "deterministic fallback" : "LLM-assisted"}
+				</Badge>
                 <Badge tone={combinedDocument.data.combined_document.summary.warning_count ? "warn" : "good"}>
                   {combinedDocument.data.combined_document.summary.warning_count} warnings
                 </Badge>
                 <Badge>{combinedDocument.data.combined_document.summary.resource_count} resources</Badge>
+				<Badge tone={combinedDocument.data.combined_document.summary.needs_attention_count ? "warn" : "good"}>
+					{combinedDocument.data.combined_document.summary.needs_attention_count} segmentation reviews
+				</Badge>
               </div>
-              <pre>{combinedDocument.data.combined_document.markdown}</pre>
+			{combinedDocument.data.combined_document.summary.fallback_used && (
+				<div className="review-banner">
+					<div>
+						<strong>LLM segmentation was not applied.</strong>
+						<p className="muted">Processing completed safely with deterministic sentence splitting. You can continue or retry when the LLM is available.</p>
+					</div>
+					<Button disabled={retrySegmentation.isPending || !!segmentationJob} onClick={() => retrySegmentation.mutate()}>Retry with LLM</Button>
+				</div>
+			)}
+				{combinedView === "raw" ? (
+					<pre>{combinedDocument.data.combined_document.markdown}</pre>
+				) : combinedView === "layout" ? (
+					sourceSegmentation.data?.proposal ? <SegmentationGroupList proposal={sourceSegmentation.data.proposal} /> : <p className="muted">Segmentation audit is unavailable for this legacy project. Reprocess sources to generate it.</p>
+				) : (
+					<CombinedSentenceList items={combinedDocument.data.combined_document.lineage.sentences} />
+				)}
             </div>
           ) : (
             <p className="muted">No combined document generated.</p>
@@ -315,7 +503,7 @@ function SourcesTab({ projectId }: { projectId: string }) {
 			>
 				<div className="toolbar">
 					<Badge tone={sourceQA.data.qa.ok ? "good" : "bad"}>{sourceQA.data.qa.ok ? "QA passed" : "QA failed"}</Badge>
-					<Badge>{sourceQA.data.qa.derivation_strategy}</Badge>
+					<Badge>{sourceQA.data.qa.derivation_strategy === "llm_classification_backend_normalization" ? "LLM classification + backend normalization" : stageLabel(sourceQA.data.qa.derivation_strategy)}</Badge>
 					<Badge tone={sourceQA.data.qa.needs_attention.length ? "warn" : "good"}>
 						{sourceQA.data.qa.needs_attention.length} need attention
 					</Badge>
@@ -324,17 +512,18 @@ function SourcesTab({ projectId }: { projectId: string }) {
 					</Badge>
 				</div>
 				{needsAttention > 0 ? (
-					<p className="muted">Open a flagged unit, compare its exact and normalized text, then accept it, save a correction, or exclude it from modeling.</p>
+					<p className="muted">Open a flagged unit, inspect the backend normalization audit, then accept the classification or exclude the unit from modeling.</p>
 				) : (
 					<p className="muted">All source-unit review gates are resolved. Requirement extraction is available as the next pipeline step.</p>
 				)}
 			</Panel>
 		)}
-      <div className="grid-2">
         <Panel
           title="Source Units"
           action={
             <div className="toolbar">
+				<Button className={sourceView === "table" ? "active" : ""} onClick={() => setSourceView("table")}>Review table</Button>
+				<Button className={sourceView === "trace" ? "active" : ""} onClick={() => setSourceView("trace")}>Trace graph</Button>
               <select className="select" value={filter} onChange={(event) => setFilter(event.target.value)}>
                 <option value="all">All</option>
                 <option value="needs_attention">Needs attention</option>
@@ -346,11 +535,23 @@ function SourcesTab({ projectId }: { projectId: string }) {
             </div>
           }
         >
-          {sources.isLoading ? <LoadingState /> : <SourceUnitsTable items={sources.data?.items ?? []} filter={filter} onSelect={setSelected} />}
+			{sources.isLoading ? <LoadingState /> : sourceView === "trace" ? (
+				<SourceTraceGraph
+					sentences={combinedDocument.data?.combined_document.lineage.sentences ?? []}
+					units={sources.data?.items ?? []}
+					onSelectUnit={setSelected}
+				/>
+			) : (
+				<SourceUnitsTable items={sources.data?.items ?? []} filter={filter} onSelect={setSelected} />
+			)}
         </Panel>
+		<div className="grid-2">
         <Panel title="Structured Examples">
           {examples.isLoading ? <LoadingState /> : <ExamplesTable items={examples.data?.items ?? []} />}
         </Panel>
+		<Panel title="Review audit">
+			<ReviewAuditSummary decisions={sourceQA.data?.qa.review_decisions ?? []} />
+		</Panel>
       </div>
       {selected && (
 		<SourceUnitReviewDrawer
@@ -407,9 +608,10 @@ function SourceUnitsTable({ items, filter, onSelect }: { items: SourceUnit[]; fi
       <thead>
         <tr>
           <th style={{ width: 130 }}>Unit</th>
-          <th>Normalized requirement text</th>
+			<th>Backend-normalized source text</th>
 			<th style={{ width: 120 }}>Kind</th>
 			<th style={{ width: 120 }}>Relevance</th>
+			<th style={{ width: 105 }}>Normalization</th>
           <th style={{ width: 160 }}>Review</th>
 			<th style={{ width: 90 }}>Action</th>
         </tr>
@@ -424,6 +626,7 @@ function SourceUnitsTable({ items, filter, onSelect }: { items: SourceUnit[]; fi
             <td>{unit.normalized_text}</td>
             <td>{unit.kind}</td>
 			<td>{unit.relevance}</td>
+			<td><Badge tone={unit.normalization?.changed ? "warn" : "good"}>{unit.normalization?.changed ? "Changed" : "Unchanged"}</Badge></td>
             <td>
               <StatusBadge value={unit.review_status} />
             </td>
@@ -448,21 +651,19 @@ function SourceUnitReviewDrawer({
 	onClose: () => void;
 	onReviewed: () => void;
 }) {
-	const [normalizedText, setNormalizedText] = useState(unit.normalized_text);
 	const [note, setNote] = useState("");
 	const review = useMutation({
-		mutationFn: (decision: "accept" | "revise" | "exclude") => api.reviewSourceUnit(projectId, unit.id, {
+		mutationFn: (decision: "accept" | "exclude") => api.reviewSourceUnit(projectId, unit.id, {
 			base_revision: revision,
 			decision,
-			normalized_text: decision === "revise" ? normalizedText : undefined,
 			note,
 		}),
 		onSuccess: onReviewed,
 	});
-	const normalizedChanged = normalizedText.trim() !== unit.normalized_text.trim();
+	const normalization = unit.normalization;
 
 	return (
-		<Drawer title={`Review ${unit.id}`} onClose={onClose}>
+		<Drawer title={`Source unit ${unit.id}`} onClose={onClose}>
 			<div className="toolbar">
 				<StatusBadge value={unit.review_status} />
 				<Badge>{unit.confidence} confidence</Badge>
@@ -474,12 +675,40 @@ function SourceUnitReviewDrawer({
 					<ul>{unit.warnings?.map((warning) => <li key={warning}>{warning}</li>)}</ul>
 				</div>
 			)}
-			<Field label="Exact source text">
-				<textarea className="textarea" value={unit.exact_text ?? ""} readOnly />
-			</Field>
-			<Field label="Normalized text">
-				<textarea className="textarea" value={normalizedText} onChange={(event) => setNormalizedText(event.target.value)} disabled={unit.review_status !== "needs_attention" || review.isPending} />
-			</Field>
+			<div className="normalization-comparison">
+				<div>
+					<div className="label">Exact source text</div>
+					<pre>{unit.exact_text ?? ""}</pre>
+				</div>
+				<div>
+					<div className="label">Backend-normalized text</div>
+					<pre>{unit.normalized_text}</pre>
+				</div>
+			</div>
+			<Panel
+				title="Deterministic normalization audit"
+				action={<Badge tone={normalization?.changed ? "warn" : "good"}>{normalization?.changed ? "Changed" : "Unchanged"}</Badge>}
+			>
+				{normalization ? (
+					<div className="normalization-audit">
+						<div className="toolbar">
+							<Badge>{normalization.version}</Badge>
+							<Badge tone="good">{normalization.strategy}</Badge>
+						</div>
+						<div className="hash-grid">
+							<div><span className="muted">Exact hash</span><code>{shortAuditHash(normalization.exact_hash)}</code></div>
+							<div><span className="muted">Normalized hash</span><code>{shortAuditHash(normalization.normalized_hash)}</code></div>
+						</div>
+						{normalization.operations.length ? normalization.operations.map((operation, index) => (
+							<div className="normalization-operation" key={`${operation.kind}-${index}`}>
+								<strong>{index + 1}. {humanizeOperation(operation.kind)}</strong>
+								<div><span>Before</span><pre>{operation.before}</pre></div>
+								<div><span>After</span><pre>{operation.after}</pre></div>
+							</div>
+						)) : <p className="muted">No normalization changes were necessary.</p>}
+					</div>
+				) : <p className="muted">Normalization audit is unavailable for this legacy unit.</p>}
+			</Panel>
 			<p className="muted">Origins: {unit.origin_spans.map((span) => span.label).join(", ") || "No origin span recorded"}</p>
 			<Field label="Review note (optional)">
 				<textarea className="textarea" value={note} onChange={(event) => setNote(event.target.value)} disabled={unit.review_status !== "needs_attention" || review.isPending} />
@@ -487,8 +716,7 @@ function SourceUnitReviewDrawer({
 			{review.isError && <p className="error-text">{review.error instanceof Error ? review.error.message : "Source unit could not be reviewed."}</p>}
 			{unit.review_status === "needs_attention" ? (
 				<div className="review-actions">
-					<Button variant="primary" disabled={review.isPending} onClick={() => review.mutate("accept")}>Accept current text</Button>
-					<Button disabled={review.isPending || !normalizedChanged || !normalizedText.trim()} onClick={() => review.mutate("revise")}>Save correction</Button>
+					<Button variant="primary" disabled={review.isPending} onClick={() => review.mutate("accept")}>Accept unit</Button>
 					<Button variant="danger" disabled={review.isPending} onClick={() => review.mutate("exclude")}>Mark as non-model</Button>
 				</div>
 			) : (
@@ -500,6 +728,16 @@ function SourceUnitReviewDrawer({
 			</div>
 		</Drawer>
 	);
+}
+
+function shortAuditHash(value: string) {
+	if (!value) return "unavailable";
+	const normalized = value.replace(/^sha256:/, "");
+	return `sha256:${normalized.slice(0, 12)}…`;
+}
+
+function humanizeOperation(value: string) {
+	return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function ExamplesTable({ items }: { items: StructuredExample[] }) {
@@ -796,13 +1034,21 @@ function ReviewTab({
 }) {
   const queryClient = useQueryClient();
   const [job, setJob] = useState<Job | null>(null);
+	const [selected, setSelected] = useState<Record<string, string>>({});
+	const [reviewStartedAt] = useState(() => Date.now());
   const candidates = useQuery({ queryKey: ["review-candidates", projectId], queryFn: () => api.reviewCandidates(projectId) });
-  const answer = useMutation({
-    mutationFn: ({ id, selected }: { id: string; selected: string }) => api.answerReview(projectId, id, revision, selected),
+	const answer = useMutation({
+		mutationFn: () => api.answerReviewBatch(
+			projectId,
+			revision,
+			Object.entries(selected).map(([candidate_id, selected_option_id]) => ({ candidate_id, selected_option_id })),
+			Date.now() - reviewStartedAt,
+		),
     onSuccess: ({ job }) => setJob(job),
   });
 	const all = candidates.data?.items ?? [];
 	const open = all.filter((item) => item.status === "open");
+	const selectionCount = Object.keys(selected).length;
 
   if (job) {
     return (
@@ -838,9 +1084,16 @@ function ReviewTab({
   return (
     <div className="page">
 		<Panel title={`Review Queue · ${open.length} open`}>
+		<div className="toolbar" style={{ marginBottom: 16 }}>
+			<span>{selectionCount} selected for one deterministic batch.</span>
+			<Button variant="primary" onClick={() => answer.mutate()} disabled={answer.isPending || selectionCount === 0}>
+				Apply selected decisions
+			</Button>
+			{answer.error && <span className="error-text">{answer.error.message}</span>}
+		</div>
         <div className="field" style={{ gap: 14 }}>
 			{open.map((candidate: ReviewCandidate) => {
-				const unresolvedDependencies = unresolvedReviewDependencies(candidate, all);
+				const unresolvedDependencies = unresolvedReviewDependencies(candidate, all).filter((id) => !selected[id]);
 				const locked = unresolvedDependencies.length > 0;
 				return (
             <div className="panel" key={candidate.id}>
@@ -865,14 +1118,15 @@ function ReviewTab({
 				{locked && <p className="error-text">Resolve {unresolvedDependencies.join(", ")} before answering this question.</p>}
 				<div className="review-option-grid">
                   {candidate.options.map((option) => (
-					<div className={`review-option-card ${option.recommended ? "recommended" : ""}`} key={option.id}>
+					<div className={`review-option-card ${option.recommended ? "recommended" : ""}`} key={option.id} aria-selected={selected[candidate.id] === option.id}>
 						<div className="toolbar"><strong>{option.label}</strong>{option.recommended && <Badge tone="good">Recommended</Badge>}</div>
 						<p>{option.rationale}</p>
 						{option.effect_summary && <p className="muted"><strong>Effect:</strong> {option.effect_summary}</p>}
 						{(option.benefits?.length ?? 0) > 0 && <p className="muted"><strong>Benefits:</strong> {option.benefits?.join("; ")}</p>}
 						{(option.risks?.length ?? 0) > 0 && <p className="muted"><strong>Risks:</strong> {option.risks?.join("; ")}</p>}
-						<Button variant={option.recommended ? "primary" : "default"} onClick={() => answer.mutate({ id: candidate.id, selected: option.id })} disabled={answer.isPending || locked}>
-							Choose option
+						{option.effects?.impact_dimensions?.length ? <p className="muted"><strong>Risk dimensions:</strong> {option.effects.impact_dimensions.join(", ")}</p> : null}
+						<Button variant={selected[candidate.id] === option.id || option.recommended ? "primary" : "default"} onClick={() => setSelected((current) => ({ ...current, [candidate.id]: option.id }))} disabled={answer.isPending || locked}>
+							{selected[candidate.id] === option.id ? "Selected" : "Choose option"}
 						</Button>
 					</div>
                   ))}

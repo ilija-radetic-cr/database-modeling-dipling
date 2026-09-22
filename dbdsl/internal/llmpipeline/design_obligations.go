@@ -20,17 +20,21 @@ func DeriveDesignObligations(atoms []RequirementAtomProposal) (DesignObligations
 	items := make([]DesignObligation, 0, len(atoms))
 	for _, atom := range atoms {
 		for _, classified := range classifyObligations(atom) {
+			status := "accepted"
+			if classified.persistence == "not_required" {
+				status = "not_required"
+			}
 			items = append(items, DesignObligation{
 				ID: fmt.Sprintf("DO-%04d", len(items)+1), Statement: atom.Statement, Kind: classified.kind,
 				Persistence: classified.persistence, SourceUnits: append([]string(nil), atom.SourceUnits...),
 				RequirementAtoms: []string{atom.ID}, VerificationTarget: classified.target, Risk: classified.risk,
-				RequiresReview: atom.RequiresReview || classified.persistence == "unresolved",
-				Status:         "accepted", Rationale: obligationRationale(classified.kind, classified.persistence),
+				RequiresReview: classified.persistence == "unresolved" || (classified.persistence != "not_required" && atom.RequiresReview),
+				Status:         status, Rationale: obligationRationale(classified.kind, classified.persistence),
 			})
 		}
 	}
 	file := DesignObligationsFile{
-		Document:          map[string]any{"pipeline_version": "0.7", "derivation_strategy": "deterministic_from_requirement_atoms"},
+		Document:          map[string]any{"pipeline_version": "0.7", "policy_version": "design_obligations/v0.7.1", "derivation_strategy": "deterministic_from_requirement_atoms"},
 		DesignObligations: items,
 	}
 	return file, ValidateDesignObligations(file, atoms)
@@ -111,6 +115,27 @@ func ValidateDesignObligations(file DesignObligationsFile, atoms []RequirementAt
 func classifyObligation(atom RequirementAtomProposal) (kind, persistence, risk, target string) {
 	text := strings.ToLower(atom.Statement + " " + atom.AtomType + " " + atom.ModelingRelevance)
 	persistence, risk = "required", "medium"
+	switch atom.PersistenceEffect {
+	case "not_required":
+		return "transient", "not_required", "low", "Confirm that no persistent state is needed."
+	case "derived_basis":
+		return "derived_view", "derived", "medium", "Identify the persistent facts from which the value is derived."
+	case "audit_history":
+		return "event_history", "required", "high", "Retain enough typed facts to reconstruct and verify the event."
+	case "external":
+		return "relationship", "unresolved", "high", "Decide whether an external identity or snapshot is retained."
+	case "unclear":
+		return "attribute", "unresolved", "high", "Resolve the durable-data consequence before modeling."
+	}
+	if atom.ModelingOutcome == "intentionally_not_in_db" || atom.ModelingOutcome == "unsupported" || atom.ExampleRole == "illustrative_instance" {
+		return "transient", "not_required", "low", "Confirm that no persistent state is needed."
+	}
+	if atom.SupportLevel == "example_based" && atom.ExampleRole != "schema_shape" && atom.ExampleRole != "seed_data" && atom.ExampleRole != "constraint_boundary" {
+		return "transient", "not_required", "low", "The legacy example-based atom is treated as illustrative unless explicitly typed otherwise."
+	}
+	if atom.ModelingOutcome == "deferred" && len(atom.ReviewDecisions) == 0 {
+		return "attribute", "unresolved", "high", "Resolve the deferred modeling outcome before conceptual generation."
+	}
 	switch {
 	case atom.ModelingRelevance == "non_model" || atom.ModelingRelevance == "ui_only":
 		return "transient", "not_required", "low", "Confirm that no persistent state is needed."
@@ -128,13 +153,68 @@ func classifyObligation(atom RequirementAtomProposal) (kind, persistence, risk, 
 		return "lifecycle", "required", "high", "Represent the relevant state or transition and its temporal boundary."
 	case containsAny(text, "exactly", "at most", "must", "only", "tačno", "najviše", "mora", "samo"):
 		return "invariant", "required", "high", "Represent the rule and identify its enforcement strategy."
-	case atom.ModelingRelevance == "application_logic":
-		return "invariant", "required", "medium", "Identify the persistent basis and application/database enforcement boundary."
-	case atom.ModelingRelevance == "external":
-		return "relationship", "unresolved", "high", "Decide what external identity or snapshot is retained."
+	case atom.ModelingOutcome == "external_system" || atom.ModelingRelevance == "external":
+		if containsAny(text, "store", "save", "persist", "snapshot", "identifier", "sačuv", "čuv", "identifik") {
+			return "relationship", "required", "high", "Represent the retained external identity or snapshot."
+		}
+		return "transient", "not_required", "low", "External behavior has no explicit persistent representation."
+	case atom.ModelingOutcome == "requires_app_logic" || atom.ModelingRelevance == "application_logic":
+		if containsAny(text, "store", "save", "persist", "history", "audit", "password", "username", "status", "sačuv", "čuv", "istor", "lozink", "korisnič", "stanje") {
+			return "invariant", "required", "medium", "Identify the persistent basis and application/database enforcement boundary."
+		}
+		return "transient", "not_required", "low", "Application behavior has no explicit durable-data consequence."
 	default:
 		return "attribute", persistence, risk, "Map the requirement to a typed model element or justify exclusion."
 	}
+}
+
+// ReclassifyDesignObligations applies the current policy without changing the
+// identity or order of existing obligations. It is used by pre-conceptual
+// compatibility migration so failed historical jobs remain reproducible.
+func ReclassifyDesignObligations(file DesignObligationsFile, atoms []RequirementAtomProposal) (DesignObligationsFile, DesignObligationQA) {
+	copyFile := DesignObligationsFile{Document: map[string]any{}, DesignObligations: append([]DesignObligation(nil), file.DesignObligations...)}
+	for key, value := range file.Document {
+		copyFile.Document[key] = value
+	}
+	file = copyFile
+	byID := map[string]RequirementAtomProposal{}
+	for _, atom := range atoms {
+		byID[atom.ID] = atom
+	}
+	for i := range file.DesignObligations {
+		item := &file.DesignObligations[i]
+		if len(item.RequirementAtoms) == 0 {
+			continue
+		}
+		atom, ok := byID[item.RequirementAtoms[0]]
+		if !ok {
+			continue
+		}
+		classifications := classifyObligations(atom)
+		selected := classifications[0]
+		for _, classified := range classifications {
+			if classified.kind == item.Kind {
+				selected = classified
+				break
+			}
+		}
+		item.Persistence = selected.persistence
+		item.Risk = selected.risk
+		item.VerificationTarget = selected.target
+		item.RequiresReview = selected.persistence == "unresolved" || (selected.persistence != "not_required" && atom.RequiresReview && len(atom.ReviewDecisions) == 0)
+		item.Status = "accepted"
+		if selected.persistence == "not_required" {
+			item.Status = "not_required"
+		}
+		item.Rationale = obligationRationale(item.Kind, selected.persistence)
+	}
+	if file.Document == nil {
+		file.Document = map[string]any{}
+	}
+	file.Document["pipeline_version"] = "0.7"
+	file.Document["policy_version"] = "design_obligations/v0.7.1"
+	file.Document["derivation_strategy"] = "compatibility_reclassification_preserving_ids"
+	return file, ValidateDesignObligations(file, atoms)
 }
 
 func containsAny(text string, terms ...string) bool {
@@ -147,6 +227,9 @@ func containsAny(text string, terms ...string) bool {
 }
 
 func obligationRationale(kind, persistence string) string {
+	if persistence == "unresolved" {
+		return "The durable-data consequence must be resolved before model generation."
+	}
 	if persistence == "not_required" {
 		return "The atom is explicitly classified outside persistent schema scope."
 	}

@@ -13,11 +13,11 @@ import {
 
 describe("pipeline action state", () => {
   it("exposes only valid new-project actions", () => {
-    expect(newProjectActionState({ created: false, name: "  ", sourceText: "task", readyResources: 0, llmAvailable: true }).canCreate).toBe(false);
-    expect(newProjectActionState({ created: true, name: "Demo", sourceText: "task", readyResources: 2, llmAvailable: true })).toEqual({
+    expect(newProjectActionState({ created: false, name: "  ", sourceText: "task", readyResources: 0 }).canCreate).toBe(false);
+    expect(newProjectActionState({ created: true, name: "Demo", sourceText: "task", readyResources: 2 })).toEqual({
       canCreate: false, canAddText: true, canBuildCombinedDocument: true,
     });
-	expect(newProjectActionState({ created: true, name: "Demo", sourceText: "", readyResources: 1, llmAvailable: false }).canBuildCombinedDocument).toBe(true);
+	expect(newProjectActionState({ created: true, name: "Demo", sourceText: "", readyResources: 1 }).canBuildCombinedDocument).toBe(true);
   });
 
   it("keeps review questions locked until dependencies resolve", () => {
@@ -64,6 +64,8 @@ describe("pipeline action state", () => {
   });
 
   it("renders the project next-stage action explicitly", () => {
+		expect(nextStageLabel("combined_document", 0)).toBe("Build LLM-assisted Source Document");
+		expect(nextStageLabel("source_units", 0)).toBe("Classify Source Units");
     expect(nextStageLabel("conceptual_model", 0)).toBe("Generate Conceptual Model");
     expect(nextStageLabel("review_decisions", 2)).toBe("Resolve 2 decisions");
   });

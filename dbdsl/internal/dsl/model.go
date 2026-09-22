@@ -232,8 +232,24 @@ type SourceUnit struct {
 }
 
 type SourceUnitText struct {
-	Exact      string `yaml:"exact"`
-	Normalized string `yaml:"normalized"`
+	Exact         string                  `json:"exact" yaml:"exact"`
+	Normalized    string                  `json:"normalized" yaml:"normalized"`
+	Normalization SourceTextNormalization `json:"normalization" yaml:"normalization"`
+}
+
+type SourceTextNormalization struct {
+	Version        string                         `json:"version" yaml:"version"`
+	Strategy       string                         `json:"strategy" yaml:"strategy"`
+	ExactHash      string                         `json:"exact_hash" yaml:"exact_hash"`
+	NormalizedHash string                         `json:"normalized_hash" yaml:"normalized_hash"`
+	Changed        bool                           `json:"changed" yaml:"changed"`
+	Operations     []SourceNormalizationOperation `json:"operations" yaml:"operations"`
+}
+
+type SourceNormalizationOperation struct {
+	Kind   string `json:"kind" yaml:"kind"`
+	Before string `json:"before" yaml:"before"`
+	After  string `json:"after" yaml:"after"`
 }
 
 type V05RequirementAtomsFile struct {

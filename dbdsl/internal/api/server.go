@@ -161,6 +161,8 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleCombinedDocument(w, r, projectID)
 	case "source-fidelity":
 		s.handleSourceFidelity(w, r, projectID)
+	case "source-segmentation":
+		s.handleSourceSegmentation(w, r, projectID)
 	case "stages":
 		s.handleStages(w, r, projectID, rest[1:])
 	case "analysis":
@@ -184,7 +186,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case "review-candidates":
 		s.handleReviewCandidates(w, r, projectID, rest[1:])
 	case "review-decisions":
-		s.handleReviewDecisions(w, r, projectID)
+		s.handleReviewDecisions(w, r, projectID, rest[1:])
 	case "conceptual-model":
 		s.handleConceptualModel(w, r, projectID, rest[1:])
 	case "model-acceptance":
@@ -213,6 +215,8 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleJobs(w, r, projectID, rest[1:])
 	case "llm-runs":
 		s.handleLLMRuns(w, r, projectID, rest[1:])
+	case "optimization-report":
+		s.handleOptimizationReport(w, r, projectID)
 	default:
 		writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
 	}
@@ -255,9 +259,14 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 		writeMappedError(w, r, workspace.ErrRevisionConflict)
 		return
 	}
-	client, clientErr := llmClient(req.Mock)
 	stage := rest[0]
-	needsLLM := stage != "source_units" && stage != "generate_outputs" && stage != "validation_lint" && stage != "semantic_verification"
+	client, clientErr := llmClient(req.Mock)
+	needsLLM := stage != "process_sources" && stage != "generate_outputs" && stage != "validation_lint" && stage != "semantic_verification"
+	if clientErr != nil && stage == "review_candidates" {
+		if reviewNeedsLLM, gateErr := s.store.ReviewCandidateGenerationNeedsLLM(projectID); gateErr == nil && !reviewNeedsLLM {
+			needsLLM = false
+		}
+	}
 	if clientErr != nil && needsLLM {
 		writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", clientErr.Error(), nil)
 		return
@@ -271,6 +280,16 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 	var runner jobs.Runner
 	var steps []string
 	switch stage {
+	case "process_sources":
+		steps = processSourcesSteps()
+		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), defaultLLMStageTimeout)
+			defer cancel()
+			return s.store.ProcessSourcesWithLLM(ctx, client, projectID, workspace.ProcessSourcesOptions{
+				BaseRevision: req.BaseRevision, Model: req.Model, ReasoningEffort: req.ReasoningEffort,
+				MaxOutputTokens: req.MaxOutputTokens, OnProgress: emit,
+			})
+		}
 	case "source_units":
 		steps = []string{"extract_source_units", "validate_source_units", "write_source_units"}
 		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
@@ -343,6 +362,11 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
 			return s.store.GenerateFinalOutputs(projectID, req.BaseRevision, emit)
 		}
+	case "validation_lint":
+		steps = []string{"validate", "lint", "quality"}
+		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
+			return s.store.RefreshModelQuality(projectID, req.BaseRevision, emit)
+		}
 	default:
 		writeError(w, r, http.StatusBadRequest, "invalid_stage", "Unsupported project stage.", map[string]any{"stage": stage})
 		return
@@ -361,7 +385,16 @@ func (s *Server) handleDesignObligations(w http.ResponseWriter, r *http.Request,
 		writeMappedError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"design_obligations": artifacts.Accepted.DesignObligations, "qa": artifacts.QA})
+	preview, previewQA, previewErr := s.store.DesignObligationMigrationPreview(projectID)
+	response := map[string]any{"design_obligations": artifacts.Accepted.DesignObligations, "qa": artifacts.QA}
+	if previewErr == nil {
+		response["migration_preview"] = preview
+		response["migration_preview_qa"] = previewQA
+	}
+	if metrics, metricsErr := s.store.ConceptualOptimizationPreview(projectID); metricsErr == nil {
+		response["conceptual_context_preview"] = metrics
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleSemanticVerification(w http.ResponseWriter, r *http.Request, projectID string) {
@@ -382,10 +415,10 @@ func nextProjectStage(health workspace.ArtifactHealth) string {
 		return "completed"
 	}
 	if health.CombinedDocumentStatus != "ready" {
-		return "combined_document"
+		return "process_sources"
 	}
 	if health.SourceFidelityStatus != "ready" {
-		return "combined_document"
+		return "process_sources"
 	}
 	if health.SourceUnitsStatus == "not_generated" {
 		return "source_units"
@@ -551,7 +584,7 @@ func (s *Server) handleLLMStatus(w http.ResponseWriter, r *http.Request) {
 		"default_model":    llm.DefaultModel,
 		"mock_available":   true,
 		"provider":         "openai",
-		"pipeline_version": "0.7",
+		"pipeline_version": "0.7.2",
 	})
 }
 
@@ -726,14 +759,15 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request, project
 			writeJSON(w, http.StatusOK, map[string]any{"items": resources})
 		case http.MethodPost:
 			var req struct {
-				Kind    string `json:"kind"`
-				Title   string `json:"title"`
-				Content string `json:"content"`
+				Kind         string `json:"kind"`
+				Title        string `json:"title"`
+				Content      string `json:"content"`
+				BaseRevision int    `json:"base_revision"`
 			}
 			if !decodeJSON(w, r, &req) {
 				return
 			}
-			resource, revision, err := s.store.AddPastedTextResource(projectID, req.Title, req.Content)
+			resource, revision, err := s.store.AddPastedTextResource(projectID, req.BaseRevision, req.Title, req.Content)
 			if err != nil {
 				writeMappedError(w, r, err)
 				return
@@ -771,7 +805,12 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request, project
 		return
 	}
 	if len(rest) == 1 && r.Method == http.MethodDelete {
-		revision, err := s.store.DeleteResource(projectID, rest[0])
+		baseRevision, err := optionalInt(r.URL.Query().Get("base_revision"))
+		if err != nil {
+			writeError(w, r, http.StatusBadRequest, "bad_request", "base_revision must be an integer.", nil)
+			return
+		}
+		revision, err := s.store.DeleteResource(projectID, baseRevision, rest[0])
 		if err != nil {
 			writeMappedError(w, r, err)
 			return
@@ -793,7 +832,12 @@ func (s *Server) handleUploadResource(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 	defer file.Close()
-	resource, revision, err := s.store.AddUploadedResource(projectID, r.FormValue("title"), header.Filename, "", file)
+	baseRevision, err := optionalInt(r.FormValue("base_revision"))
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, "bad_request", "base_revision must be an integer.", nil)
+		return
+	}
+	resource, revision, err := s.store.AddUploadedResource(projectID, baseRevision, r.FormValue("title"), header.Filename, "", file)
 	if err != nil {
 		writeMappedError(w, r, err)
 		return
@@ -825,11 +869,16 @@ func (s *Server) handleProcessSources(w http.ResponseWriter, r *http.Request, pr
 		writeMappedError(w, r, workspace.ErrRevisionConflict)
 		return
 	}
-	steps := []string{"extract_text", "write_source_manifest", "build_lossless_combined_document", "validate_source_fidelity"}
+	if s.jobs.HasActiveProject(projectID) {
+		writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
+		return
+	}
+	client, _ := llmClient(req.Mock)
+	steps := processSourcesSteps()
 	job := s.jobs.StartWithRevision(projectID, "process_sources", req.BaseRevision, steps, func(projectID string, _ string, emit jobs.StepEmitter) (int, []string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), defaultLLMStageTimeout)
 		defer cancel()
-		return s.store.ProcessSources(ctx, nil, projectID, workspace.ProcessSourcesOptions{
+		return s.store.ProcessSourcesWithLLM(ctx, client, projectID, workspace.ProcessSourcesOptions{
 			BaseRevision:    req.BaseRevision,
 			Model:           req.Model,
 			ReasoningEffort: req.ReasoningEffort,
@@ -838,6 +887,10 @@ func (s *Server) handleProcessSources(w http.ResponseWriter, r *http.Request, pr
 		})
 	})
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
+}
+
+func processSourcesSteps() []string {
+	return []string{"load_extracted_resources", "write_source_manifest", "build_source_segments", "propose_source_segmentation", "validate_source_segmentation", "validate_source_fidelity", "write_combined_document"}
 }
 
 func (s *Server) handleSourceFidelity(w http.ResponseWriter, r *http.Request, projectID string) {
@@ -851,6 +904,19 @@ func (s *Server) handleSourceFidelity(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"source_fidelity": report})
+}
+
+func (s *Server) handleSourceSegmentation(w http.ResponseWriter, r *http.Request, projectID string) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
+		return
+	}
+	proposal, qa, err := s.store.SourceSegmentation(projectID)
+	if err != nil {
+		writeMappedError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"proposal": proposal, "qa": qa})
 }
 
 func (s *Server) handleSourceManifest(w http.ResponseWriter, r *http.Request, projectID string) {
@@ -962,7 +1028,8 @@ func (s *Server) handleSourceUnits(w http.ResponseWriter, r *http.Request, proje
 		}
 		client, clientErr := llmClient(req.Mock)
 		if clientErr != nil {
-			client = nil
+			writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", clientErr.Error(), nil)
+			return
 		}
 		job := s.jobs.StartWithRevision(projectID, "source_units", req.BaseRevision, []string{"extract_source_units", "validate_source_units", "write_source_units"}, func(projectID string, _ string, emit jobs.StepEmitter) (int, []string, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), defaultLLMStageTimeout)
@@ -1158,11 +1225,7 @@ func (s *Server) handleReviewCandidates(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		if project.ReviewCandidatesPath != "" {
-			client, err := llmClient(req.Mock)
-			if err != nil {
-				writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", err.Error(), nil)
-				return
-			}
+			client, _ := llmClient(req.Mock)
 			job := s.jobs.StartWithRevision(projectID, "apply_review_decision", req.BaseRevision, []string{"apply_review_decision", "validate_review_patch", "write_review_revision"}, func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
 				ctx, cancel := context.WithTimeout(context.Background(), defaultLLMStageTimeout)
 				defer cancel()
@@ -1219,7 +1282,37 @@ func (s *Server) handleReviewCandidates(w http.ResponseWriter, r *http.Request, 
 	writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
 }
 
-func (s *Server) handleReviewDecisions(w http.ResponseWriter, r *http.Request, projectID string) {
+func (s *Server) handleReviewDecisions(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
+	if len(rest) == 1 && rest[0] == "batch" && r.Method == http.MethodPost {
+		if s.jobs.HasActiveProject(projectID) {
+			writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
+			return
+		}
+		var req struct {
+			BaseRevision   int                         `json:"base_revision"`
+			Selections     []workspace.ReviewSelection `json:"selections"`
+			ReviewedBy     string                      `json:"reviewed_by"`
+			ActiveReviewMS int64                       `json:"active_review_ms"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		job := s.jobs.StartWithRevision(projectID, "apply_review_decision_batch", req.BaseRevision, []string{"validate_review_batch", "apply_review_batch", "write_review_revision"}, func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
+			emit("validate_review_batch", "Validating structured review selections and dependencies.", 25, map[string]any{"selections": len(req.Selections), "llm_call": false})
+			revision, updated, err := s.store.ApplyProjectReviewDecisionBatch(projectID, workspace.ApplyReviewBatchOptions{BaseRevision: req.BaseRevision, Selections: req.Selections, ReviewedBy: req.ReviewedBy, DecisionMode: "manual_batch", ActiveReviewMS: req.ActiveReviewMS})
+			if err != nil {
+				return revision, updated, err
+			}
+			emit("apply_review_batch", "Applied review decisions deterministically.", 80, map[string]any{"selections": len(req.Selections), "llm_call": false})
+			return revision, updated, nil
+		})
+		writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
+		return
+	}
+	if len(rest) != 0 || r.Method != http.MethodGet {
+		writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
+		return
+	}
 	items, err := s.store.ReviewDecisions(projectID)
 	if err != nil {
 		writeMappedError(w, r, err)
@@ -1500,6 +1593,19 @@ func (s *Server) handleLLMRuns(w http.ResponseWriter, r *http.Request, projectID
 	writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
 }
 
+func (s *Server) handleOptimizationReport(w http.ResponseWriter, r *http.Request, projectID string) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
+		return
+	}
+	report, err := s.store.LLMOptimizationReport(projectID)
+	if err != nil {
+		writeMappedError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"report": report})
+}
+
 func writeSSE(w io.Writer, event jobs.Event) {
 	data, _ := json.Marshal(event)
 	fmt.Fprintf(w, "event: job.%s\n", event.Status)
@@ -1586,6 +1692,17 @@ func nonEmpty(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func optionalInt(value string) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, errors.New("value must be a non-negative integer")
+	}
+	return parsed, nil
 }
 
 func uploadedSize(file multipart.File, header *multipart.FileHeader) int64 {

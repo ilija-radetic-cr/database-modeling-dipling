@@ -42,6 +42,7 @@ type ReviewSourceUnitOptions struct {
 }
 
 func (s *Store) GenerateSourceUnits(ctx context.Context, client llm.Client, projectID string, opts GenerateSourceUnitsOptions) (int, []string, error) {
+	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "source_units", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, ok := s.Project(projectID)
 	if !ok {
 		return 0, nil, ErrNotFound
@@ -65,27 +66,29 @@ func (s *Store) GenerateSourceUnits(ctx context.Context, client llm.Client, proj
 		Warnings:          combined.Lineage.Warnings,
 		ConfidenceSummary: combined.Lineage.ConfidenceSummary,
 	}
-	emit("extract_source_units", "Calling LLM to segment the combined document.", 24, map[string]any{"sentence_count": len(document.Sentences)})
+	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "source_units", opts.MaxOutputTokens, stageBudgetInput{Sentences: len(document.Sentences)})
+	controls := s.resolveLLMExecutionControls(projectID)
+	chunkCount := (len(document.Sentences) + llmpipeline.SourceUnitChunkSize - 1) / llmpipeline.SourceUnitChunkSize
+	emit("extract_source_units", "Classifying source sentences in bounded chunks.", 24, map[string]any{
+		"sentence_count": len(document.Sentences), "chunk_size": llmpipeline.SourceUnitChunkSize, "chunk_count": chunkCount,
+	})
 	var proposal llmpipeline.SourceUnitExtractionProposal
 	var qa llmpipeline.SourceUnitQA
-	strategy := "llm"
-	var stageErr error
-	if client != nil {
-		proposal, qa, stageErr = llmpipeline.RunSourceUnitExtraction(ctx, client, llmpipeline.SourceUnitExtractionOptions{
-			OutDir:          s.projectWorkspaceDir(projectID),
-			Document:        document,
-			Model:           opts.Model,
-			ReasoningEffort: opts.ReasoningEffort,
-			MaxOutputTokens: opts.MaxOutputTokens,
-		})
-	} else {
-		stageErr = errors.New("LLM client is unavailable")
+	strategy := "llm_classification_backend_normalization"
+	if client == nil {
+		return 0, nil, errors.New("LLM client is required for source-unit classification; use explicit mock mode for offline tests")
 	}
+	proposal, qa, stageErr := llmpipeline.RunSourceUnitExtraction(ctx, client, llmpipeline.SourceUnitExtractionOptions{
+		OutDir:          s.projectWorkspaceDir(projectID),
+		Document:        document,
+		Model:           opts.Model,
+		ReasoningEffort: opts.ReasoningEffort,
+		MaxOutputTokens: opts.MaxOutputTokens,
+		MaxParallelism:  controls.MaxParallelism,
+		PromptVersion:   controls.PromptVersion,
+	})
 	if stageErr != nil {
-		strategy = "deterministic_fallback"
-		proposal, qa = llmpipeline.BuildSourceUnitFallback(document)
-		qa.Warnings = append(qa.Warnings, "LLM stage failed before fallback: "+stageErr.Error())
-		emit("source_unit_fallback", "Using deterministic sentence-level fallback.", 52, map[string]any{"reason": stageErr.Error()})
+		return 0, nil, stageErr
 	}
 	if !qa.OK {
 		return 0, nil, fmt.Errorf("source-unit QA failed: %s", strings.Join(qa.Errors, "; "))
@@ -164,8 +167,9 @@ func buildAcceptedSourceUnits(project *ProjectState, proposal llmpipeline.Source
 			Relevance: unit.Relevance,
 			Tags:      append([]string(nil), unit.Tags...),
 			Text: dsl.SourceUnitText{
-				Exact:      unit.ExactText,
-				Normalized: unit.NormalizedText,
+				Exact:         unit.ExactText,
+				Normalized:    unit.NormalizedText,
+				Normalization: unit.Normalization,
 			},
 		})
 	}
@@ -173,7 +177,7 @@ func buildAcceptedSourceUnits(project *ProjectState, proposal llmpipeline.Source
 		Document: dsl.V05SourceUnitsDocument{
 			ID:              project.ID + "_source_units",
 			Title:           project.Name + " source units",
-			PipelineVersion: "0.7",
+			PipelineVersion: llmpipeline.PipelineVersion,
 			SourceFile:      "combined_document.md",
 			SourceLanguage:  project.Language,
 			Granularity:     "semantic_unit_with_od_lineage",
@@ -199,6 +203,18 @@ func (s *Store) SourceUnitArtifacts(projectID string) (SourceUnitArtifacts, erro
 	}
 	if err := readJSON(s.absoluteWorkspacePath(project.SourceUnitQAPath), &out.QA); err != nil {
 		return SourceUnitArtifacts{}, err
+	}
+	// Old artifacts may contain LLM-authored normalization. Treat exact text as
+	// authoritative and project every read through the current backend normalizer.
+	for i := range out.Accepted.SourceUnits {
+		normalized, audit := llmpipeline.NormalizeSourceText(out.Accepted.SourceUnits[i].Text.Exact)
+		out.Accepted.SourceUnits[i].Text.Normalized = normalized
+		out.Accepted.SourceUnits[i].Text.Normalization = audit
+	}
+	for i := range out.Proposal.SourceUnits {
+		normalized, audit := llmpipeline.NormalizeSourceText(out.Proposal.SourceUnits[i].ExactText)
+		out.Proposal.SourceUnits[i].NormalizedText = normalized
+		out.Proposal.SourceUnits[i].Normalization = audit
 	}
 	return out, nil
 }
@@ -241,24 +257,32 @@ func (s *Store) ReviewSourceUnit(projectID, sourceUnitID string, opts ReviewSour
 	proposal := &artifacts.Proposal.SourceUnits[proposalIndex]
 	previousText := accepted.Text.Normalized
 	previousRelevance := accepted.Relevance
+	deterministicText, normalization := llmpipeline.NormalizeSourceText(accepted.Text.Exact)
 	switch decision {
 	case "revise":
 		normalized := strings.TrimSpace(opts.NormalizedText)
-		if normalized == "" {
-			return 0, 0, errors.New("normalized_text is required for revise")
+		// The backend owns normalized text. Older clients may still echo the
+		// expected value; validate that echo, but never require or adopt it.
+		if normalized != "" {
+			if _, err := llmpipeline.ValidateSourceTextNormalization(accepted.Text.Exact, normalized); err != nil {
+				return 0, 0, err
+			}
 		}
-		accepted.Text.Normalized = normalized
-		proposal.NormalizedText = normalized
 	case "exclude":
 		accepted.Relevance = "non_model"
 		proposal.Relevance = "non_model"
 	}
+	accepted.Text.Normalized = deterministicText
+	accepted.Text.Normalization = normalization
+	proposal.NormalizedText = deterministicText
+	proposal.Normalization = normalization
 	proposal.RequiresReview = false
 	artifacts.QA.NeedsAttention = withoutString(artifacts.QA.NeedsAttention, sourceUnitID)
 	nextRevision := project.CurrentRevision + 1
 	artifacts.QA.ReviewDecisions = append(artifacts.QA.ReviewDecisions, llmpipeline.SourceUnitReviewDecision{
 		SourceUnitID: sourceUnitID, Decision: decision,
 		PreviousNormalizedText: previousText, NormalizedText: accepted.Text.Normalized,
+		Normalization:     normalization,
 		PreviousRelevance: previousRelevance, Relevance: accepted.Relevance,
 		Note: strings.TrimSpace(opts.Note), ReviewedBy: nonEmpty(strings.TrimSpace(opts.ReviewedBy), "local_user"),
 		ReviewedAt: time.Now().UTC().Format(time.RFC3339Nano), ProjectRevision: nextRevision,
@@ -356,12 +380,18 @@ func (s *Store) projectSourceUnits(projectID string) ([]SourceUnit, bool, error)
 		originSet := map[string]OriginSpan{}
 		for _, sentenceID := range proposal.ODSentenceIDs {
 			for _, origin := range sentenceByID[sentenceID].DerivedFrom {
-				key := fmt.Sprintf("%s:%d:%d", origin.ResourceID, origin.LineStart, origin.LineEnd)
+				key := fmt.Sprintf("%s:%s:%d:%d:%d:%d", origin.ResourceID, origin.SourceSegmentID, origin.LineStart, origin.LineEnd, origin.StartByte, origin.EndByte)
+				label := fmt.Sprintf("%s lines %d-%d", origin.ResourceID, origin.LineStart, origin.LineEnd)
+				if origin.SourceSegmentID != "" {
+					label = fmt.Sprintf("%s · %s · bytes %d-%d", label, origin.SourceSegmentID, origin.StartByte, origin.EndByte)
+				}
 				originSet[key] = OriginSpan{
-					ResourceID: origin.ResourceID,
-					Label:      fmt.Sprintf("%s lines %d-%d", origin.ResourceID, origin.LineStart, origin.LineEnd),
-					LineStart:  origin.LineStart,
-					LineEnd:    origin.LineEnd,
+					ResourceID:  origin.ResourceID,
+					Label:       label,
+					LineStart:   origin.LineStart,
+					LineEnd:     origin.LineEnd,
+					StartOffset: origin.StartByte,
+					EndOffset:   origin.EndByte,
 				}
 			}
 		}
@@ -379,6 +409,7 @@ func (s *Store) projectSourceUnits(projectID string) ([]SourceUnit, bool, error)
 			Kind:                 source.Kind,
 			Section:              source.Section,
 			NormalizedText:       source.Text.Normalized,
+			Normalization:        source.Text.Normalization,
 			ExactText:            source.Text.Exact,
 			Relevance:            source.Relevance,
 			Confidence:           proposal.Confidence,

@@ -10,7 +10,7 @@ export function isRunnableStage(stage: string | undefined): stage is ProjectStag
 export function nextStageLabel(stage: string | undefined, openReviews: number) {
   if (openReviews > 0 || stage === "review_decisions") return `Resolve ${openReviews} decision${openReviews === 1 ? "" : "s"}`;
   const labels: Record<string, string> = {
-    combined_document: "Build Combined Document", source_units: "Generate Source Units", source_review: "Review Source Units",
+	combined_document: "Build LLM-assisted Source Document", source_units: "Classify Source Units", source_review: "Review Source Units",
     requirement_atoms: "Extract Requirements", functional_analysis: "Build Functional Analysis", crud_mapping: "Map CRUD Operations",
     review_candidates: "Propose Review Decisions", conceptual_model: "Generate Conceptual Model", logical_model: "Project Logical Model",
 	conceptual_review: "Review Conceptual Model", semantic_verification: "Verify Semantic Obligations",
@@ -41,7 +41,7 @@ export function shouldRecoverLatestJob(status: JobStatus) {
   return status !== "completed";
 }
 
-export function newProjectActionState(input: { created: boolean; name: string; sourceText: string; readyResources: number; llmAvailable: boolean }) {
+export function newProjectActionState(input: { created: boolean; name: string; sourceText: string; readyResources: number }) {
   return {
     canCreate: !input.created && input.name.trim() !== "",
     canAddText: input.created && input.sourceText.trim() !== "",

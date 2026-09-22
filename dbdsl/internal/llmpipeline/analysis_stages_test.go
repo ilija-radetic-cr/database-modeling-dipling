@@ -43,6 +43,11 @@ func TestRequirementAtomExtractionChunksAndMergesLongInputs(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outDir, "llm_runs", "requirement_atom_consolidation.json")); err != nil {
 		t.Fatalf("missing consolidation report: %v", err)
 	}
+	var firstChunk RunSummary
+	readJSONTestFile(t, filepath.Join(outDir, "llm_runs", "003_requirement_atom_extraction_chunk_001", "run.json"), &firstChunk)
+	if firstChunk.FullContextBytes <= firstChunk.ContextBytes || firstChunk.ContextReduction <= 0 {
+		t.Fatalf("requirement chunk did not record the monolithic counterfactual: %+v", firstChunk)
+	}
 	for i, atom := range proposal.RequirementAtoms {
 		if atom.ID != fmt.Sprintf("RA-%04d", i+1) {
 			t.Fatalf("unstable merged id at %d: %s", i, atom.ID)
@@ -56,5 +61,16 @@ func TestRequirementAtomAssumptionRequiresReview(t *testing.T) {
 	}}}, []dsl.SourceUnit{{ID: "SU-001"}})
 	if qa.OK {
 		t.Fatalf("expected assumption without review warning to fail: %+v", qa)
+	}
+}
+
+func TestRequirementAtomAssumptionAllowsLinkedReviewDecision(t *testing.T) {
+	qa := ValidateRequirementAtomProposal(RequirementAtomExtractionProposal{RequirementAtoms: []RequirementAtomProposal{{
+		ID: "RA-001", Statement: "Persist a configurable approval policy.", SourceUnits: []string{"SU-001"},
+		SupportLevel: "assumption", Confidence: "medium", ModelingOutcome: "represented",
+		Warnings: []string{"The configurable policy is an accepted modeling assumption."}, ReviewDecisions: []string{"RD-001"},
+	}}}, []dsl.SourceUnit{{ID: "SU-001"}})
+	if !qa.OK {
+		t.Fatalf("linked review decision should resolve the assumption review gate: %+v", qa)
 	}
 }

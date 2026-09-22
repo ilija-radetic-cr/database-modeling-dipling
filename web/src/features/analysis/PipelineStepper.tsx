@@ -8,7 +8,7 @@ export function PipelineStepper({ health }: { health: ArtifactHealth }) {
     {
 		id: "sources",
 		label: "Sources",
-		done: health.source_manifest_status === "ready" && health.combined_document_status === "ready" && health.source_fidelity_status === "ready" && health.source_units_status === "ready",
+		done: health.source_manifest_status === "ready" && health.combined_document_status === "ready" && ["ready", "fallback"].includes(health.source_segmentation_status) && health.source_fidelity_status === "ready" && health.source_units_status === "ready",
     },
     {
 		id: "evidence",

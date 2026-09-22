@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 type MockClient struct {
@@ -15,7 +16,7 @@ type MockClient struct {
 func NewDefaultMockClient() *MockClient {
 	return &MockClient{
 		Structured: map[string]json.RawMessage{
-			"combined_document":           json.RawMessage(defaultCombinedDocumentJSON),
+			"source_segmentation":         json.RawMessage(`{}`),
 			"source_unit_extraction":      json.RawMessage(defaultSourceUnitExtractionJSON),
 			"requirement_atom_extraction": json.RawMessage(defaultRequirementAtomStageJSON),
 			"functional_analysis":         json.RawMessage(defaultFunctionalAnalysisJSON),
@@ -42,9 +43,9 @@ func (m *MockClient) GenerateStructured(ctx context.Context, req Request) (Respo
 		m = NewDefaultMockClient()
 	}
 	payload, ok := m.Structured[req.Stage]
-	if req.Stage == "combined_document" && (!ok || string(payload) == defaultCombinedDocumentJSON) {
+	if req.Stage == "source_segmentation" && (!ok || string(payload) == `{}`) {
 		var err error
-		payload, err = dynamicCombinedDocumentPayload(req.Input)
+		payload, err = dynamicSourceSegmentationPayload(req.Input)
 		if err != nil {
 			return Response{}, err
 		}
@@ -127,50 +128,97 @@ func (m *MockClient) GenerateStructured(ctx context.Context, req Request) (Respo
 	}, nil
 }
 
+func dynamicSourceSegmentationPayload(input string) (json.RawMessage, error) {
+	var parsed struct {
+		Candidates []struct {
+			ID            string `json:"id"`
+			ResourceID    string `json:"resource_id"`
+			Text          string `json:"text"`
+			SuggestedRole string `json:"suggested_role"`
+			Scope         string `json:"scope"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal([]byte(input), &parsed); err != nil {
+		return nil, fmt.Errorf("parse mock source-segmentation input: %w", err)
+	}
+	classifications := []map[string]any{}
+	previousByResource := map[string]string{}
+	previousTextByResource := map[string]string{}
+	for _, candidate := range parsed.Candidates {
+		if candidate.Scope != "core" {
+			previousByResource[candidate.ResourceID] = candidate.ID
+			previousTextByResource[candidate.ResourceID] = candidate.Text
+			continue
+		}
+		role := "sentence"
+		lower := strings.ToLower(candidate.Text)
+		if strings.Contains(lower, "универзитет у београду") || strings.Contains(lower, "univerzitet u beogradu") {
+			role = "layout_noise"
+		} else if strings.HasPrefix(strings.TrimSpace(candidate.Text), "{") || strings.HasPrefix(strings.TrimSpace(candidate.Text), "[") {
+			role = "structured_example"
+		}
+		boundary := "start"
+		previous := previousTextByResource[candidate.ResourceID]
+		trimmed := strings.TrimSpace(candidate.Text)
+		if role != "layout_noise" && previousByResource[candidate.ResourceID] != "" &&
+			(!strings.HasSuffix(strings.TrimSpace(previous), ".") || startsWithLower(trimmed)) {
+			boundary = "continue"
+		}
+		classifications = append(classifications, map[string]any{
+			"candidate_id": candidate.ID, "role": role, "boundary": boundary, "join_to_candidate_id": "",
+			"confidence": "high", "requires_review": false, "warnings": []string{},
+		})
+		previousByResource[candidate.ResourceID] = candidate.ID
+		previousTextByResource[candidate.ResourceID] = candidate.Text
+	}
+	data, err := json.Marshal(map[string]any{
+		"classifications": classifications, "warnings": []string{},
+		"confidence_summary": map[string]string{"overall": "mock source segmentation"},
+	})
+	return json.RawMessage(data), err
+}
+
+func startsWithLower(value string) bool {
+	for _, r := range value {
+		return unicode.IsLower(r)
+	}
+	return false
+}
+
 func dynamicSourceUnitPayload(input string) (json.RawMessage, error) {
 	var parsed struct {
-		CombinedDocument struct {
-			Sentences []struct {
-				ID         string   `json:"id"`
-				Text       string   `json:"text"`
-				Confidence string   `json:"confidence"`
-				Warnings   []string `json:"warnings"`
-			} `json:"sentences"`
-		} `json:"combined_document"`
+		Sentences []struct {
+			ID   string `json:"id"`
+			Kind string `json:"kind"`
+		} `json:"sentences"`
 	}
 	if err := json.Unmarshal([]byte(input), &parsed); err != nil {
 		return nil, fmt.Errorf("parse mock source-unit input: %w", err)
 	}
-	if len(parsed.CombinedDocument.Sentences) == 0 {
+	if len(parsed.Sentences) == 0 {
 		return nil, fmt.Errorf("mock source-unit extraction requires combined-document sentences")
 	}
-	units := make([]map[string]any, 0, len(parsed.CombinedDocument.Sentences))
-	for i, sentence := range parsed.CombinedDocument.Sentences {
-		confidence := sentence.Confidence
-		if confidence == "" {
-			confidence = "high"
-		}
-		requiresReview := confidence == "low" || len(sentence.Warnings) > 0
-		warnings := append([]string(nil), sentence.Warnings...)
-		if requiresReview && len(warnings) == 0 {
-			warnings = append(warnings, "Low-confidence combined-document sentence.")
+	units := make([]map[string]any, 0, len(parsed.Sentences))
+	for _, sentence := range parsed.Sentences {
+		kind := "requirement_sentence"
+		relevance := "model_relevant"
+		if sentence.Kind == "structural" {
+			kind = "heading"
+			relevance = "model_supporting"
 		}
 		units = append(units, map[string]any{
-			"id":              fmt.Sprintf("SU-%03d", i+1),
-			"kind":            "requirement_sentence",
+			"od_sentence_id":  sentence.ID,
+			"kind":            kind,
 			"section":         "combined_document",
-			"relevance":       "model_relevant",
+			"relevance":       relevance,
 			"tags":            []string{"mock"},
-			"exact_text":      sentence.Text,
-			"normalized_text": sentence.Text,
-			"od_sentence_ids": []string{sentence.ID},
-			"confidence":      confidence,
-			"requires_review": requiresReview,
-			"warnings":        warnings,
+			"confidence":      "high",
+			"requires_review": false,
+			"warnings":        []string{},
 		})
 	}
 	payload, err := json.Marshal(map[string]any{
-		"source_units":       units,
+		"classifications":    units,
 		"warnings":           []string{},
 		"confidence_summary": map[string]string{"overall": "mock source-unit extraction"},
 	})
@@ -247,6 +295,12 @@ func dynamicCRUDMappingPayload(input string) (json.RawMessage, error) {
 		RequirementAtoms []struct {
 			ID string `json:"id"`
 		} `json:"requirement_atoms"`
+		FunctionalAreas []struct {
+			ID string `json:"id"`
+		} `json:"functional_areas"`
+		Actors []struct {
+			ID string `json:"id"`
+		} `json:"actors"`
 	}
 	if err := json.Unmarshal([]byte(input), &parsed); err != nil {
 		return nil, err
@@ -259,9 +313,16 @@ func dynamicCRUDMappingPayload(input string) (json.RawMessage, error) {
 	for _, item := range parsed.SourceUnits {
 		sourceIDs = append(sourceIDs, item.ID)
 	}
+	actorID, areaID := "system", "core"
+	if len(parsed.Actors) > 0 {
+		actorID = parsed.Actors[0].ID
+	}
+	if len(parsed.FunctionalAreas) > 0 {
+		areaID = parsed.FunctionalAreas[0].ID
+	}
 	data, err := json.Marshal(map[string]any{
 		"operations": []map[string]any{{
-			"id": "OP-001", "label": "Manage domain records", "actor_id": "system", "functional_area_id": "core",
+			"id": "OP-001", "label": "Manage domain records", "actor_id": actorID, "functional_area_id": areaID,
 			"creates": []string{"DomainRecord"}, "reads": []string{"DomainRecord"}, "updates": []string{"DomainRecord"}, "deletes": []string{},
 			"persistent_data": []string{"DomainRecord"}, "outcome": "mutates persistent domain data", "requirement_atoms": atomIDs,
 			"source_units": sourceIDs, "requires_review": false, "warnings": []string{},
@@ -305,17 +366,22 @@ func dynamicProjectReviewPayload(input string) (json.RawMessage, error) {
 	for _, item := range parsed.CRUDOperations {
 		operations = append(operations, item.ID)
 	}
+	atomUpdates := make([]map[string]any, 0, len(atoms))
+	for _, atomID := range atoms {
+		atomUpdates = append(atomUpdates, map[string]any{"atom_id": atomID, "modeling_outcome": "represented", "persistence_effect": "required", "support_level": "no_change", "confidence": "no_change"})
+	}
+	generatedEffects := map[string]any{"modeling_outcome": "represented", "persistence_effect": "required", "support_level": "no_change", "requires_followup": false, "atom_updates": atomUpdates, "impact_dimensions": []string{"identity", "key"}, "followup_candidate_ids": []string{}}
 	data, err := json.Marshal(map[string]any{
 		"review_candidates": []map[string]any{{
-			"id": "RC-001", "question": "Should domain records use generated internal identity?",
+			"id": "RC-001", "decision_key": "domain_record_identity", "question": "Should domain records use generated internal identity?",
 			"description": "The source describes persistent data but does not define a technical primary key.",
 			"category":    "identity", "phase": "pre_conceptual", "severity": "medium", "blocking": true,
 			"affected_source_units": sources, "affected_atoms": atoms, "affected_functional_areas": areas,
 			"affected_operations": operations, "affected_model_candidates": []string{"DomainRecord"},
 			"depends_on": []string{}, "may_affect": []string{"conceptual_model", "logical_model"}, "created_by_decision": "",
 			"options": []map[string]any{
-				{"id": "generated_identity", "label": "Generated internal identity", "rationale": "Keeps technical identity separate from mutable business fields.", "effect_summary": "Adds a generated logical identity during DB-DSL projection.", "benefits": []string{"Stable references"}, "risks": []string{"Adds an inferred technical key"}, "affected_artifact_kinds": []string{"conceptual_model", "logical_model"}, "recommended": true},
-				{"id": "natural_identity", "label": "Natural business identity", "rationale": "Uses an explicit business field when one is identified.", "effect_summary": "Requires a source-supported unique business field.", "benefits": []string{"Business-visible key"}, "risks": []string{"May be mutable or absent"}, "affected_artifact_kinds": []string{"conceptual_model", "logical_model"}, "recommended": false},
+				{"id": "generated_identity", "label": "Generated internal identity", "rationale": "Keeps technical identity separate from mutable business fields.", "effect_summary": "Adds a generated logical identity during DB-DSL projection.", "benefits": []string{"Stable references"}, "risks": []string{"Adds an inferred technical key"}, "affected_artifact_kinds": []string{"conceptual_model", "logical_model"}, "recommended": true, "effects": generatedEffects},
+				{"id": "natural_identity", "label": "Natural business identity", "rationale": "Uses an explicit business field when one is identified.", "effect_summary": "Requires a source-supported unique business field.", "benefits": []string{"Business-visible key"}, "risks": []string{"May be mutable or absent"}, "affected_artifact_kinds": []string{"conceptual_model", "logical_model"}, "recommended": false, "effects": generatedEffects},
 			},
 			"recommended_option_id": "generated_identity", "recommendation_confidence": "medium", "warnings": []string{},
 		}},
@@ -435,96 +501,10 @@ func (m *MockClient) GenerateText(ctx context.Context, req TextRequest) (TextRes
 	}, nil
 }
 
-func dynamicCombinedDocumentPayload(input string) (json.RawMessage, error) {
-	var parsed struct {
-		Resources []struct {
-			ID    string `json:"id"`
-			Lines []struct {
-				Number int    `json:"number"`
-				Text   string `json:"text"`
-			} `json:"lines"`
-		} `json:"resources"`
-	}
-	if err := json.Unmarshal([]byte(input), &parsed); err != nil {
-		return nil, fmt.Errorf("parse mock combined document input: %w", err)
-	}
-	if len(parsed.Resources) == 0 {
-		return nil, fmt.Errorf("mock combined document requires at least one resource")
-	}
-	resourceID := parsed.Resources[0].ID
-	lineNumber := 1
-	text := "No source text."
-	for _, line := range parsed.Resources[0].Lines {
-		if strings.TrimSpace(line.Text) == "" {
-			continue
-		}
-		lineNumber = line.Number
-		text = strings.TrimSpace(line.Text)
-		break
-	}
-	payload, err := json.Marshal(map[string]any{
-		"sentences": []map[string]any{{
-			"id":   "OD-S-001",
-			"text": text,
-			"derived_from": []map[string]any{{
-				"resource_id": resourceID,
-				"line_start":  lineNumber,
-				"line_end":    lineNumber,
-				"exact_text":  text,
-			}},
-			"transformation": "copied",
-			"confidence":     "high",
-			"warnings":       []string{},
-		}},
-		"warnings":           []string{},
-		"confidence_summary": map[string]string{"overall": "mock combined document"},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(payload), nil
-}
-
-const defaultCombinedDocumentJSON = `{
-  "sentences": [
-    {
-      "id": "OD-S-001",
-      "text": "System stores products in a catalog.",
-      "derived_from": [
-        {
-          "resource_id": "R-001",
-          "line_start": 1,
-          "line_end": 1,
-          "exact_text": "System stores products in a catalog."
-        }
-      ],
-      "transformation": "copied",
-      "confidence": "high",
-      "warnings": []
-    }
-  ],
-  "warnings": [],
-  "confidence_summary": {"overall": "mock combined document"}
-}`
-
 const defaultSourceUnitExtractionJSON = `{
-  "source_units": [
-    {
-      "id": "SU-001",
-      "kind": "requirement_sentence",
-      "section": "combined_document",
-      "relevance": "model_relevant",
-      "tags": ["mock"],
-      "exact_text": "System stores products in a catalog.",
-      "normalized_text": "System stores products in a catalog.",
-      "od_sentence_ids": ["OD-S-001"],
-      "confidence": "high",
-      "requires_review": false,
-      "warnings": []
-    }
-  ],
+  "classifications": [],
   "warnings": [],
-  "confidence_summary": {"overall": "mock source-unit extraction"}
+  "confidence_summary": {"overall":"mock source-unit classification"}
 }`
 
 const defaultRequirementAtomStageJSON = `{"requirement_atoms":[],"warnings":[],"confidence_summary":{"overall":"mock"}}`

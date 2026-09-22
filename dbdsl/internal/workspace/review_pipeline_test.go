@@ -4,8 +4,41 @@ import (
 	"path/filepath"
 	"testing"
 
+	"dbdsl/internal/dsl"
 	"dbdsl/internal/llmpipeline"
 )
+
+func TestApplyReviewPatchKeepsResolvedAssumptionValid(t *testing.T) {
+	atoms := llmpipeline.RequirementAtomExtractionProposal{RequirementAtoms: []llmpipeline.RequirementAtomProposal{{
+		ID: "RA-0011", Statement: "Approval categories are configurable.", SourceUnits: []string{"SU-001"},
+		SupportLevel: "explicit", Confidence: "medium", RequiresReview: true, ModelingOutcome: "represented",
+		Warnings: []string{"The exact approval categories require an explicit decision."},
+	}}}
+	candidate := llmpipeline.ProjectReviewCandidateProposal{ID: "RC-001", AffectedAtoms: []string{"RA-0011"}}
+	option := llmpipeline.ReviewOptionProposal{ID: "RC-001-O1", Effects: &llmpipeline.ReviewOptionEffects{
+		ModelingOutcome: "represented", PersistenceEffect: "required", SupportLevel: "assumption",
+		AtomUpdates: []llmpipeline.ReviewAtomUpdate{{
+			AtomID: "RA-0011", ModelingOutcome: "represented", PersistenceEffect: "required",
+			SupportLevel: "assumption", Confidence: "medium",
+		}},
+	}}
+	patch, patchQA := llmpipeline.BuildDeterministicReviewResolutionPatch(candidate, option, "RD-001", atoms.RequirementAtoms)
+	if !patchQA.OK {
+		t.Fatalf("build deterministic patch: %+v", patchQA)
+	}
+	patched, _, err := applyReviewPatch(atoms, patch, "RD-001")
+	if err != nil {
+		t.Fatalf("apply deterministic patch: %v", err)
+	}
+	atom := patched.RequirementAtoms[0]
+	if atom.RequiresReview || len(atom.ReviewDecisions) != 1 || atom.ReviewDecisions[0] != "RD-001" {
+		t.Fatalf("review decision was not linked as resolved: %+v", atom)
+	}
+	qa := llmpipeline.ValidateRequirementAtomProposal(patched, []dsl.SourceUnit{{ID: "SU-001"}})
+	if !qa.OK {
+		t.Fatalf("resolved assumption should pass requirement QA: %+v", qa)
+	}
+}
 
 func TestNormalizeNewReviewCandidateIDsResolvesExistingCollision(t *testing.T) {
 	existing := []llmpipeline.ProjectReviewCandidateProposal{{ID: "RC-001"}, {ID: "RC-004"}, {ID: "RC-011"}}

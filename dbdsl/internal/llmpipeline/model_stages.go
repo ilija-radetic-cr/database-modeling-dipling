@@ -29,6 +29,10 @@ type ConceptualModelOptions struct {
 	Model                 string
 	ReasoningEffort       string
 	MaxOutputTokens       int
+	MaxParallelism        int
+	MaxRepairAttempts     int
+	PromptVersion         string
+	OnChunkProgress       func(phase string, completed, total int)
 }
 
 type ConceptualReviewDecisionInput struct {
@@ -55,6 +59,8 @@ type modelRequirementAtomInput struct {
 	TemporalSemantics string   `json:"temporal_semantics"`
 	Ownership         string   `json:"ownership"`
 	ModelingOutcome   string   `json:"modeling_outcome"`
+	PersistenceEffect string   `json:"persistence_effect,omitempty"`
+	ExampleRole       string   `json:"example_role,omitempty"`
 	SourceUnits       []string `json:"source_units"`
 	FunctionalArea    string   `json:"functional_area"`
 	ReviewDecisions   []string `json:"review_decisions,omitempty"`
@@ -81,7 +87,15 @@ type conceptualCRUDOperationInput struct {
 	PersistentData   []string `json:"persistent_data"`
 	Outcome          string   `json:"outcome"`
 	RequirementAtoms []string `json:"requirement_atoms"`
-	SourceUnits      []string `json:"source_units"`
+}
+
+type modelDesignObligationInput struct {
+	ID                 string   `json:"id"`
+	Kind               string   `json:"kind"`
+	Persistence        string   `json:"persistence"`
+	RequirementAtoms   []string `json:"requirement_atoms"`
+	VerificationTarget string   `json:"verification_target"`
+	Risk               string   `json:"risk"`
 }
 
 type LogicalProjectionOptions struct {
@@ -97,6 +111,13 @@ type LogicalProjectionOptions struct {
 	Model                 string
 	ReasoningEffort       string
 	MaxOutputTokens       int
+	MaxParallelism        int
+	PromptVersion         string
+	ChunkIndex            int
+	ChunkCount            int
+	PrimaryConceptIDs     []string
+	FullContextBytes      int
+	OnChunkProgress       func(completed, total int)
 }
 
 type LogicalArtifacts struct {
@@ -105,6 +126,33 @@ type LogicalArtifacts struct {
 	CRUDMatrix              dsl.V05CRUDMatrixFile
 	ReviewDecisions         dsl.V05ReviewDecisionsFile
 	Model                   dsl.Document
+}
+
+func ConceptualInputMetrics(opts ConceptualModelOptions) map[string]int {
+	compact := compactConceptualOptions(opts, opts.DesignObligations)
+	chunks := conceptualObligationChunks(opts)
+	maxChunkBytes, totalChunkBytes := 0, 0
+	for _, chunk := range chunks {
+		chunkBytes := len(conceptualChunkInput(compactConceptualOptions(opts, chunk.Obligations), chunk))
+		totalChunkBytes += chunkBytes
+		if chunkBytes > maxChunkBytes {
+			maxChunkBytes = chunkBytes
+		}
+	}
+	return map[string]int{
+		"context_bytes":             maxChunkBytes,
+		"max_chunk_context_bytes":   maxChunkBytes,
+		"total_chunk_context_bytes": totalChunkBytes,
+		"monolithic_context_bytes":  len(conceptualModelInput(opts)),
+		"full_context_bytes":        conceptualFullContextBytes(opts),
+		"chunk_count":               len(chunks),
+		"source_units":              len(compact.SourceUnits),
+		"requirement_atoms":         len(compact.RequirementAtoms),
+		"functional_areas":          len(compact.FunctionalAreas),
+		"crud_operations":           len(compact.Operations),
+		"design_obligations":        len(compact.DesignObligations),
+		"review_decisions":          len(compact.ReviewDecisionContext),
+	}
 }
 
 func RunConceptualModel(ctx context.Context, client llm.Client, opts ConceptualModelOptions) (ConceptualModelProposal, StageQA, error) {
@@ -118,26 +166,12 @@ func RunConceptualModel(ctx context.Context, client llm.Client, opts ConceptualM
 		opts.MaxOutputTokens = defaultConceptualMaxOutputTokens
 	}
 	normalizeAnalysisOptions(&opts.Model, &opts.ReasoningEffort, &opts.MaxOutputTokens)
-	input := conceptualModelInput(opts)
-	var proposal ConceptualModelProposal
-	var qa StageQA
-	err := runStructuredStage(ctx, client, opts.OutDir, 8, llm.Request{
-		Stage: "conceptual_model", Model: opts.Model, Instructions: conceptualModelInstructions,
-		Input: input, SchemaName: "DBDSLConceptualModel", Schema: conceptualModelSchema(),
-		ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{"template_version": promptTemplateVersion},
-	}, &proposal, func() []string {
-		qa = ValidateConceptualModelWithObligations(proposal, opts.SourceUnits, opts.RequirementAtoms, opts.ReviewDecisions, opts.DesignObligations)
-		return qa.Errors
-	})
-	if err != nil {
-		return proposal, qa, err
-	}
-	qa = ValidateConceptualModelWithObligations(proposal, opts.SourceUnits, opts.RequirementAtoms, opts.ReviewDecisions, opts.DesignObligations)
-	return proposal, qa, nil
+	return runChunkedConceptualModel(ctx, client, opts)
 }
 
 func conceptualModelInput(opts ConceptualModelOptions) string {
+	opts = compactConceptualOptions(opts, opts.DesignObligations)
+	promptVersion := resolvedPromptVersion(opts.PromptVersion)
 	sourceUnits := modelSourceUnitInputs(opts.SourceUnits)
 	atoms := modelRequirementAtomInputs(opts.RequirementAtoms)
 
@@ -156,7 +190,7 @@ func conceptualModelInput(opts ConceptualModelOptions) string {
 			FunctionalAreaID: operation.FunctionalAreaID, Creates: operation.Creates,
 			Reads: operation.Reads, Updates: operation.Updates, Deletes: operation.Deletes,
 			PersistentData: operation.PersistentData, Outcome: operation.Outcome,
-			RequirementAtoms: operation.RequirementAtoms, SourceUnits: operation.SourceUnits,
+			RequirementAtoms: operation.RequirementAtoms,
 		})
 	}
 
@@ -164,10 +198,288 @@ func conceptualModelInput(opts ConceptualModelOptions) string {
 		"source_units": sourceUnits, "requirement_atoms": atoms,
 		"functional_areas": areas, "actors": opts.Actors, "crud_operations": operations,
 		"review_decisions": opts.ReviewDecisions, "resolved_review_decisions": opts.ReviewDecisionContext,
-		"design_obligations": opts.DesignObligations,
+		"design_obligations": modelDesignObligationInputs(opts.DesignObligations),
 		"output_contract":    "conceptual_model",
-		"pipeline_version":   "0.7", "template_version": promptTemplateVersion,
+		"pipeline_version":   "0.7.2", "template_version": promptVersion,
 	})
+}
+
+func modelDesignObligationInputs(items []DesignObligation) []modelDesignObligationInput {
+	out := make([]modelDesignObligationInput, 0, len(items))
+	for _, item := range items {
+		out = append(out, modelDesignObligationInput{
+			ID: item.ID, Kind: item.Kind, Persistence: item.Persistence,
+			RequirementAtoms: item.RequirementAtoms, VerificationTarget: item.VerificationTarget, Risk: item.Risk,
+		})
+	}
+	return out
+}
+
+func compactConceptualOptions(opts ConceptualModelOptions, obligations []DesignObligation) ConceptualModelOptions {
+	if len(opts.RequirementAtoms) == 0 {
+		return opts
+	}
+	activeAtomIDs := map[string]bool{}
+	activeObligations := make([]DesignObligation, 0, len(obligations))
+	for _, obligation := range obligations {
+		if obligation.Status == "not_required" || obligation.Persistence == "not_required" {
+			continue
+		}
+		activeObligations = append(activeObligations, obligation)
+		for _, id := range obligation.RequirementAtoms {
+			activeAtomIDs[id] = true
+		}
+	}
+	if len(obligations) == 0 {
+		for _, atom := range opts.RequirementAtoms {
+			if atom.ModelingOutcome != "intentionally_not_in_db" && atom.ModelingOutcome != "unsupported" {
+				activeAtomIDs[atom.ID] = true
+			}
+		}
+	}
+	return compactConceptualOptionsForAtoms(opts, activeObligations, activeAtomIDs)
+}
+
+func compactConceptualOptionsForAtoms(opts ConceptualModelOptions, obligations []DesignObligation, activeAtomIDs map[string]bool) ConceptualModelOptions {
+	var atoms []RequirementAtomProposal
+	activeSourceIDs := map[string]bool{}
+	for _, atom := range opts.RequirementAtoms {
+		if !activeAtomIDs[atom.ID] {
+			continue
+		}
+		atoms = append(atoms, atom)
+		for _, id := range atom.SourceUnits {
+			activeSourceIDs[id] = true
+		}
+	}
+	var units []dsl.SourceUnit
+	for _, unit := range opts.SourceUnits {
+		if activeSourceIDs[unit.ID] {
+			units = append(units, unit)
+		}
+	}
+	var areas []FunctionalAreaProposal
+	for _, area := range opts.FunctionalAreas {
+		if intersects(area.Atoms, activeAtomIDs) {
+			areas = append(areas, area)
+		}
+	}
+	var operations []CRUDOperationProposal
+	activeActorIDs := map[string]bool{}
+	for _, operation := range opts.Operations {
+		if intersects(operation.RequirementAtoms, activeAtomIDs) {
+			operations = append(operations, operation)
+			activeActorIDs[operation.ActorID] = true
+		}
+	}
+	for _, area := range areas {
+		for _, actorID := range area.MainActors {
+			activeActorIDs[actorID] = true
+		}
+	}
+	var actors []ActorProposal
+	for _, actor := range opts.Actors {
+		if activeActorIDs[actor.ID] {
+			actors = append(actors, actor)
+		}
+	}
+	activeDecisionIDs := map[string]bool{}
+	for _, atom := range atoms {
+		for _, decisionID := range atom.ReviewDecisions {
+			activeDecisionIDs[decisionID] = true
+		}
+	}
+	var decisionContext []ConceptualReviewDecisionInput
+	for _, decision := range opts.ReviewDecisionContext {
+		if intersects(decision.AffectedAtoms, activeAtomIDs) || activeDecisionIDs[decision.ID] {
+			decisionContext = append(decisionContext, decision)
+			activeDecisionIDs[decision.ID] = true
+		}
+	}
+	var decisions []string
+	for _, decisionID := range opts.ReviewDecisions {
+		if activeDecisionIDs[decisionID] {
+			decisions = append(decisions, decisionID)
+		}
+	}
+	opts.SourceUnits = units
+	opts.RequirementAtoms = atoms
+	opts.FunctionalAreas = areas
+	opts.Operations = operations
+	opts.Actors = actors
+	opts.ReviewDecisions = decisions
+	opts.ReviewDecisionContext = decisionContext
+	opts.DesignObligations = obligations
+	return opts
+}
+
+func intersects(ids []string, selected map[string]bool) bool {
+	for _, id := range ids {
+		if selected[id] {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeConceptualModel(base, fragment ConceptualModelProposal) ConceptualModelProposal {
+	out := base
+	out.EntityConcepts = mergeByID(base.EntityConcepts, fragment.EntityConcepts, func(v ConceptualEntityProposal) string { return v.ID }, mergeConceptualEntity)
+	out.Relationships = mergeByID(base.Relationships, fragment.Relationships, func(v ConceptualRelationshipProposal) string { return v.ID }, mergeConceptualRelationship)
+	out.ConstraintConcepts = mergeByID(base.ConstraintConcepts, fragment.ConstraintConcepts, func(v ConceptualConstraintProposal) string { return v.ID }, mergeConceptualConstraint)
+	out.LifecycleConcepts = mergeByID(base.LifecycleConcepts, fragment.LifecycleConcepts, func(v PlanElementProposal) string { return v.ID }, mergePlanElement)
+	out.DerivedConcepts = mergeByID(base.DerivedConcepts, fragment.DerivedConcepts, func(v PlanElementProposal) string { return v.ID }, mergePlanElement)
+	out.FileConcepts = mergeByID(base.FileConcepts, fragment.FileConcepts, func(v PlanElementProposal) string { return v.ID }, mergePlanElement)
+	out.ImportConcepts = mergeByID(base.ImportConcepts, fragment.ImportConcepts, func(v PlanElementProposal) string { return v.ID }, mergePlanElement)
+	out.Warnings = sortedUniqueStrings(append(append([]string(nil), base.Warnings...), fragment.Warnings...))
+	out.UnresolvedReviewIDs = sortedUniqueStrings(append(append([]string(nil), base.UnresolvedReviewIDs...), fragment.UnresolvedReviewIDs...))
+	out.ConfidenceSummary = map[string]string{}
+	for key, value := range base.ConfidenceSummary {
+		out.ConfidenceSummary[key] = value
+	}
+	for key, value := range fragment.ConfidenceSummary {
+		out.ConfidenceSummary[key] = value
+	}
+	return out
+}
+
+func mergeConceptualRepair(base, fragment ConceptualModelProposal) ConceptualModelProposal {
+	out := mergeConceptualModel(base, fragment)
+	if fragment.UnresolvedReviewIDs != nil {
+		out.UnresolvedReviewIDs = sortedUniqueStrings(fragment.UnresolvedReviewIDs)
+	}
+	return out
+}
+
+func mergeByID[T any](base, updates []T, id func(T) string, merge func(T, T) T) []T {
+	out := append([]T(nil), base...)
+	index := map[string]int{}
+	for i, item := range out {
+		index[id(item)] = i
+	}
+	for _, item := range updates {
+		if i, ok := index[id(item)]; ok {
+			out[i] = merge(out[i], item)
+		} else {
+			index[id(item)] = len(out)
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func mergeConceptualEntity(base, update ConceptualEntityProposal) ConceptualEntityProposal {
+	out := update
+	if out.ID == "" {
+		out.ID = base.ID
+	}
+	if out.Label == "" {
+		out.Label = base.Label
+	}
+	if out.Description == "" {
+		out.Description = base.Description
+	}
+	if out.Kind == "" {
+		out.Kind = base.Kind
+	}
+	out.Evidence = mergeEvidence(base.Evidence, update.Evidence)
+	out.Attributes = mergeByID(base.Attributes, update.Attributes, func(v ConceptualAttributeProposal) string { return v.ID }, mergeConceptualAttribute)
+	return out
+}
+
+func mergeConceptualAttribute(base, update ConceptualAttributeProposal) ConceptualAttributeProposal {
+	out := update
+	if out.ID == "" {
+		out.ID = base.ID
+	}
+	if out.Label == "" {
+		out.Label = base.Label
+	}
+	if out.Description == "" {
+		out.Description = base.Description
+	}
+	out.Evidence = mergeEvidence(base.Evidence, update.Evidence)
+	return out
+}
+
+func mergeConceptualRelationship(base, update ConceptualRelationshipProposal) ConceptualRelationshipProposal {
+	out := update
+	if out.ID == "" {
+		out.ID = base.ID
+	}
+	if out.Label == "" {
+		out.Label = base.Label
+	}
+	if out.Description == "" {
+		out.Description = base.Description
+	}
+	if out.From == "" {
+		out.From = base.From
+	}
+	if out.To == "" {
+		out.To = base.To
+	}
+	if out.Cardinality == "" {
+		out.Cardinality = base.Cardinality
+	}
+	out.Evidence = mergeEvidence(base.Evidence, update.Evidence)
+	return out
+}
+
+func mergeConceptualConstraint(base, update ConceptualConstraintProposal) ConceptualConstraintProposal {
+	out := update
+	if out.ID == "" {
+		out.ID = base.ID
+	}
+	if out.Label == "" {
+		out.Label = base.Label
+	}
+	if out.Description == "" {
+		out.Description = base.Description
+	}
+	if out.Kind == "" {
+		out.Kind = base.Kind
+	}
+	out.Targets = sortedUniqueStrings(append(append([]string(nil), base.Targets...), update.Targets...))
+	out.Evidence = mergeEvidence(base.Evidence, update.Evidence)
+	return out
+}
+
+func mergePlanElement(base, update PlanElementProposal) PlanElementProposal {
+	out := update
+	if out.ID == "" {
+		out.ID = base.ID
+	}
+	if out.Label == "" {
+		out.Label = base.Label
+	}
+	if out.Description == "" {
+		out.Description = base.Description
+	}
+	if out.TableName == "" {
+		out.TableName = base.TableName
+	}
+	if out.Kind == "" {
+		out.Kind = base.Kind
+	}
+	out.SourceUnits = sortedUniqueStrings(append(append([]string(nil), base.SourceUnits...), update.SourceUnits...))
+	out.RequirementAtoms = sortedUniqueStrings(append(append([]string(nil), base.RequirementAtoms...), update.RequirementAtoms...))
+	return out
+}
+
+func mergeEvidence(base, update EvidenceProposal) EvidenceProposal {
+	out := update
+	out.SourceUnits = sortedUniqueStrings(append(append([]string(nil), base.SourceUnits...), update.SourceUnits...))
+	out.RequirementAtoms = sortedUniqueStrings(append(append([]string(nil), base.RequirementAtoms...), update.RequirementAtoms...))
+	out.ReviewDecisions = sortedUniqueStrings(append(append([]string(nil), base.ReviewDecisions...), update.ReviewDecisions...))
+	out.Notes = sortedUniqueStrings(append(append([]string(nil), base.Notes...), update.Notes...))
+	if out.SupportLevel == "" {
+		out.SupportLevel = base.SupportLevel
+	}
+	if out.Confidence == "" {
+		out.Confidence = base.Confidence
+	}
+	return out
 }
 
 func modelSourceUnitInputs(units []dsl.SourceUnit) []modelSourceUnitInput {
@@ -187,6 +499,7 @@ func modelRequirementAtomInputs(requirementAtoms []RequirementAtomProposal) []mo
 	for _, atom := range requirementAtoms {
 		atoms = append(atoms, modelRequirementAtomInput{
 			ID: atom.ID, Statement: atom.Statement, ModelingOutcome: atom.ModelingOutcome,
+			PersistenceEffect: atom.PersistenceEffect, ExampleRole: atom.ExampleRole,
 			Subject: atom.Subject, Predicate: atom.Predicate, Object: atom.Object, Quantifier: atom.Quantifier,
 			Condition: atom.Condition, TemporalSemantics: atom.TemporalSemantics, Ownership: atom.Ownership,
 			SourceUnits: atom.SourceUnits, FunctionalArea: atom.FunctionalArea,
@@ -207,22 +520,52 @@ func RunLogicalProjection(ctx context.Context, client llm.Client, opts LogicalPr
 		opts.MaxOutputTokens = defaultLogicalMaxOutputTokens
 	}
 	normalizeAnalysisOptions(&opts.Model, &opts.ReasoningEffort, &opts.MaxOutputTokens)
+	if opts.PreviousProposal == nil && len(opts.ConceptualModel.EntityConcepts) > LogicalEntityChunkSize {
+		return runChunkedLogicalProjection(ctx, client, opts)
+	}
+	return runLogicalProjectionCall(ctx, client, opts)
+}
+
+func runLogicalProjectionCall(ctx context.Context, client llm.Client, opts LogicalProjectionOptions) (PatchProposal, StageQA, error) {
 	input := logicalProjectionInput(opts)
+	fullInput := mustJSON(map[string]any{"conceptual_model": opts.ConceptualModel, "source_units": opts.SourceUnits, "requirement_atoms": opts.RequirementAtoms, "review_decisions": opts.ReviewDecisionContext, "design_obligations": opts.DesignObligations, "previous_proposal": opts.PreviousProposal, "validation_errors": opts.ValidationErrors})
+	fullContextBytes := len(fullInput)
+	if opts.FullContextBytes > 0 {
+		fullContextBytes = opts.FullContextBytes
+	}
+	metadata := map[string]string{"template_version": resolvedPromptVersion(opts.PromptVersion), "full_context_bytes": fmt.Sprint(fullContextBytes), "context_policy": "minimal_context_v1", "canonicalizer_version": "domain_slugs_v1", "call_reason": logicalCallReason(opts), "issue_id": logicalIssueID(opts)}
+	instructions := logicalProjectionInstructions
+	if opts.ChunkCount > 1 {
+		metadata["run_key"] = fmt.Sprintf("chunk_%03d", opts.ChunkIndex)
+		metadata["chunk_index"] = fmt.Sprint(opts.ChunkIndex)
+		metadata["chunk_count"] = fmt.Sprint(opts.ChunkCount)
+		metadata["context_policy"] = "logical_entity_chunks_v1"
+		instructions = logicalProjectionChunkInstructions
+	}
 	sourceIDs := sourceUnitIDSet(opts.SourceUnits)
 	atomIDs := atomIDSet(opts.RequirementAtoms)
 	var proposal PatchProposal
+	var merged PatchProposal
 	qa := newStageQA(nil)
 	err := runStructuredStage(ctx, client, opts.OutDir, 9, llm.Request{
-		Stage: "logical_projection", Model: opts.Model, Instructions: logicalProjectionInstructions,
+		Stage: "logical_projection", Model: opts.Model, Instructions: instructions,
 		Input: input, SchemaName: "DBDSLLogicalProjection", Schema: patchSchema(), ReasoningEffort: opts.ReasoningEffort,
-		MaxOutputTokens: opts.MaxOutputTokens, Metadata: map[string]string{"template_version": promptTemplateVersion},
+		MaxOutputTokens: opts.MaxOutputTokens, Metadata: metadata,
 	}, &proposal, func() []string {
-		qa.Errors = validatePatchProposal(proposal, sourceIDs, atomIDs)
+		candidate := proposal
+		if opts.PreviousProposal != nil && len(opts.ValidationErrors) > 0 {
+			candidate = mergeLogicalPatch(*opts.PreviousProposal, proposal)
+			merged = candidate
+		}
+		qa.Errors = validatePatchProposal(candidate, sourceIDs, atomIDs)
 		qa.OK = len(qa.Errors) == 0
 		return qa.Errors
 	})
 	if err != nil {
 		return proposal, qa, err
+	}
+	if opts.PreviousProposal != nil && len(opts.ValidationErrors) > 0 {
+		proposal = merged
 	}
 	qa.Errors = validatePatchProposal(proposal, sourceIDs, atomIDs)
 	qa.OK = len(qa.Errors) == 0
@@ -230,21 +573,227 @@ func RunLogicalProjection(ctx context.Context, client llm.Client, opts LogicalPr
 	return proposal, qa, nil
 }
 
+func logicalCallReason(opts LogicalProjectionOptions) string {
+	if opts.PreviousProposal != nil && len(opts.ValidationErrors) > 0 {
+		return "semantic_repair"
+	}
+	return "logical_projection"
+}
+
+func logicalIssueID(opts LogicalProjectionOptions) string {
+	if len(opts.ValidationErrors) == 0 {
+		return ""
+	}
+	return textHash(strings.Join(opts.ValidationErrors, "|"))
+}
+
 func logicalProjectionInput(opts LogicalProjectionOptions) string {
+	opts = compactLogicalOptions(opts)
 	input := map[string]any{
 		"source_units": modelSourceUnitInputs(opts.SourceUnits), "requirement_atoms": modelRequirementAtomInputs(opts.RequirementAtoms),
 		"review_decisions": opts.ReviewDecisions, "resolved_review_decisions": opts.ReviewDecisionContext,
-		"design_obligations": opts.DesignObligations,
-		"output_contract":    "logical_projection", "pipeline_version": "0.7", "template_version": promptTemplateVersion,
+		"design_obligations": modelDesignObligationInputs(opts.DesignObligations),
+		"output_contract":    "logical_projection", "pipeline_version": "0.7.2", "template_version": resolvedPromptVersion(opts.PromptVersion),
+	}
+	if opts.ChunkCount > 1 {
+		input["output_contract"] = "logical_projection_fragment"
+		input["chunk_scope"] = map[string]any{"index": opts.ChunkIndex, "count": opts.ChunkCount, "primary_concept_ids": opts.PrimaryConceptIDs}
 	}
 	if opts.PreviousProposal != nil && len(opts.ValidationErrors) > 0 {
 		input["repair_mode"] = true
-		input["previous_proposal"] = opts.PreviousProposal
+		input["previous_proposal"] = focusedLogicalRepairPatch(*opts.PreviousProposal, opts.ValidationErrors)
+		input["existing_operation_registry"] = logicalOperationRegistry(*opts.PreviousProposal)
 		input["validation_errors"] = opts.ValidationErrors
+		input["output_contract"] = "logical_projection_repair_fragment"
 	} else {
 		input["conceptual_model"] = opts.ConceptualModel
 	}
 	return mustCompactJSON(input)
+}
+
+func focusedLogicalRepairPatch(previous PatchProposal, validationErrors []string) PatchProposal {
+	joined := strings.ToLower(strings.Join(validationErrors, "\n"))
+	focused := PatchProposal{Warnings: []string{}, UnresolvedQuestions: []string{}, ConfidenceSummary: previous.ConfidenceSummary}
+	for _, operation := range previous.Operations {
+		for _, term := range patchOperationSearchTerms(operation) {
+			if term != "" && strings.Contains(joined, strings.ToLower(term)) {
+				focused.Operations = append(focused.Operations, operation)
+				break
+			}
+		}
+	}
+	return focused
+}
+
+func logicalOperationRegistry(previous PatchProposal) []map[string]string {
+	registry := make([]map[string]string, 0, len(previous.Operations))
+	for _, operation := range previous.Operations {
+		terms := patchOperationSearchTerms(operation)
+		if len(terms) == 0 || terms[0] == "" {
+			continue
+		}
+		item := map[string]string{"operation": operation.Operation, "id": terms[0]}
+		if len(terms) > 1 && terms[1] != "" {
+			item["owner_or_endpoint"] = terms[1]
+		}
+		registry = append(registry, item)
+	}
+	sort.SliceStable(registry, func(i, j int) bool {
+		if registry[i]["operation"] == registry[j]["operation"] {
+			return registry[i]["id"] < registry[j]["id"]
+		}
+		return registry[i]["operation"] < registry[j]["operation"]
+	})
+	return registry
+}
+
+func patchOperationSearchTerms(operation PatchOperation) []string {
+	switch {
+	case operation.Entity != nil:
+		return []string{operation.Entity.ID, operation.Entity.TableName}
+	case operation.Relationship != nil:
+		return []string{operation.Relationship.ID, operation.Relationship.From, operation.Relationship.To}
+	case operation.Constraint != nil:
+		return []string{operation.Constraint.ID, operation.Constraint.Owner, operation.Constraint.Field}
+	case operation.StateMachine != nil:
+		return []string{operation.StateMachine.ID, operation.StateMachine.Owner}
+	case operation.DerivedView != nil:
+		return []string{operation.DerivedView.ID}
+	case operation.FileSpec != nil:
+		return []string{operation.FileSpec.ID, operation.FileSpec.Owner, operation.FileSpec.Field}
+	case operation.ImportSpec != nil:
+		return []string{operation.ImportSpec.ID}
+	default:
+		return nil
+	}
+}
+
+func patchOperationKey(operation PatchOperation) string {
+	terms := patchOperationSearchTerms(operation)
+	if len(terms) == 0 || strings.TrimSpace(terms[0]) == "" {
+		return ""
+	}
+	return operation.Operation + ":" + terms[0]
+}
+
+func mergeLogicalPatch(base, fragment PatchProposal) PatchProposal {
+	out := PatchProposal{Warnings: append([]string(nil), base.Warnings...), UnresolvedQuestions: append([]string(nil), base.UnresolvedQuestions...), ConfidenceSummary: base.ConfidenceSummary}
+	index := map[string]int{}
+	for _, operation := range base.Operations {
+		key := patchOperationKey(operation)
+		if key == "" {
+			continue
+		}
+		index[key] = len(out.Operations)
+		out.Operations = append(out.Operations, operation)
+	}
+	for _, operation := range fragment.Operations {
+		key := patchOperationKey(operation)
+		if key == "" {
+			continue
+		}
+		if i, ok := index[key]; ok {
+			out.Operations[i] = operation
+		} else {
+			index[key] = len(out.Operations)
+			out.Operations = append(out.Operations, operation)
+		}
+	}
+	out.Warnings = append(out.Warnings, fragment.Warnings...)
+	if fragment.UnresolvedQuestions != nil {
+		out.UnresolvedQuestions = fragment.UnresolvedQuestions
+	}
+	if fragment.ConfidenceSummary != nil {
+		out.ConfidenceSummary = fragment.ConfidenceSummary
+	}
+	return out
+}
+
+func compactLogicalOptions(opts LogicalProjectionOptions) LogicalProjectionOptions {
+	activeAtomIDs := map[string]bool{}
+	collectEvidence := func(evidence EvidenceProposal) {
+		for _, atomID := range evidence.RequirementAtoms {
+			activeAtomIDs[atomID] = true
+		}
+	}
+	for _, entity := range opts.ConceptualModel.EntityConcepts {
+		collectEvidence(entity.Evidence)
+		for _, attribute := range entity.Attributes {
+			collectEvidence(attribute.Evidence)
+		}
+	}
+	for _, relationship := range opts.ConceptualModel.Relationships {
+		collectEvidence(relationship.Evidence)
+	}
+	for _, constraint := range opts.ConceptualModel.ConstraintConcepts {
+		collectEvidence(constraint.Evidence)
+	}
+	for _, group := range [][]PlanElementProposal{opts.ConceptualModel.LifecycleConcepts, opts.ConceptualModel.DerivedConcepts, opts.ConceptualModel.FileConcepts, opts.ConceptualModel.ImportConcepts} {
+		for _, item := range group {
+			for _, atomID := range item.RequirementAtoms {
+				activeAtomIDs[atomID] = true
+			}
+		}
+	}
+	var obligations []DesignObligation
+	for _, obligation := range opts.DesignObligations {
+		if obligation.Status == "not_required" || obligation.Persistence == "not_required" {
+			continue
+		}
+		obligations = append(obligations, obligation)
+		for _, id := range obligation.RequirementAtoms {
+			activeAtomIDs[id] = true
+		}
+	}
+	if len(opts.DesignObligations) == 0 {
+		for _, atom := range opts.RequirementAtoms {
+			if atom.ModelingOutcome != "intentionally_not_in_db" && atom.ModelingOutcome != "unsupported" {
+				activeAtomIDs[atom.ID] = true
+			}
+		}
+	}
+	activeSourceIDs := map[string]bool{}
+	var atoms []RequirementAtomProposal
+	for _, atom := range opts.RequirementAtoms {
+		if !activeAtomIDs[atom.ID] {
+			continue
+		}
+		atoms = append(atoms, atom)
+		for _, id := range atom.SourceUnits {
+			activeSourceIDs[id] = true
+		}
+	}
+	var units []dsl.SourceUnit
+	for _, unit := range opts.SourceUnits {
+		if activeSourceIDs[unit.ID] {
+			units = append(units, unit)
+		}
+	}
+	opts.RequirementAtoms = atoms
+	opts.SourceUnits = units
+	opts.DesignObligations = obligations
+	activeDecisionIDs := map[string]bool{}
+	for _, atom := range atoms {
+		for _, decisionID := range atom.ReviewDecisions {
+			activeDecisionIDs[decisionID] = true
+		}
+	}
+	var decisionContext []ConceptualReviewDecisionInput
+	for _, decision := range opts.ReviewDecisionContext {
+		if intersects(decision.AffectedAtoms, activeAtomIDs) || activeDecisionIDs[decision.ID] {
+			decisionContext = append(decisionContext, decision)
+			activeDecisionIDs[decision.ID] = true
+		}
+	}
+	var decisions []string
+	for _, decisionID := range opts.ReviewDecisions {
+		if activeDecisionIDs[decisionID] {
+			decisions = append(decisions, decisionID)
+		}
+	}
+	opts.ReviewDecisions = decisions
+	opts.ReviewDecisionContext = decisionContext
+	return opts
 }
 
 func ValidateConceptualModel(proposal ConceptualModelProposal, units []dsl.SourceUnit, atoms []RequirementAtomProposal, reviewDecisions []string) StageQA {
@@ -323,6 +872,21 @@ func ValidateConceptualModelWithObligations(proposal ConceptualModelProposal, un
 		}
 		validateEvidence(relationship.ID, relationship.Evidence)
 	}
+	constraintAtoms := map[string]bool{}
+	constraintIDs := map[string]bool{}
+	for _, constraint := range proposal.ConstraintConcepts {
+		if constraint.ID == "" || constraintIDs[constraint.ID] {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("empty or duplicate constraint concept id %q", constraint.ID))
+		}
+		constraintIDs[constraint.ID] = true
+		if len(constraint.Targets) == 0 {
+			qa.Errors = append(qa.Errors, constraint.ID+" has no target")
+		}
+		validateEvidence(constraint.ID, constraint.Evidence)
+		for _, atomID := range constraint.Evidence.RequirementAtoms {
+			constraintAtoms[atomID] = true
+		}
+	}
 	representedAtoms := map[string]bool{}
 	collectEvidence := func(evidence EvidenceProposal) {
 		for _, atomID := range evidence.RequirementAtoms {
@@ -338,6 +902,9 @@ func ValidateConceptualModelWithObligations(proposal ConceptualModelProposal, un
 	for _, relationship := range proposal.Relationships {
 		collectEvidence(relationship.Evidence)
 	}
+	for _, constraint := range proposal.ConstraintConcepts {
+		collectEvidence(constraint.Evidence)
+	}
 	for _, group := range [][]PlanElementProposal{proposal.LifecycleConcepts, proposal.DerivedConcepts, proposal.FileConcepts, proposal.ImportConcepts} {
 		for _, concept := range group {
 			for _, atomID := range concept.RequirementAtoms {
@@ -352,7 +919,11 @@ func ValidateConceptualModelWithObligations(proposal ConceptualModelProposal, un
 		}
 		covered := false
 		for _, atomID := range obligation.RequirementAtoms {
-			covered = covered || representedAtoms[atomID]
+			if obligation.Kind == "invariant" || obligation.Kind == "security" {
+				covered = covered || constraintAtoms[atomID]
+			} else {
+				covered = covered || representedAtoms[atomID]
+			}
 		}
 		if !covered {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("design obligation %s is not represented in the conceptual model", obligation.ID))
@@ -365,6 +936,7 @@ func ValidateConceptualModelWithObligations(proposal ConceptualModelProposal, un
 	}
 	qa.Coverage["entity_concepts"] = len(proposal.EntityConcepts)
 	qa.Coverage["relationships"] = len(proposal.Relationships)
+	qa.Coverage["constraint_concepts"] = len(proposal.ConstraintConcepts)
 	qa.Coverage["design_obligations"] = len(obligations)
 	qa.Coverage["covered_design_obligations"] = coveredObligations
 	qa.OK = len(qa.Errors) == 0

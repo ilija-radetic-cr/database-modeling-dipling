@@ -75,22 +75,60 @@ type stageReport struct {
 }
 
 type RunSummary struct {
-	Version         int       `json:"version"`
-	Stage           string    `json:"stage"`
-	Status          string    `json:"status"`
-	Provider        string    `json:"provider"`
-	Model           string    `json:"model"`
-	TemplateVersion string    `json:"template_version,omitempty"`
-	SchemaName      string    `json:"schema_name,omitempty"`
-	InputHash       string    `json:"input_hash"`
-	ReasoningEffort string    `json:"reasoning_effort"`
+	Version          int          `json:"version"`
+	Stage            string       `json:"stage"`
+	Status           string       `json:"status"`
+	Provider         string       `json:"provider"`
+	Model            string       `json:"model"`
+	TemplateVersion  string       `json:"template_version,omitempty"`
+	SchemaName       string       `json:"schema_name,omitempty"`
+	InputHash        string       `json:"input_hash"`
+	ReasoningEffort  string       `json:"reasoning_effort"`
+	MaxOutputTokens  int          `json:"max_output_tokens"`
+	Usage            llm.Usage    `json:"usage"`
+	StartedAt        time.Time    `json:"started_at"`
+	CompletedAt      time.Time    `json:"completed_at,omitempty"`
+	DurationMS       int64        `json:"duration_ms,omitempty"`
+	ValidationOK     bool         `json:"validation_ok"`
+	Errors           []string     `json:"errors"`
+	Cached           bool         `json:"cached,omitempty"`
+	CacheKey         string       `json:"cache_key,omitempty"`
+	ContextBytes     int          `json:"context_bytes,omitempty"`
+	RetryCount       int          `json:"retry_count,omitempty"`
+	CallReason       string       `json:"call_reason,omitempty"`
+	IssueID          string       `json:"issue_id,omitempty"`
+	FullContextBytes int          `json:"full_context_bytes,omitempty"`
+	ContextReduction float64      `json:"context_reduction_ratio,omitempty"`
+	BudgetPolicy     string       `json:"budget_policy,omitempty"`
+	WastedTokens     int          `json:"wasted_tokens,omitempty"`
+	Attempts         []RunAttempt `json:"attempts,omitempty"`
+	CallGatePolicy   string       `json:"call_gate_policy,omitempty"`
+}
+
+type RunAttempt struct {
+	Number          int       `json:"number"`
+	Kind            string    `json:"kind"`
 	MaxOutputTokens int       `json:"max_output_tokens"`
 	Usage           llm.Usage `json:"usage"`
-	StartedAt       time.Time `json:"started_at"`
-	CompletedAt     time.Time `json:"completed_at,omitempty"`
-	DurationMS      int64     `json:"duration_ms,omitempty"`
-	ValidationOK    bool      `json:"validation_ok"`
-	Errors          []string  `json:"errors"`
+	DurationMS      int64     `json:"duration_ms"`
+	Error           string    `json:"error,omitempty"`
+}
+
+type ContextManifest struct {
+	Version              int                 `json:"version"`
+	Stage                string              `json:"stage"`
+	CallReason           string              `json:"call_reason"`
+	IssueID              string              `json:"issue_id,omitempty"`
+	InputHash            string              `json:"input_hash"`
+	ContextBytes         int                 `json:"context_bytes"`
+	FullContextBytes     int                 `json:"full_context_bytes"`
+	ContextReduction     float64             `json:"context_reduction_ratio"`
+	BudgetPolicy         string              `json:"budget_policy"`
+	MaxOutputTokens      int                 `json:"max_output_tokens"`
+	TemplateVersion      string              `json:"template_version,omitempty"`
+	CanonicalizerVersion string              `json:"canonicalizer_version"`
+	CallGatePolicy       string              `json:"call_gate_policy"`
+	Included             map[string][]string `json:"included"`
 }
 
 type sourceUnitInput struct {
@@ -433,7 +471,11 @@ func RunBaseline(ctx context.Context, client llm.Client, opts BaselineOptions) e
 }
 
 func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir string, number int, req llm.Request, target *T, validateTarget func() []string) error {
-	runDir := stageRunDir(outDir, number, req.Stage)
+	runName := req.Stage
+	if key := strings.TrimSpace(req.Metadata["run_key"]); key != "" {
+		runName += "_" + strings.NewReplacer("/", "_", "\\", "_", "..", "_").Replace(key)
+	}
+	runDir := stageRunDir(outDir, number, runName)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return err
 	}
@@ -444,11 +486,59 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 		return err
 	}
 	started := time.Now()
+	cacheKey := structuredCacheKey(req)
+	callReason := nonEmpty(req.Metadata["call_reason"], "semantic_generation")
+	fullContextBytes := metadataInt(req.Metadata, "full_context_bytes", len(req.Input))
+	contextReduction := reductionRatio(len(req.Input), fullContextBytes)
 	summary := RunSummary{Version: 1, Stage: req.Stage, Status: "running", Provider: providerName(client), Model: nonEmpty(req.Model, llm.DefaultModel),
 		TemplateVersion: req.Metadata["template_version"], SchemaName: req.SchemaName, InputHash: textHash(req.Input),
-		ReasoningEffort: nonEmpty(req.ReasoningEffort, llm.DefaultReasoningEffort), MaxOutputTokens: req.MaxOutputTokens, StartedAt: started, Errors: []string{}}
+		ReasoningEffort: nonEmpty(req.ReasoningEffort, llm.DefaultReasoningEffort), MaxOutputTokens: req.MaxOutputTokens, StartedAt: started, Errors: []string{},
+		CacheKey: cacheKey, ContextBytes: len(req.Input), FullContextBytes: fullContextBytes, ContextReduction: contextReduction,
+		CallReason: callReason, IssueID: req.Metadata["issue_id"], BudgetPolicy: nonEmpty(req.Metadata["budget_policy"], "adaptive_v1"),
+		CallGatePolicy: nonEmpty(req.Metadata["call_gate_policy"], "semantic_need_v1"), Attempts: []RunAttempt{}}
 	_ = writeJSONFile(filepath.Join(runDir, "run.json"), summary)
-	resp, err := client.GenerateStructured(ctx, req)
+	_ = writeJSONFile(filepath.Join(runDir, "context_manifest.json"), buildContextManifest(req, callReason, fullContextBytes))
+	cachePath := filepath.Join(outDir, "llm_cache", strings.TrimPrefix(cacheKey, "sha256:")+".json")
+	if cached, cacheErr := os.ReadFile(cachePath); cacheErr == nil && json.Valid(cached) {
+		if json.Unmarshal(cached, target) == nil {
+			errors := []string{}
+			if validateTarget != nil {
+				errors = validateTarget()
+			}
+			if len(errors) == 0 {
+				summary.Cached = true
+				_ = writeTextFile(filepath.Join(runDir, "response.raw.txt"), "cache_hit")
+				_ = writeTextFile(filepath.Join(runDir, "response.parsed.json"), string(cached))
+				_ = writeJSONFile(filepath.Join(runDir, "validation_report.json"), stageReport{OK: true, Stage: req.Stage})
+				finishRunSummary(runDir, &summary, "completed", true, llm.Usage{}, nil)
+				return nil
+			}
+		}
+	}
+	var zero T
+	*target = zero
+	attemptStarted := time.Now()
+	resp, err := generateStructuredAttempt(ctx, client, req, 2)
+	summary.Attempts = append(summary.Attempts, runAttempt(1, "initial", req.MaxOutputTokens, resp.Usage, attemptStarted, err))
+	if err != nil && retryableStructuredError(err) && ctx.Err() == nil {
+		summary.RetryCount = 1
+		if resp.Raw != "" {
+			_ = writeTextFile(filepath.Join(runDir, "response.attempt_001.raw.txt"), resp.Raw)
+		}
+		if resp.Text != "" {
+			_ = writeTextFile(filepath.Join(runDir, "response.attempt_001.partial.txt"), resp.Text)
+		}
+		retryReq := req
+		if strings.Contains(strings.ToLower(err.Error()), "json") {
+			retryReq.Instructions += "\nThe previous response was incomplete or invalid JSON. Return one complete object conforming exactly to the supplied schema."
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "incomplete") || strings.Contains(strings.ToLower(err.Error()), "max_output") {
+			retryReq.MaxOutputTokens = bumpedRetryBudget(req.MaxOutputTokens, metadataInt(req.Metadata, "stage_max_output_tokens", defaultStageMaxOutputTokens(req.Stage, req.MaxOutputTokens)))
+		}
+		attemptStarted = time.Now()
+		resp, err = generateStructuredAttempt(ctx, client, retryReq, 1)
+		summary.Attempts = append(summary.Attempts, runAttempt(2, "structured_retry", retryReq.MaxOutputTokens, resp.Usage, attemptStarted, err))
+	}
 	if err != nil {
 		if resp.Raw != "" {
 			_ = writeTextFile(filepath.Join(runDir, "response.raw.txt"), resp.Raw)
@@ -483,17 +573,184 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 		return err
 	}
 	finishRunSummary(runDir, &summary, "completed", true, resp.Usage, nil)
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err == nil {
+		_ = writeTextFile(cachePath, string(resp.Parsed))
+	}
 	return nil
+}
+
+func retryableStructuredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{"timeout", "deadline exceeded", "temporarily", "connection reset", "eof", "429", "502", "503", "504", "not valid json", "incomplete"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func generateStructuredAttempt(ctx context.Context, client llm.Client, req llm.Request, attemptsRemaining int) (llm.Response, error) {
+	if attemptsRemaining <= 1 {
+		return client.GenerateStructured(ctx, req)
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return client.GenerateStructured(ctx, req)
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return llm.Response{}, context.DeadlineExceeded
+	}
+	budget := remaining / time.Duration(attemptsRemaining)
+	attemptCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	return client.GenerateStructured(attemptCtx, req)
+}
+
+func structuredCacheKey(req llm.Request) string {
+	payload, _ := json.Marshal(map[string]any{
+		"stage": req.Stage, "model": nonEmpty(req.Model, llm.DefaultModel), "instructions": req.Instructions,
+		"input": req.Input, "schema_name": req.SchemaName, "schema": req.Schema,
+		"reasoning_effort": nonEmpty(req.ReasoningEffort, llm.DefaultReasoningEffort),
+		"temperature":      req.Temperature, "max_output_tokens": req.MaxOutputTokens,
+		"template_version": req.Metadata["template_version"],
+		"context_policy":   nonEmpty(req.Metadata["context_policy"], "minimal_context_v1"), "call_gate_policy": nonEmpty(req.Metadata["call_gate_policy"], "semantic_need_v1"),
+		"canonicalizer_version": req.Metadata["canonicalizer_version"], "risk_policy": req.Metadata["risk_policy"],
+		"compiler_version": req.Metadata["compiler_version"], "verifier_version": req.Metadata["verifier_version"],
+	})
+	return textHash(string(payload))
 }
 
 func finishRunSummary(runDir string, summary *RunSummary, status string, validationOK bool, usage llm.Usage, errors []string) {
 	summary.Status = status
 	summary.ValidationOK = validationOK
-	summary.Usage = usage
+	if len(summary.Attempts) == 0 {
+		summary.Usage = usage
+	} else {
+		summary.Usage = aggregateAttemptUsage(summary.Attempts)
+		for _, attempt := range summary.Attempts {
+			if attempt.Error != "" {
+				summary.WastedTokens += attempt.Usage.TotalTokens
+			}
+		}
+		if status == "failed" {
+			summary.WastedTokens = summary.Usage.TotalTokens
+		}
+	}
 	summary.Errors = append([]string(nil), errors...)
 	summary.CompletedAt = time.Now()
 	summary.DurationMS = summary.CompletedAt.Sub(summary.StartedAt).Milliseconds()
 	_ = writeJSONFile(filepath.Join(runDir, "run.json"), summary)
+}
+
+func runAttempt(number int, kind string, maxOutputTokens int, usage llm.Usage, started time.Time, err error) RunAttempt {
+	attempt := RunAttempt{Number: number, Kind: kind, MaxOutputTokens: maxOutputTokens, Usage: usage, DurationMS: time.Since(started).Milliseconds()}
+	if err != nil {
+		attempt.Error = err.Error()
+	}
+	return attempt
+}
+
+func aggregateAttemptUsage(attempts []RunAttempt) llm.Usage {
+	var usage llm.Usage
+	for _, attempt := range attempts {
+		usage.InputTokens += attempt.Usage.InputTokens
+		usage.OutputTokens += attempt.Usage.OutputTokens
+		usage.TotalTokens += attempt.Usage.TotalTokens
+	}
+	return usage
+}
+
+func bumpedRetryBudget(current, ceiling int) int {
+	if current <= 0 {
+		current = llm.DefaultMaxOutputTokens
+	}
+	if ceiling < current {
+		ceiling = current
+	}
+	bumped := current + current/2
+	if bumped > ceiling {
+		return ceiling
+	}
+	return bumped
+}
+
+func defaultStageMaxOutputTokens(stage string, fallback int) int {
+	switch stage {
+	case "source_segmentation", "source_unit_extraction", "requirement_atom_extraction":
+		return 16000
+	case "functional_analysis":
+		return 12000
+	case "crud_mapping":
+		return 16000
+	case "review_candidate_proposal":
+		return 14000
+	case "conceptual_model":
+		return 32000
+	case "logical_projection":
+		return 40000
+	default:
+		if fallback > 0 {
+			return fallback
+		}
+		return 20000
+	}
+}
+
+func metadataInt(metadata map[string]string, key string, fallback int) int {
+	if metadata == nil {
+		return fallback
+	}
+	var value int
+	if _, err := fmt.Sscan(metadata[key], &value); err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func reductionRatio(sent, full int) float64 {
+	if full <= 0 || sent >= full {
+		return 0
+	}
+	return float64(full-sent) / float64(full)
+}
+
+func buildContextManifest(req llm.Request, callReason string, fullContextBytes int) ContextManifest {
+	return ContextManifest{
+		Version: 1, Stage: req.Stage, CallReason: callReason, IssueID: req.Metadata["issue_id"], InputHash: textHash(req.Input),
+		ContextBytes: len(req.Input), FullContextBytes: fullContextBytes, ContextReduction: reductionRatio(len(req.Input), fullContextBytes),
+		BudgetPolicy: nonEmpty(req.Metadata["budget_policy"], "adaptive_v1"), MaxOutputTokens: req.MaxOutputTokens,
+		TemplateVersion: req.Metadata["template_version"], CanonicalizerVersion: nonEmpty(req.Metadata["canonicalizer_version"], "pipeline_ids_v2"),
+		CallGatePolicy: nonEmpty(req.Metadata["call_gate_policy"], "semantic_need_v1"),
+		Included:       summarizeContextInput(req.Input),
+	}
+}
+
+func summarizeContextInput(input string) map[string][]string {
+	var root map[string]json.RawMessage
+	if json.Unmarshal([]byte(input), &root) != nil {
+		return map[string][]string{}
+	}
+	out := map[string][]string{}
+	for key, raw := range root {
+		var items []map[string]any
+		if json.Unmarshal(raw, &items) != nil {
+			continue
+		}
+		ids := make([]string, 0, len(items))
+		for _, item := range items {
+			if id, ok := item["id"].(string); ok && id != "" {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			out[key] = ids
+		}
+	}
+	return out
 }
 
 func textHash(value string) string {

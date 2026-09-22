@@ -3,7 +3,6 @@ package workspace
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,7 +20,7 @@ func TestAddPastedTextResourceWritesFilesAndManifest(t *testing.T) {
 		t.Fatalf("create project: %v", err)
 	}
 
-	resource, revision, err := store.AddPastedTextResource(project.ID, "Task text", "System stores products in a catalog.")
+	resource, revision, err := store.AddPastedTextResource(project.ID, 0, "Task text", "System stores products in a catalog.")
 	if err != nil {
 		t.Fatalf("add pasted text: %v", err)
 	}
@@ -57,7 +56,7 @@ func TestAddUploadedTextResourceExtractsText(t *testing.T) {
 		t.Fatalf("create project: %v", err)
 	}
 
-	resource, _, err := store.AddUploadedResource(project.ID, "Rules", "rules.md", "", bytes.NewBufferString("# Rules\nProducts have prices.\n"))
+	resource, _, err := store.AddUploadedResource(project.ID, 0, "Rules", "rules.md", "", bytes.NewBufferString("# Rules\nProducts have prices.\n"))
 	if err != nil {
 		t.Fatalf("add uploaded text: %v", err)
 	}
@@ -79,29 +78,11 @@ func TestProcessSourcesWritesCombinedDocumentWithLineage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	resource, revision, err := store.AddPastedTextResource(project.ID, "Task text", "System stores products in a catalog.")
+	resource, revision, err := store.AddPastedTextResource(project.ID, 0, "Task text", "System stores products in a catalog.")
 	if err != nil {
 		t.Fatalf("add pasted text: %v", err)
 	}
-	mock := llm.NewDefaultMockClient()
-	mock.Structured["combined_document"] = json.RawMessage(fmt.Sprintf(`{
-	  "sentences": [
-	    {
-	      "id": "OD-S-001",
-	      "text": "System stores products in a catalog.",
-	      "derived_from": [
-	        {"resource_id": %q, "line_start": 1, "line_end": 1, "exact_text": "System stores products in a catalog."}
-	      ],
-	      "transformation": "copied",
-	      "confidence": "high",
-	      "warnings": []
-	    }
-	  ],
-	  "warnings": [],
-	  "confidence_summary": {"overall": "test"}
-	}`, resource.ID))
-
-	revision, updated, err := store.ProcessSources(context.Background(), mock, project.ID, ProcessSourcesOptions{
+	revision, updated, err := store.ProcessSources(project.ID, ProcessSourcesOptions{
 		BaseRevision: revision,
 		Model:        "mock-model",
 	})
@@ -127,17 +108,69 @@ func TestProcessSourcesWritesCombinedDocumentWithLineage(t *testing.T) {
 	}
 }
 
+func TestProcessSourcesCountsSentencesAndStructuralUnitsSeparately(t *testing.T) {
+	store := newIngestionTestStore(t)
+	project, err := store.CreateProject("Rules", "", "en", "catalog")
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	_, revision, err := store.AddUploadedResource(project.ID, project.CurrentRevision, "Rules", "rules.md", "", bytes.NewBufferString("# Rules\nProducts have names. Prices are required.\n- Short label\n"))
+	if err != nil {
+		t.Fatalf("add markdown resource: %v", err)
+	}
+	if _, _, err := store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"}); err != nil {
+		t.Fatalf("process sources: %v", err)
+	}
+	document, err := store.CombinedDocument(project.ID)
+	if err != nil {
+		t.Fatalf("combined document: %v", err)
+	}
+	if document.Summary.UnitCount != 4 || document.Summary.SentenceCount != 2 || document.Summary.StructuralUnitCount != 2 {
+		t.Fatalf("unexpected combined-document counts: %+v", document.Summary)
+	}
+	if document.Lineage.Sentences[0].Kind != "structural" || document.Lineage.Sentences[1].Kind != "sentence" {
+		t.Fatalf("unexpected unit kinds: %+v", document.Lineage.Sentences)
+	}
+}
+
+func TestIntakeMutationsEnforceOptionalBaseRevision(t *testing.T) {
+	store := newIngestionTestStore(t)
+	project, err := store.CreateProject("Revisions", "", "en", "catalog")
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	resource, revision, err := store.AddPastedTextResource(project.ID, project.CurrentRevision, "Task", "Product has a name.")
+	if err != nil {
+		t.Fatalf("add resource: %v", err)
+	}
+	if _, _, err := store.AddPastedTextResource(project.ID, project.CurrentRevision, "Stale", "Stale write."); err != ErrRevisionConflict {
+		t.Fatalf("stale pasted-text write error = %v, want %v", err, ErrRevisionConflict)
+	}
+	if _, _, err := store.AddUploadedResource(project.ID, project.CurrentRevision, "Stale", "stale.txt", "", bytes.NewBufferString("Stale upload.")); err != ErrRevisionConflict {
+		t.Fatalf("stale upload error = %v, want %v", err, ErrRevisionConflict)
+	}
+	if _, err := store.DeleteResource(project.ID, project.CurrentRevision, resource.ID); err != ErrRevisionConflict {
+		t.Fatalf("stale delete error = %v, want %v", err, ErrRevisionConflict)
+	}
+	if _, found, err := store.Resource(project.ID, resource.ID); err != nil || !found {
+		t.Fatalf("stale delete removed resource: found=%v err=%v", found, err)
+	}
+	if _, err := store.DeleteResource(project.ID, revision, resource.ID); err != nil {
+		t.Fatalf("delete with current revision: %v", err)
+	}
+}
+
 func TestGenerateSourceUnitsWritesRevisionedArtifacts(t *testing.T) {
 	store := newIngestionTestStore(t)
 	project, err := store.CreateProject("Products", "", "en", "catalog")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	_, revision, err := store.AddPastedTextResource(project.ID, "Task", "Products have names.")
+	_, revision, err := store.AddPastedTextResource(project.ID, 0, "Task", "Products have names.")
 	if err != nil {
 		t.Fatalf("add resource: %v", err)
 	}
-	revision, _, err = store.ProcessSources(context.Background(), llm.NewDefaultMockClient(), project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+	revision, _, err = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 	if err != nil {
 		t.Fatalf("process sources: %v", err)
 	}
@@ -163,22 +196,21 @@ func TestGenerateSourceUnitsWritesRevisionedArtifacts(t *testing.T) {
 	if err != nil || len(units) != 1 || len(units[0].OriginSpans) != 1 {
 		t.Fatalf("unexpected API source units: units=%+v err=%v", units, err)
 	}
+	if units[0].OriginSpans[0].EndOffset == 0 || !strings.Contains(units[0].OriginSpans[0].Label, "bytes") {
+		t.Fatalf("source-unit origin did not preserve candidate byte lineage: %+v", units[0].OriginSpans[0])
+	}
 }
 
-func TestGenerateSourceUnitsFallsBackWithoutLLM(t *testing.T) {
+func TestGenerateSourceUnitsFailsClosedWithoutLLM(t *testing.T) {
 	store := newIngestionTestStore(t)
 	project, _ := store.CreateProject("Products", "", "en", "catalog")
-	_, revision, _ := store.AddPastedTextResource(project.ID, "Task", "Products have names.")
-	revision, _, err := store.ProcessSources(context.Background(), llm.NewDefaultMockClient(), project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+	_, revision, _ := store.AddPastedTextResource(project.ID, 0, "Task", "Products have names.")
+	revision, _, err := store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 	if err != nil {
 		t.Fatalf("process sources: %v", err)
 	}
-	if _, _, err := store.GenerateSourceUnits(context.Background(), nil, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision}); err != nil {
-		t.Fatalf("fallback source units: %v", err)
-	}
-	artifacts, _ := store.SourceUnitArtifacts(project.ID)
-	if artifacts.QA.DerivationStrategy != "deterministic_fallback" {
-		t.Fatalf("expected fallback strategy, got %s", artifacts.QA.DerivationStrategy)
+	if _, _, err := store.GenerateSourceUnits(context.Background(), nil, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision}); err == nil {
+		t.Fatal("real source-unit generation must fail closed when the LLM is unavailable")
 	}
 }
 
@@ -188,7 +220,7 @@ func TestDeleteProjectRemovesWorkspaceAndPersistsDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, _, err := store.AddPastedTextResource(project.ID, "Task", "Product has a name."); err != nil {
+	if _, _, err := store.AddPastedTextResource(project.ID, 0, "Task", "Product has a name."); err != nil {
 		t.Fatalf("add resource: %v", err)
 	}
 	workspaceDir := store.projectWorkspaceDir(project.ID)

@@ -71,6 +71,8 @@ type ProjectState struct {
 	CombinedDocumentLineagePath    string
 	SourceSegmentsPath             string
 	SourceFidelityReportPath       string
+	SourceSegmentationProposalPath string
+	SourceSegmentationQAPath       string
 	CombinedDocumentReady          bool
 	SourceUnitsProposalPath        string
 	SourceUnitsPath                string
@@ -113,6 +115,7 @@ type ProjectState struct {
 	Resources                      []InputResource
 	CompletedSnapshot              *CompletedSnapshot
 	Artifacts                      map[string]ArtifactRecord
+	LLMExecutionProfile            *LLMExecutionProfile
 }
 
 type ArtifactRecord struct {
@@ -130,18 +133,19 @@ type CompletedSnapshot struct {
 }
 
 type ProjectSummary struct {
-	ID              string                `json:"id"`
-	Name            string                `json:"name"`
-	Description     string                `json:"description,omitempty"`
-	Language        string                `json:"language,omitempty"`
-	Domain          string                `json:"domain,omitempty"`
-	LifecycleStatus string                `json:"lifecycle_status"`
-	CurrentRevision int                   `json:"current_revision"`
-	Counts          ProjectCounts         `json:"counts"`
-	Quality         ProjectQualitySummary `json:"quality"`
-	LastActivity    string                `json:"last_activity,omitempty"`
-	CreatedAt       time.Time             `json:"created_at"`
-	UpdatedAt       time.Time             `json:"updated_at"`
+	ID                  string                `json:"id"`
+	Name                string                `json:"name"`
+	Description         string                `json:"description,omitempty"`
+	Language            string                `json:"language,omitempty"`
+	Domain              string                `json:"domain,omitempty"`
+	LifecycleStatus     string                `json:"lifecycle_status"`
+	CurrentRevision     int                   `json:"current_revision"`
+	Counts              ProjectCounts         `json:"counts"`
+	Quality             ProjectQualitySummary `json:"quality"`
+	LastActivity        string                `json:"last_activity,omitempty"`
+	CreatedAt           time.Time             `json:"created_at"`
+	UpdatedAt           time.Time             `json:"updated_at"`
+	LLMExecutionProfile *LLMExecutionProfile  `json:"llm_execution_profile,omitempty"`
 }
 
 type ProjectCounts struct {
@@ -198,6 +202,7 @@ type ArtifactHealth struct {
 	SourceManifestStatus       string `json:"source_manifest_status"`
 	CombinedDocumentStatus     string `json:"combined_document_status"`
 	SourceFidelityStatus       string `json:"source_fidelity_status"`
+	SourceSegmentationStatus   string `json:"source_segmentation_status"`
 	SourceUnitsStatus          string `json:"source_units_status"`
 	RequirementAtomsStatus     string `json:"requirement_atoms_status"`
 	DesignObligationsStatus    string `json:"design_obligations_status"`
@@ -255,20 +260,21 @@ type OriginSpan struct {
 }
 
 type SourceUnit struct {
-	ID                   string       `json:"id"`
-	Kind                 string       `json:"kind"`
-	Section              string       `json:"section,omitempty"`
-	NormalizedText       string       `json:"normalized_text"`
-	ExactText            string       `json:"exact_text,omitempty"`
-	Relevance            string       `json:"relevance"`
-	Confidence           string       `json:"confidence"`
-	ReviewStatus         string       `json:"review_status"`
-	OriginSpans          []OriginSpan `json:"origin_spans"`
-	LinkedExamples       []string     `json:"linked_examples"`
-	LinkedRequirements   []string     `json:"linked_requirements"`
-	OpenReviewCandidates []string     `json:"open_review_candidates"`
-	ODSentenceIDs        []string     `json:"od_sentence_ids,omitempty"`
-	Warnings             []string     `json:"warnings,omitempty"`
+	ID                   string                      `json:"id"`
+	Kind                 string                      `json:"kind"`
+	Section              string                      `json:"section,omitempty"`
+	NormalizedText       string                      `json:"normalized_text"`
+	Normalization        dsl.SourceTextNormalization `json:"normalization"`
+	ExactText            string                      `json:"exact_text,omitempty"`
+	Relevance            string                      `json:"relevance"`
+	Confidence           string                      `json:"confidence"`
+	ReviewStatus         string                      `json:"review_status"`
+	OriginSpans          []OriginSpan                `json:"origin_spans"`
+	LinkedExamples       []string                    `json:"linked_examples"`
+	LinkedRequirements   []string                    `json:"linked_requirements"`
+	OpenReviewCandidates []string                    `json:"open_review_candidates"`
+	ODSentenceIDs        []string                    `json:"od_sentence_ids,omitempty"`
+	Warnings             []string                    `json:"warnings,omitempty"`
 }
 
 type StructuredExample struct {
@@ -353,6 +359,7 @@ type CrudOperation struct {
 
 type ReviewCandidate struct {
 	ID                       string         `json:"id"`
+	DecisionKey              string         `json:"decision_key,omitempty"`
 	Question                 string         `json:"question"`
 	Description              string         `json:"description"`
 	Status                   string         `json:"status"`
@@ -375,14 +382,15 @@ type ReviewCandidate struct {
 }
 
 type ReviewOption struct {
-	ID                    string   `json:"id"`
-	Label                 string   `json:"label"`
-	Recommended           bool     `json:"recommended"`
-	Rationale             string   `json:"rationale"`
-	EffectSummary         string   `json:"effect_summary,omitempty"`
-	Benefits              []string `json:"benefits,omitempty"`
-	Risks                 []string `json:"risks,omitempty"`
-	AffectedArtifactKinds []string `json:"affected_artifact_kinds,omitempty"`
+	ID                    string                           `json:"id"`
+	Label                 string                           `json:"label"`
+	Recommended           bool                             `json:"recommended"`
+	Rationale             string                           `json:"rationale"`
+	EffectSummary         string                           `json:"effect_summary,omitempty"`
+	Benefits              []string                         `json:"benefits,omitempty"`
+	Risks                 []string                         `json:"risks,omitempty"`
+	AffectedArtifactKinds []string                         `json:"affected_artifact_kinds,omitempty"`
+	Effects               *llmpipeline.ReviewOptionEffects `json:"effects,omitempty"`
 }
 
 type ReviewDecision struct {
@@ -399,6 +407,9 @@ type ReviewDecision struct {
 	AppliedPatchID    string    `json:"applied_patch_id,omitempty"`
 	ApplyStatus       string    `json:"apply_status,omitempty"`
 	NewCandidateIDs   []string  `json:"new_candidate_ids,omitempty"`
+	DecisionMode      string    `json:"decision_mode,omitempty"`
+	PolicyVersion     string    `json:"policy_version,omitempty"`
+	ActiveReviewMS    int64     `json:"active_review_ms,omitempty"`
 }
 
 func NewStore(root string) (*Store, error) {
@@ -768,13 +779,13 @@ func (s *Store) UpdateProject(id string, baseRevision int, name, description str
 	})
 }
 
-func (s *Store) AddPastedTextResource(projectID, title, content string) (InputResource, int, error) {
+func (s *Store) AddPastedTextResource(projectID string, baseRevision int, title, content string) (InputResource, int, error) {
 	if strings.TrimSpace(content) == "" {
 		return InputResource{}, 0, errors.New("content is required")
 	}
 	now := time.Now()
 	var resource InputResource
-	err := s.withProject(projectID, 0, func(project *ProjectState) error {
+	err := s.withProject(projectID, baseRevision, func(project *ProjectState) error {
 		resourceID := fmt.Sprintf("R-%03d", s.nextResource+1)
 		stored, err := buildResourceFromBytes(project.ID, resourceID, "pasted_text", nonEmpty(title, "Pasted task text"), "", "text", project.Language, "normative", []byte(ensureTrailingNewline(normalizeExtractedText([]byte(content)))), s, now)
 		if err != nil {
@@ -794,7 +805,7 @@ func (s *Store) AddPastedTextResource(projectID, title, content string) (InputRe
 	return resource, project.CurrentRevision, nil
 }
 
-func (s *Store) AddUploadedResource(projectID, title, fileName, fileType string, content io.Reader) (InputResource, int, error) {
+func (s *Store) AddUploadedResource(projectID string, baseRevision int, title, fileName, fileType string, content io.Reader) (InputResource, int, error) {
 	if content == nil {
 		return InputResource{}, 0, errors.New("file content is required")
 	}
@@ -804,7 +815,7 @@ func (s *Store) AddUploadedResource(projectID, title, fileName, fileType string,
 	}
 	now := time.Now()
 	var resource InputResource
-	err = s.withProject(projectID, 0, func(project *ProjectState) error {
+	err = s.withProject(projectID, baseRevision, func(project *ProjectState) error {
 		safeName := sanitizeFileName(fileName)
 		resourceID := fmt.Sprintf("R-%03d", s.nextResource+1)
 		stored, err := buildResourceFromBytes(project.ID, resourceID, "uploaded_file", nonEmpty(title, safeName), safeName, fileType, project.Language, "normative", data, s, now)
@@ -825,8 +836,8 @@ func (s *Store) AddUploadedResource(projectID, title, fileName, fileType string,
 	return resource, project.CurrentRevision, nil
 }
 
-func (s *Store) DeleteResource(projectID, resourceID string) (int, error) {
-	err := s.withProject(projectID, 0, func(project *ProjectState) error {
+func (s *Store) DeleteResource(projectID string, baseRevision int, resourceID string) (int, error) {
+	err := s.withProject(projectID, baseRevision, func(project *ProjectState) error {
 		next := project.Resources[:0]
 		found := false
 		var removed InputResource
@@ -1018,6 +1029,10 @@ func (s *Store) ReopenProject(projectID, note string) (ProjectSummary, string, e
 	reopened.BundlePath = source.BundlePath
 	reopened.CombinedDocumentPath = source.CombinedDocumentPath
 	reopened.CombinedDocumentLineagePath = source.CombinedDocumentLineagePath
+	reopened.SourceSegmentsPath = source.SourceSegmentsPath
+	reopened.SourceFidelityReportPath = source.SourceFidelityReportPath
+	reopened.SourceSegmentationProposalPath = source.SourceSegmentationProposalPath
+	reopened.SourceSegmentationQAPath = source.SourceSegmentationQAPath
 	reopened.CombinedDocumentReady = source.CombinedDocumentReady
 	reopened.SourceUnitsProposalPath = source.SourceUnitsProposalPath
 	reopened.SourceUnitsPath = source.SourceUnitsPath
@@ -1199,9 +1214,10 @@ func (s *Store) ProjectSummary(projectID string) (ProjectSummary, error) {
 			TraceabilityStatus: report.Summary.TraceabilityStatus,
 			DBMLStatus:         report.Summary.DBMLStatus,
 		},
-		LastActivity: project.LastActivity,
-		CreatedAt:    project.CreatedAt,
-		UpdatedAt:    project.UpdatedAt,
+		LastActivity:        project.LastActivity,
+		CreatedAt:           project.CreatedAt,
+		UpdatedAt:           project.UpdatedAt,
+		LLMExecutionProfile: project.LLMExecutionProfile,
 	}, nil
 }
 
@@ -1279,6 +1295,17 @@ func (s *Store) artifactHealthForProject(project *ProjectState, report quality.R
 			fidelityStatus = "needs_attention"
 		}
 	}
+	segmentationStatus := "not_generated"
+	if project.SourceSegmentationProposalPath != "" && project.SourceSegmentationQAPath != "" {
+		segmentationStatus = "ready"
+		if proposal, qa, err := s.SourceSegmentation(project.ID); err != nil || !qa.OK {
+			segmentationStatus = "not_generated"
+		} else if proposal.FallbackUsed {
+			segmentationStatus = "fallback"
+		}
+	} else if s.artifactStatus(project.CombinedDocumentPath) == "ready" {
+		segmentationStatus = "ready"
+	}
 	semanticSatisfied := semanticStatus == "passed"
 	legacyCompleted := semanticStatus == "legacy_not_applicable" && project.FinalModelAccepted && project.DBMLReady
 	return ArtifactHealth{
@@ -1286,6 +1313,7 @@ func (s *Store) artifactHealthForProject(project *ProjectState, report quality.R
 		SourceManifestStatus:       s.artifactStatus(project.SourceManifestPath),
 		CombinedDocumentStatus:     s.artifactStatus(project.CombinedDocumentPath),
 		SourceFidelityStatus:       fidelityStatus,
+		SourceSegmentationStatus:   segmentationStatus,
 		SourceUnitsStatus:          sourceUnitsStatus,
 		RequirementAtomsStatus:     s.artifactStatus(project.RequirementAtomsPath),
 		DesignObligationsStatus:    s.artifactStatus(project.DesignObligationsPath),
@@ -1301,7 +1329,7 @@ func (s *Store) artifactHealthForProject(project *ProjectState, report quality.R
 		CanGenerateModel:           project.AnalysisReady && len(project.OpenReviewIDs) == 0,
 		CanContinueToDBML:          modelValid && (semanticSatisfied || legacyCompleted) && project.FinalModelAccepted,
 		CanCompleteProject:         project.DBMLReady && modelValid && (semanticSatisfied || legacyCompleted) && project.FinalModelAccepted && len(project.OpenReviewIDs) == 0 && dbmlStatus == "ready",
-		CanGenerateSourceUnits:     s.artifactStatus(project.CombinedDocumentPath) == "ready" && fidelityStatus == "ready",
+		CanGenerateSourceUnits:     s.artifactStatus(project.CombinedDocumentPath) == "ready" && fidelityStatus == "ready" && (segmentationStatus == "ready" || segmentationStatus == "fallback"),
 		CanExtractRequirements:     canExtractRequirements,
 		CanBuildFunctionalAnalysis: s.artifactStatus(project.RequirementAtomsPath) == "ready" && s.artifactStatus(project.DesignObligationsPath) == "ready",
 		CanBuildCRUDMapping:        s.artifactStatus(project.FunctionalDecompositionPath) == "ready",
@@ -1384,6 +1412,11 @@ func (s *Store) SourceUnits(projectID string) ([]SourceUnit, error) {
 	candidateBySource := s.openCandidateBySource(project, bundle)
 	units := make([]SourceUnit, 0, len(bundle.SourceUnits.SourceUnits))
 	for _, source := range bundle.SourceUnits.SourceUnits {
+		normalized := source.Text.Normalized
+		normalization := source.Text.Normalization
+		if normalization.Version == "" {
+			normalized, normalization = llmpipeline.NormalizeSourceText(source.Text.Exact)
+		}
 		status := "reviewed"
 		if len(candidateBySource[source.ID]) > 0 {
 			status = "open_review"
@@ -1394,7 +1427,8 @@ func (s *Store) SourceUnits(projectID string) ([]SourceUnit, error) {
 			ID:                   source.ID,
 			Kind:                 source.Kind,
 			Section:              source.Section,
-			NormalizedText:       source.Text.Normalized,
+			NormalizedText:       normalized,
+			Normalization:        normalization,
 			ExactText:            source.Text.Exact,
 			Relevance:            source.Relevance,
 			Confidence:           confidenceFromRelevance(source.Relevance),
@@ -1875,11 +1909,21 @@ func (s *Store) ExportBundle(projectID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	optimizationReport, err := s.LLMOptimizationReport(projectID)
+	if err != nil {
+		return nil, err
+	}
+	optimizationJSON, err := json.MarshalIndent(optimizationReport, "", "  ")
+	if err != nil {
+		return nil, err
+	}
 	files := map[string]string{
 		"TASK.md":                               s.readArtifact(project.TaskPath),
 		"source_manifest.yaml":                  sourceManifest,
 		"source_segments.json":                  s.readArtifact(project.SourceSegmentsPath),
 		"source_fidelity_report.json":           s.readArtifact(project.SourceFidelityReportPath),
+		"source_segmentation.proposed.json":     s.readArtifact(project.SourceSegmentationProposalPath),
+		"source_segmentation_qa.json":           s.readArtifact(project.SourceSegmentationQAPath),
 		"combined_document.md":                  s.readArtifact(project.CombinedDocumentPath),
 		"combined_document_lineage.json":        s.readArtifact(project.CombinedDocumentLineagePath),
 		"source_units.proposed.json":            s.readArtifact(project.SourceUnitsProposalPath),
@@ -1916,6 +1960,8 @@ func (s *Store) ExportBundle(projectID string) ([]byte, error) {
 		"validation_report.json":                s.readArtifact(project.ValidationReportPath),
 		"lint_report.json":                      s.readArtifact(project.LintReportPath),
 		"quality_report.json":                   s.readArtifact(project.QualityReportPath),
+		"llm_optimization_report.json":          string(optimizationJSON),
+		"llm_optimization_report.md":            optimizationReport.Markdown(),
 	}
 	for _, resource := range exportResources {
 		base := filepath.ToSlash(filepath.Join("resources", resource.Metadata.ID))
@@ -2126,6 +2172,10 @@ func (s *Store) saveLocked() error {
 		cp.SourceManifestPath = s.relativePath(cp.SourceManifestPath)
 		cp.CombinedDocumentPath = s.relativePath(cp.CombinedDocumentPath)
 		cp.CombinedDocumentLineagePath = s.relativePath(cp.CombinedDocumentLineagePath)
+		cp.SourceSegmentsPath = s.relativePath(cp.SourceSegmentsPath)
+		cp.SourceFidelityReportPath = s.relativePath(cp.SourceFidelityReportPath)
+		cp.SourceSegmentationProposalPath = s.relativePath(cp.SourceSegmentationProposalPath)
+		cp.SourceSegmentationQAPath = s.relativePath(cp.SourceSegmentationQAPath)
 		cp.SourceUnitsProposalPath = s.relativePath(cp.SourceUnitsProposalPath)
 		cp.SourceUnitsPath = s.relativePath(cp.SourceUnitsPath)
 		cp.SourceUnitQAPath = s.relativePath(cp.SourceUnitQAPath)
@@ -2188,6 +2238,8 @@ func (s *Store) normalizeLoadedProject(project *ProjectState) {
 	project.CombinedDocumentLineagePath = s.absoluteWorkspacePath(project.CombinedDocumentLineagePath)
 	project.SourceSegmentsPath = s.absoluteWorkspacePath(project.SourceSegmentsPath)
 	project.SourceFidelityReportPath = s.absoluteWorkspacePath(project.SourceFidelityReportPath)
+	project.SourceSegmentationProposalPath = s.absoluteWorkspacePath(project.SourceSegmentationProposalPath)
+	project.SourceSegmentationQAPath = s.absoluteWorkspacePath(project.SourceSegmentationQAPath)
 	project.SourceUnitsProposalPath = s.absoluteWorkspacePath(project.SourceUnitsProposalPath)
 	project.SourceUnitsPath = s.absoluteWorkspacePath(project.SourceUnitsPath)
 	project.SourceUnitQAPath = s.absoluteWorkspacePath(project.SourceUnitQAPath)
@@ -2283,6 +2335,7 @@ func (s *Store) refreshArtifactRegistry(project *ProjectState) {
 	paths := map[string]string{
 		"source_manifest": project.SourceManifestPath, "source_segments": project.SourceSegmentsPath,
 		"source_fidelity": project.SourceFidelityReportPath, "combined_document": project.CombinedDocumentPath,
+		"source_segmentation_proposed": project.SourceSegmentationProposalPath, "source_segmentation_qa": project.SourceSegmentationQAPath,
 		"combined_document_lineage": project.CombinedDocumentLineagePath, "source_units_proposed": project.SourceUnitsProposalPath,
 		"source_units_accepted": project.SourceUnitsPath, "source_unit_qa": project.SourceUnitQAPath,
 		"requirement_atoms_proposed": project.RequirementAtomsProposalPath, "requirement_atoms_accepted": project.RequirementAtomsPath,
@@ -2506,6 +2559,10 @@ func (s *Store) withProject(id string, baseRevision int, fn func(project *Projec
 
 func cloneProject(project *ProjectState) *ProjectState {
 	cp := *project
+	if project.LLMExecutionProfile != nil {
+		profile := *project.LLMExecutionProfile
+		cp.LLMExecutionProfile = &profile
+	}
 	cp.OpenReviewIDs = map[string]bool{}
 	for key, value := range project.OpenReviewIDs {
 		cp.OpenReviewIDs[key] = value

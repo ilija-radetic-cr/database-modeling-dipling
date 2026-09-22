@@ -17,7 +17,7 @@ func TestReviewSourceUnitPersistsRevisionedDecision(t *testing.T) {
 		expectedRelevance string
 	}{
 		{name: "accept", decision: "accept", expectedText: "Products have names.", expectedRelevance: "model_relevant"},
-		{name: "revise", decision: "revise", normalizedText: "Each product has a name.", expectedText: "Each product has a name.", expectedRelevance: "model_relevant"},
+		{name: "revise", decision: "revise", expectedText: "Products have names.", expectedRelevance: "model_relevant"},
 		{name: "exclude", decision: "exclude", expectedText: "Products have names.", expectedRelevance: "non_model"},
 	}
 	for _, test := range tests {
@@ -27,12 +27,12 @@ func TestReviewSourceUnitPersistsRevisionedDecision(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create project: %v", err)
 			}
-			_, revision, err := store.AddPastedTextResource(project.ID, "Task", "Products have names.")
+			_, revision, err := store.AddPastedTextResource(project.ID, 0, "Task", "Products have names.")
 			if err != nil {
 				t.Fatalf("add resource: %v", err)
 			}
 			mock := llm.NewDefaultMockClient()
-			revision, _, err = store.ProcessSources(context.Background(), mock, project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+			revision, _, err = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 			if err != nil {
 				t.Fatalf("process sources: %v", err)
 			}
@@ -81,6 +81,9 @@ func TestReviewSourceUnitPersistsRevisionedDecision(t *testing.T) {
 			if decision.Decision != test.decision || decision.ReviewedBy != "tester" || decision.ProjectRevision != newRevision {
 				t.Fatalf("unexpected audit decision: %+v", decision)
 			}
+			if decision.Normalization.Version == "" || decision.Normalization.ExactHash == "" || decision.Normalization.NormalizedHash == "" {
+				t.Fatalf("normalization audit is incomplete: %+v", decision.Normalization)
+			}
 			unit, found, err := store.SourceUnit(project.ID, "SU-001")
 			if err != nil || !found {
 				t.Fatalf("load reviewed source unit: found=%v err=%v", found, err)
@@ -104,5 +107,43 @@ func TestReviewSourceUnitValidatesRevisionAndDecision(t *testing.T) {
 	}
 	if _, _, err := store.ReviewSourceUnit(project.ID, "SU-001", ReviewSourceUnitOptions{BaseRevision: project.CurrentRevision + 1, Decision: "accept"}); err != ErrRevisionConflict {
 		t.Fatalf("expected revision conflict, got %v", err)
+	}
+}
+
+func TestReviewSourceUnitRejectsFreeFormNormalization(t *testing.T) {
+	store := newIngestionTestStore(t)
+	project, _ := store.CreateProject("Products", "", "sr", "catalog")
+	_, revision, _ := store.AddPastedTextResource(project.ID, 0, "Task", "Proizvod mora imati naziv.")
+	revision, _, err := store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+	if err != nil {
+		t.Fatalf("process sources: %v", err)
+	}
+	mock := llm.NewDefaultMockClient()
+	mock.Structured["source_unit_extraction"] = json.RawMessage(`{
+	  "classifications": [{
+	    "od_sentence_id": "OD-S-0001",
+	    "kind": "requirement_sentence",
+	    "section": "catalog",
+	    "relevance": "model_relevant",
+	    "tags": ["product"],
+	    "confidence": "low",
+	    "requires_review": true,
+	    "warnings": ["Needs human review."]
+	  }],
+	  "warnings": [],
+	  "confidence_summary": {"overall": "low"}
+	}`)
+	revision, _, err = store.GenerateSourceUnits(context.Background(), mock, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision, Model: "mock-model"})
+	if err != nil {
+		t.Fatalf("generate source units: %v", err)
+	}
+	if _, _, err := store.ReviewSourceUnit(project.ID, "SU-001", ReviewSourceUnitOptions{
+		BaseRevision: revision, Decision: "revise", NormalizedText: "Product must have a name.",
+	}); err == nil {
+		t.Fatal("free-form translation must not be accepted as normalized source text")
+	}
+	artifacts, err := store.SourceUnitArtifacts(project.ID)
+	if err != nil || len(artifacts.QA.NeedsAttention) != 1 {
+		t.Fatalf("rejected normalization unexpectedly cleared review gate: qa=%+v err=%v", artifacts.QA, err)
 	}
 }

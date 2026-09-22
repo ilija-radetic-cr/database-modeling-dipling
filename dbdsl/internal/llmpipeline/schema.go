@@ -1,42 +1,33 @@
 package llmpipeline
 
-func combinedDocumentSchema() map[string]any {
+import "sort"
+
+func sourceSegmentationSchema() map[string]any {
 	return object(map[string]any{
-		"sentences": array(object(map[string]any{
-			"id":   str(),
-			"text": str(),
-			"derived_from": array(object(map[string]any{
-				"resource_id": str(),
-				"line_start":  intSchema(),
-				"line_end":    intSchema(),
-				"exact_text":  str(),
-			})),
-			"transformation": enum("copied", "cleaned", "merged", "summarized"),
-			"confidence":     enum("high", "medium", "low"),
-			"warnings":       array(str()),
+		"classifications": array(object(map[string]any{
+			"candidate_id":         str(),
+			"role":                 enum("sentence", "heading", "list_item", "footnote", "structured_example", "external_reference", "layout_noise", "other_structural"),
+			"boundary":             enum("start", "continue", "resume"),
+			"join_to_candidate_id": str(),
+			"confidence":           enum("high", "medium", "low"),
+			"requires_review":      boolSchema(),
+			"warnings":             array(str()),
 		})),
 		"warnings":           array(str()),
 		"confidence_summary": confidenceSummarySchema(),
 	})
 }
 
-func sourceUnitExtractionSchema() map[string]any {
+func sourceUnitClassificationSchema() map[string]any {
 	return object(map[string]any{
-		"source_units": array(object(map[string]any{
-			"id":              str(),
-			"kind":            enum("requirement_sentence", "business_rule", "actor", "operation", "data_example", "structured_example", "ui_requirement", "report_requirement", "file_requirement", "heading", "noise"),
-			"section":         str(),
-			"relevance":       enum("model_relevant", "model_supporting", "non_model", "example"),
-			"tags":            array(str()),
-			"exact_text":      str(),
-			"normalized_text": str(),
-			"od_sentence_ids": array(str()),
-			"confidence":      enum("high", "medium", "low"),
-			"requires_review": boolSchema(),
-			"warnings":        array(str()),
+		"classifications": array(object(map[string]any{
+			"od_sentence_id": str(),
+			"kind":           enum("requirement_sentence", "business_rule", "actor", "operation", "data_example", "structured_example", "ui_requirement", "report_requirement", "file_requirement", "heading", "noise"),
+			"section":        str(), "relevance": enum("model_relevant", "model_supporting", "non_model", "example"),
+			"tags": array(str()), "confidence": enum("high", "medium", "low"),
+			"requires_review": boolSchema(), "warnings": array(str()),
 		})),
-		"warnings":           array(str()),
-		"confidence_summary": confidenceSummarySchema(),
+		"warnings": array(str()), "confidence_summary": confidenceSummarySchema(),
 	})
 }
 
@@ -61,6 +52,8 @@ func requirementAtomExtractionSchema() map[string]any {
 			"confidence":         enum("high", "medium", "low"),
 			"requires_review":    boolSchema(),
 			"modeling_outcome":   enum("represented", "intentionally_not_in_db", "requires_app_logic", "external_system", "unsupported", "deferred"),
+			"persistence_effect": enum("required", "derived_basis", "audit_history", "not_required", "external", "unclear"),
+			"example_role":       enum("none", "schema_shape", "seed_data", "constraint_boundary", "illustrative_instance"),
 			"warnings":           array(str()),
 		})),
 		"warnings":           array(str()),
@@ -125,6 +118,7 @@ func projectReviewSchema() map[string]any {
 func projectReviewCandidateSchema() map[string]any {
 	return object(map[string]any{
 		"id":                        str(),
+		"decision_key":              str(),
 		"question":                  str(),
 		"description":               str(),
 		"category":                  str(),
@@ -148,6 +142,21 @@ func projectReviewCandidateSchema() map[string]any {
 			"risks":                   array(str()),
 			"affected_artifact_kinds": array(str()),
 			"recommended":             boolSchema(),
+			"effects": object(map[string]any{
+				"modeling_outcome":   enum("no_change", "represented", "intentionally_not_in_db", "requires_app_logic", "external_system", "unsupported", "deferred"),
+				"persistence_effect": enum("no_change", "required", "derived_basis", "audit_history", "not_required", "external", "unclear"),
+				"support_level":      enum("no_change", "explicit", "example_based", "inferred", "assumption"),
+				"requires_followup":  boolSchema(),
+				"atom_updates": array(object(map[string]any{
+					"atom_id":            str(),
+					"modeling_outcome":   enum("no_change", "represented", "intentionally_not_in_db", "requires_app_logic", "external_system", "unsupported", "deferred"),
+					"persistence_effect": enum("no_change", "required", "derived_basis", "audit_history", "not_required", "external", "unclear"),
+					"support_level":      enum("no_change", "explicit", "example_based", "inferred", "assumption"),
+					"confidence":         enum("no_change", "high", "medium", "low"),
+				})),
+				"impact_dimensions":      array(enum("identity", "key", "cardinality", "ownership", "lifecycle", "history", "persistence", "security", "enforceability", "derived_data", "naming", "documentation")),
+				"followup_candidate_ids": array(str()),
+			}),
 		})),
 		"recommended_option_id":     str(),
 		"recommendation_confidence": enum("high", "medium", "low"),
@@ -158,7 +167,7 @@ func projectReviewCandidateSchema() map[string]any {
 func reviewResolutionPatchSchema() map[string]any {
 	return object(map[string]any{
 		"operations": array(object(map[string]any{
-			"operation": enum("link_review_decision", "update_modeling_outcome", "update_support_level", "update_confidence", "mark_deferred"),
+			"operation": enum("link_review_decision", "update_modeling_outcome", "update_persistence_effect", "update_support_level", "update_confidence", "mark_deferred"),
 			"target_id": str(),
 			"field":     str(),
 			"value":     str(),
@@ -189,6 +198,11 @@ func conceptualModelSchema() map[string]any {
 		"relationships": array(object(map[string]any{
 			"id": str(), "label": str(), "description": str(), "from": str(), "to": str(),
 			"cardinality": enum("one_to_one", "one_to_many", "many_to_one", "many_to_many", "unknown"), "evidence": conceptEvidence,
+		})),
+		"constraint_concepts": array(object(map[string]any{
+			"id": str(), "label": str(), "description": str(),
+			"kind":    enum("uniqueness", "check", "cardinality", "ownership", "security", "temporal", "cross_row", "application_enforced"),
+			"targets": array(str()), "evidence": conceptEvidence,
 		})),
 		"lifecycle_concepts": planElements, "derived_concepts": planElements, "file_concepts": planElements, "import_concepts": planElements,
 		"unresolved_review_ids": array(str()), "warnings": array(str()), "confidence_summary": confidenceSummarySchema(),
@@ -452,6 +466,7 @@ func object(properties map[string]any) map[string]any {
 	for key := range properties {
 		required = append(required, key)
 	}
+	sort.Strings(required)
 	return map[string]any{
 		"type":                 "object",
 		"properties":           properties,
