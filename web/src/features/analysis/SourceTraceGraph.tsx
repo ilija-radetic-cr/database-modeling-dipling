@@ -6,7 +6,7 @@ import { Badge } from "@/shared/components/ui";
 
 export interface SourceTraceNode {
   id: string;
-  type: "od_sentence" | "source_unit";
+  type: "segment" | "source_unit";
   text: string;
   meta: string;
   missing?: boolean;
@@ -23,23 +23,23 @@ export function buildSourceTrace(
   units: SourceUnit[],
 ): { nodes: SourceTraceNode[]; edges: SourceTraceEdge[] } {
   const sentenceByID = new Map(sentences.map((sentence) => [sentence.id, sentence]));
-  const referencedODIDs: string[] = [];
+  const referencedSegmentIDs: string[] = [];
   const seen = new Set<string>();
   for (const unit of units) {
-    for (const id of unit.od_sentence_ids ?? []) {
+    for (const id of unit.segment_ids ?? unit.od_sentence_ids ?? []) {
       if (!seen.has(id)) {
         seen.add(id);
-        referencedODIDs.push(id);
+        referencedSegmentIDs.push(id);
       }
     }
   }
 
-  const odNodes = referencedODIDs.map((id) => {
+  const segmentNodes = referencedSegmentIDs.map((id) => {
     const sentence = sentenceByID.get(id);
     return {
-      id: `od:${id}`,
-      type: "od_sentence" as const,
-      text: sentence?.text ?? "Referenced OD unit is missing from the combined document.",
+      id: `segment:${id}`,
+      type: "segment" as const,
+      text: sentence?.text ?? "Referenced LLM evidence segment is missing from the combined document.",
       meta: `${id} · ${sentence?.kind ?? "sentence"} · ${sentence?.transformation ?? "unknown"}`,
       missing: !sentence,
     };
@@ -51,13 +51,13 @@ export function buildSourceTrace(
     meta: `${unit.id} · ${unit.kind} · ${unit.relevance}`,
   }));
   const edges = units.flatMap((unit) =>
-    (unit.od_sentence_ids ?? []).map((odID) => ({
-      id: `edge:${odID}:${unit.id}`,
-      source: `od:${odID}`,
+    (unit.segment_ids ?? unit.od_sentence_ids ?? []).map((segmentID) => ({
+      id: `edge:${segmentID}:${unit.id}`,
+      source: `segment:${segmentID}`,
       target: `su:${unit.id}`,
     })),
   );
-  return { nodes: [...odNodes, ...sourceNodes], edges };
+  return { nodes: [...segmentNodes, ...sourceNodes], edges };
 }
 
 export function SourceTraceGraph({
@@ -88,12 +88,12 @@ export function SourceTraceGraph({
     let odIndex = 0;
     let sourceIndex = 0;
     return trace.nodes.map((node) => {
-      const index = node.type === "od_sentence" ? odIndex++ : sourceIndex++;
+      const index = node.type === "segment" ? odIndex++ : sourceIndex++;
       const selected = selectedNode === node.id;
       const dimmed = selectedNode !== null && !related.has(node.id);
       return {
         id: node.id,
-        position: { x: node.type === "od_sentence" ? 30 : 530, y: index * 150 + 30 },
+        position: { x: node.type === "segment" ? 30 : 530, y: index * 150 + 30 },
         data: {
           label: (
             <div className="source-trace-node-content">
@@ -104,8 +104,8 @@ export function SourceTraceGraph({
         },
         style: {
           width: 330,
-          borderColor: node.missing ? "#dc2626" : selected ? "#0f766e" : node.type === "od_sentence" ? "#64748b" : "#0f766e",
-          background: node.type === "od_sentence" ? "#f8fafc" : "#f0fdfa",
+		  borderColor: node.missing ? "#dc2626" : selected ? "#0f766e" : node.type === "segment" ? "#64748b" : "#0f766e",
+		  background: node.type === "segment" ? "#f8fafc" : "#f0fdfa",
           boxShadow: selected ? "0 0 0 3px rgb(15 118 110 / 0.18)" : "0 5px 14px rgb(15 23 42 / 0.08)",
           opacity: dimmed ? 0.28 : 1,
           padding: 0,

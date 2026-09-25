@@ -2,7 +2,7 @@ import type { Job, JobStatus, ProjectStageName, ReviewCandidate } from "@/shared
 
 export function isRunnableStage(stage: string | undefined): stage is ProjectStageName {
   return !!stage && [
-    "combined_document", "source_units", "requirement_atoms", "functional_analysis", "crud_mapping",
+    "process_sources", "combined_document", "requirement_atoms", "functional_analysis", "crud_mapping",
     "review_candidates", "conceptual_model", "logical_model", "semantic_verification", "generate_outputs",
   ].includes(stage);
 }
@@ -10,7 +10,7 @@ export function isRunnableStage(stage: string | undefined): stage is ProjectStag
 export function nextStageLabel(stage: string | undefined, openReviews: number) {
   if (openReviews > 0 || stage === "review_decisions") return `Resolve ${openReviews} decision${openReviews === 1 ? "" : "s"}`;
   const labels: Record<string, string> = {
-	combined_document: "Build LLM-assisted Source Document", source_units: "Classify Source Units", source_review: "Review Source Units",
+	process_sources: "Segment Sources", combined_document: "Segment Sources", source_review: "Review Source Units",
     requirement_atoms: "Extract Requirements", functional_analysis: "Build Functional Analysis", crud_mapping: "Map CRUD Operations",
     review_candidates: "Propose Review Decisions", conceptual_model: "Generate Conceptual Model", logical_model: "Project Logical Model",
 	conceptual_review: "Review Conceptual Model", semantic_verification: "Verify Semantic Obligations",
@@ -37,8 +37,18 @@ export function isTerminalJobStatus(status: JobStatus) {
   return ["completed", "failed", "cancelled", "superseded", "interrupted"].includes(status);
 }
 
-export function shouldRecoverLatestJob(status: JobStatus) {
-  return status !== "completed";
+export function shouldRecoverLatestJob(
+  job: Pick<Job, "status" | "input_revision">,
+  currentRevision: number,
+) {
+  if (job.status === "completed") return false;
+  if (!isTerminalJobStatus(job.status)) return true;
+
+  // A failed/interrupted job remains useful for retry only while it still
+  // targets the current project revision. Once another safe operation has
+  // advanced the project, the terminal job is history and must not block the
+  // next pipeline action.
+  return !job.input_revision || job.input_revision >= currentRevision;
 }
 
 export function newProjectActionState(input: { created: boolean; name: string; sourceText: string; readyResources: number }) {
@@ -49,8 +59,10 @@ export function newProjectActionState(input: { created: boolean; name: string; s
   };
 }
 
-export function finalModelAction(input: { modelReady: boolean; accepted: boolean; dbmlReady: boolean }) {
+export function finalModelAction(input: { modelReady: boolean; accepted: boolean; dbmlReady: boolean; semanticStatus?: string }) {
   if (!input.modelReady) return "return_to_pipeline";
+	if (input.semanticStatus === "blocked") return "resolve_semantic";
+	if (input.semanticStatus !== "passed" && input.semanticStatus !== "legacy_not_applicable" && input.semanticStatus !== "not_applicable") return "verify_semantic";
   if (!input.accepted) return "accept_model";
   if (!input.dbmlReady) return "generate_outputs";
   return "finalize";

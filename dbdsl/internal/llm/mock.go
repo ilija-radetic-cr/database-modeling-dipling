@@ -3,9 +3,11 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
-	"unicode"
 )
 
 type MockClient struct {
@@ -99,6 +101,14 @@ func (m *MockClient) GenerateStructured(ctx context.Context, req Request) (Respo
 		}
 		ok = true
 	}
+	if req.Stage == "conceptual_description" && !ok {
+		var err error
+		payload, err = dynamicConceptualDescriptionPayload(req.Input)
+		if err != nil {
+			return Response{}, err
+		}
+		ok = true
+	}
 	if req.Stage == "conceptual_model" && (!ok || string(payload) == defaultConceptualModelJSON) {
 		var err error
 		payload, err = dynamicConceptualModelPayload(req.Input)
@@ -128,83 +138,160 @@ func (m *MockClient) GenerateStructured(ctx context.Context, req Request) (Respo
 	}, nil
 }
 
-func dynamicSourceSegmentationPayload(input string) (json.RawMessage, error) {
-	var parsed struct {
-		Candidates []struct {
-			ID            string `json:"id"`
-			ResourceID    string `json:"resource_id"`
-			Text          string `json:"text"`
-			SuggestedRole string `json:"suggested_role"`
-			Scope         string `json:"scope"`
-		} `json:"candidates"`
-	}
-	if err := json.Unmarshal([]byte(input), &parsed); err != nil {
-		return nil, fmt.Errorf("parse mock source-segmentation input: %w", err)
-	}
-	classifications := []map[string]any{}
-	previousByResource := map[string]string{}
-	previousTextByResource := map[string]string{}
-	for _, candidate := range parsed.Candidates {
-		if candidate.Scope != "core" {
-			previousByResource[candidate.ResourceID] = candidate.ID
-			previousTextByResource[candidate.ResourceID] = candidate.Text
+var mockSegmentLine = regexp.MustCompile(`^\s*(SU-[0-9]+(?:\.[0-9]+)?) \[([^\]]+)\]`)
+
+// dynamicConceptualDescriptionPayload builds a small but structurally complete
+// description from the numbered segments: two things linked 1:N, a lifecycle,
+// a rule, and every remaining segment excluded, so offline runs cover the whole
+// segment-based flow.
+func dynamicConceptualDescriptionPayload(input string) (json.RawMessage, error) {
+	ids := []string{}
+	for _, line := range strings.Split(input, "\n") {
+		match := mockSegmentLine.FindStringSubmatch(line)
+		if match == nil || strings.HasPrefix(match[2], "heading") {
 			continue
 		}
-		role := "sentence"
-		lower := strings.ToLower(candidate.Text)
-		if strings.Contains(lower, "универзитет у београду") || strings.Contains(lower, "univerzitet u beogradu") {
-			role = "layout_noise"
-		} else if strings.HasPrefix(strings.TrimSpace(candidate.Text), "{") || strings.HasPrefix(strings.TrimSpace(candidate.Text), "[") {
-			role = "structured_example"
-		}
-		boundary := "start"
-		previous := previousTextByResource[candidate.ResourceID]
-		trimmed := strings.TrimSpace(candidate.Text)
-		if role != "layout_noise" && previousByResource[candidate.ResourceID] != "" &&
-			(!strings.HasSuffix(strings.TrimSpace(previous), ".") || startsWithLower(trimmed)) {
-			boundary = "continue"
-		}
-		classifications = append(classifications, map[string]any{
-			"candidate_id": candidate.ID, "role": role, "boundary": boundary, "join_to_candidate_id": "",
-			"confidence": "high", "requires_review": false, "warnings": []string{},
-		})
-		previousByResource[candidate.ResourceID] = candidate.ID
-		previousTextByResource[candidate.ResourceID] = candidate.Text
+		ids = append(ids, match[1])
 	}
-	data, err := json.Marshal(map[string]any{
-		"classifications": classifications, "warnings": []string{},
-		"confidence_summary": map[string]string{"overall": "mock source segmentation"},
-	})
+	if len(ids) == 0 {
+		return nil, errors.New("mock conceptual description needs at least one non-heading segment")
+	}
+	evidence := func(id string) map[string]any { return map[string]any{"segments": []string{id}, "mode": "direct"} }
+	first, second := ids[0], ids[0]
+	if len(ids) > 1 {
+		second = ids[1]
+	}
+	property := func(name, meaning, presence string, allowed []string, id string) map[string]any {
+		if allowed == nil {
+			allowed = []string{}
+		}
+		valueType := "text"
+		if name == "kolicina" {
+			valueType = "integer"
+		}
+		return map[string]any{"name": name, "meaning": meaning, "value_type": valueType, "shape": "single", "parts": []string{}, "presence": presence, "condition": "", "variant": "",
+			"allowed_values": allowed, "origin": "entered", "source": "", "evidence": evidence(id)}
+	}
+	excluded := []map[string]string{}
+	for _, id := range ids[min(2, len(ids)):] {
+		excluded = append(excluded, map[string]string{"segment": id, "reason": "other"})
+	}
+	payload := map[string]any{
+		"actors": []map[string]any{{"id": "korisnik", "name": "Korisnik", "description": "Korisnik sistema.", "represented_by": "", "differs_by": "", "evidence": evidence(first)}},
+		"things": []map[string]any{
+			{"id": "zapis", "name": "Zapis", "kind": "object", "description": "Glavni zapis sistema.", "identified_by": []string{"oznaka"}, "instance_of": "", "variants": []string{}, "created_when": "",
+				"properties": []map[string]any{property("oznaka", "Jedinstvena oznaka zapisa.", "required", nil, first), property("naziv", "Naziv zapisa.", "required", nil, first)},
+				"links":      []map[string]any{}, "states": []string{"nov", "zavrsen"},
+				"transitions": []map[string]any{{"from": "nov", "to": "zavrsen", "trigger": "završetak", "by": "korisnik", "effects": "", "evidence": evidence(first)}},
+				"evidence":    evidence(first)},
+			{"id": "stavka", "name": "Stavka", "kind": "record", "description": "Stavka zapisa.", "identified_by": []string{}, "instance_of": "", "variants": []string{}, "created_when": "",
+				"properties": []map[string]any{property("kolicina", "Količina stavke.", "required", nil, second)},
+				"links":      []map[string]any{{"to": "zapis", "meaning": "pripada zapisu", "per_this": "1", "per_other": "0..N", "evidence": evidence(second)}},
+				"states":     []string{}, "transitions": []map[string]any{}, "evidence": evidence(second)},
+		},
+		"rules":   []map[string]any{{"id": "kolicina_pozitivna", "kind": "quantity", "statement": "Količina je pozitivna.", "applies_to": []string{"stavka.kolicina"}, "parameters": []string{}, "evidence": evidence(second)}},
+		"queries": []map[string]any{}, "imports": []map[string]any{}, "boundaries": []map[string]any{},
+		"excluded": excluded, "open_questions": []map[string]any{},
+	}
+	data, err := json.Marshal(payload)
 	return json.RawMessage(data), err
 }
 
-func startsWithLower(value string) bool {
-	for _, r := range value {
-		return unicode.IsLower(r)
+func dynamicSourceSegmentationPayload(input string) (json.RawMessage, error) {
+	document := input
+	if start := strings.Index(document, "<document>"); start >= 0 {
+		document = document[start+len("<document>"):]
 	}
-	return false
+	if end := strings.LastIndex(document, "</document>"); end >= 0 {
+		document = document[:end]
+	}
+	segments := []map[string]any{}
+	appendSegment := func(typeName, text string) {
+		segments = append(segments, map[string]any{"type": typeName, "text": text})
+	}
+	plainLines := []string{}
+	flushPlain := func() {
+		if len(plainLines) == 0 {
+			return
+		}
+		for _, sentence := range splitMockSentences(strings.Join(plainLines, " ")) {
+			appendSegment("sentence", sentence)
+		}
+		plainLines = nil
+	}
+	for _, line := range strings.Split(document, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		typeName := ""
+		switch {
+		case strings.HasPrefix(trimmed, "#"):
+			typeName = "heading"
+		case strings.Contains(lower, "универзитет у београду") || strings.Contains(lower, "univerzitet u beogradu"):
+			typeName = "page_header"
+		case strings.Trim(trimmed, "0123456789") == "":
+			typeName = "page_number"
+		case strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "*"):
+			typeName = "list"
+		case strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "["):
+			typeName = "example"
+		}
+		if typeName == "" {
+			plainLines = append(plainLines, trimmed)
+			continue
+		}
+		flushPlain()
+		appendSegment(typeName, trimmed)
+	}
+	flushPlain()
+	data, err := json.Marshal(map[string]any{"segments": segments})
+	return json.RawMessage(data), err
+}
+
+func splitMockSentences(value string) []string {
+	var out []string
+	var current strings.Builder
+	for _, r := range strings.TrimSpace(value) {
+		current.WriteRune(r)
+		if r == '.' || r == '!' || r == '?' {
+			if sentence := strings.TrimSpace(current.String()); sentence != "" {
+				out = append(out, sentence)
+			}
+			current.Reset()
+		}
+	}
+	if sentence := strings.TrimSpace(current.String()); sentence != "" {
+		out = append(out, sentence)
+	}
+	return out
 }
 
 func dynamicSourceUnitPayload(input string) (json.RawMessage, error) {
 	var parsed struct {
-		Sentences []struct {
+		Segments []struct {
 			ID   string `json:"id"`
-			Kind string `json:"kind"`
-		} `json:"sentences"`
+			Type string `json:"type"`
+		} `json:"segments"`
 	}
 	if err := json.Unmarshal([]byte(input), &parsed); err != nil {
 		return nil, fmt.Errorf("parse mock source-unit input: %w", err)
 	}
-	if len(parsed.Sentences) == 0 {
+	if len(parsed.Segments) == 0 {
 		return nil, fmt.Errorf("mock source-unit extraction requires combined-document sentences")
 	}
-	units := make([]map[string]any, 0, len(parsed.Sentences))
-	for _, sentence := range parsed.Sentences {
+	units := make([]map[string]any, 0, len(parsed.Segments))
+	for _, sentence := range parsed.Segments {
 		kind := "requirement_sentence"
 		relevance := "model_relevant"
-		if sentence.Kind == "structural" {
+		if sentence.Type == "structural" || sentence.Type == "heading" || sentence.Type == "page_header" || sentence.Type == "page_footer" || sentence.Type == "page_number" || sentence.Type == "other" {
 			kind = "heading"
 			relevance = "model_supporting"
+		}
+		if sentence.Type == "example" {
+			kind = "structured_example"
+			relevance = "example"
 		}
 		units = append(units, map[string]any{
 			"od_sentence_id":  sentence.ID,
@@ -232,6 +319,7 @@ func dynamicRequirementAtomPayload(input string) (json.RawMessage, error) {
 	var parsed struct {
 		SourceUnits []struct {
 			ID         string `json:"id"`
+			Text       string `json:"text"`
 			Normalized string `json:"normalized"`
 			Exact      string `json:"exact"`
 		} `json:"source_units"`
@@ -244,7 +332,10 @@ func dynamicRequirementAtomPayload(input string) (json.RawMessage, error) {
 	}
 	atoms := make([]map[string]any, 0, len(parsed.SourceUnits))
 	for i, source := range parsed.SourceUnits {
-		statement := source.Normalized
+		statement := source.Text
+		if strings.TrimSpace(statement) == "" {
+			statement = source.Normalized
+		}
 		if strings.TrimSpace(statement) == "" {
 			statement = source.Exact
 		}
@@ -255,7 +346,8 @@ func dynamicRequirementAtomPayload(input string) (json.RawMessage, error) {
 			"atom_type": "data_requirement", "modeling_relevance": "direct_db",
 			"source_units": []string{source.ID}, "functional_area": "core",
 			"functional_pattern": "domain_management", "support_level": "explicit",
-			"confidence": "high", "requires_review": false, "modeling_outcome": "represented",
+			"confidence": "high", "review_class": "none", "review_topic": "none", "review_group": "", "modeling_outcome": "represented",
+			"persistence_effect": "required", "example_role": "none",
 			"warnings": []string{},
 		})
 	}
@@ -338,7 +430,8 @@ func dynamicProjectReviewPayload(input string) (json.RawMessage, error) {
 			ID string `json:"id"`
 		} `json:"source_units"`
 		RequirementAtoms []struct {
-			ID string `json:"id"`
+			ID          string `json:"id"`
+			ReviewGroup string `json:"review_group"`
 		} `json:"requirement_atoms"`
 		FunctionalAreas []struct {
 			ID string `json:"id"`
@@ -353,12 +446,9 @@ func dynamicProjectReviewPayload(input string) (json.RawMessage, error) {
 	if len(parsed.RequirementAtoms) == 0 {
 		return nil, fmt.Errorf("mock project review requires atoms")
 	}
-	sources, atoms, areas, operations := []string{}, []string{}, []string{}, []string{}
+	sources, areas, operations := []string{}, []string{}, []string{}
 	for _, item := range parsed.SourceUnits {
 		sources = append(sources, item.ID)
-	}
-	for _, item := range parsed.RequirementAtoms {
-		atoms = append(atoms, item.ID)
 	}
 	for _, item := range parsed.FunctionalAreas {
 		areas = append(areas, item.ID)
@@ -366,26 +456,45 @@ func dynamicProjectReviewPayload(input string) (json.RawMessage, error) {
 	for _, item := range parsed.CRUDOperations {
 		operations = append(operations, item.ID)
 	}
-	atomUpdates := make([]map[string]any, 0, len(atoms))
-	for _, atomID := range atoms {
-		atomUpdates = append(atomUpdates, map[string]any{"atom_id": atomID, "modeling_outcome": "represented", "persistence_effect": "required", "support_level": "no_change", "confidence": "no_change"})
+	groups := map[string][]string{}
+	for _, item := range parsed.RequirementAtoms {
+		key := item.ReviewGroup
+		if key == "" {
+			key = item.ID
+		}
+		groups[key] = append(groups[key], item.ID)
 	}
-	generatedEffects := map[string]any{"modeling_outcome": "represented", "persistence_effect": "required", "support_level": "no_change", "requires_followup": false, "atom_updates": atomUpdates, "impact_dimensions": []string{"identity", "key"}, "followup_candidate_ids": []string{}}
-	data, err := json.Marshal(map[string]any{
-		"review_candidates": []map[string]any{{
-			"id": "RC-001", "decision_key": "domain_record_identity", "question": "Should domain records use generated internal identity?",
-			"description": "The source describes persistent data but does not define a technical primary key.",
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	candidates := make([]map[string]any, 0, len(keys))
+	for index, key := range keys {
+		atoms := groups[key]
+		atomUpdates := make([]map[string]any, 0, len(atoms))
+		for _, atomID := range atoms {
+			atomUpdates = append(atomUpdates, map[string]any{"atom_id": atomID, "modeling_outcome": "represented", "persistence_effect": "required", "support_level": "no_change", "confidence": "no_change"})
+		}
+		generatedEffects := map[string]any{"modeling_outcome": "represented", "persistence_effect": "required", "support_level": "no_change", "requires_followup": false, "atom_updates": atomUpdates, "impact_dimensions": []string{"identity", "key"}, "followup_candidate_ids": []string{}}
+		candidateID := fmt.Sprintf("RC-%03d", index+1)
+		candidates = append(candidates, map[string]any{
+			"id": candidateID, "decision_key": key, "question": "Should the affected requirements use generated internal identity?",
+			"description": "The source leaves a database-model choice unresolved.",
 			"category":    "identity", "phase": "pre_conceptual", "severity": "medium", "blocking": true,
 			"affected_source_units": sources, "affected_atoms": atoms, "affected_functional_areas": areas,
 			"affected_operations": operations, "affected_model_candidates": []string{"DomainRecord"},
 			"depends_on": []string{}, "may_affect": []string{"conceptual_model", "logical_model"}, "created_by_decision": "",
 			"options": []map[string]any{
-				{"id": "generated_identity", "label": "Generated internal identity", "rationale": "Keeps technical identity separate from mutable business fields.", "effect_summary": "Adds a generated logical identity during DB-DSL projection.", "benefits": []string{"Stable references"}, "risks": []string{"Adds an inferred technical key"}, "affected_artifact_kinds": []string{"conceptual_model", "logical_model"}, "recommended": true, "effects": generatedEffects},
-				{"id": "natural_identity", "label": "Natural business identity", "rationale": "Uses an explicit business field when one is identified.", "effect_summary": "Requires a source-supported unique business field.", "benefits": []string{"Business-visible key"}, "risks": []string{"May be mutable or absent"}, "affected_artifact_kinds": []string{"conceptual_model", "logical_model"}, "recommended": false, "effects": generatedEffects},
+				{"id": candidateID + "-generated", "label": "Generated internal identity", "rationale": "Keeps technical identity separate from mutable business fields.", "effect_summary": "Adds a generated logical identity during DB-DSL projection.", "benefits": []string{"Stable references"}, "risks": []string{"Adds an inferred technical key"}, "affected_artifact_kinds": []string{"conceptual_model", "logical_model"}, "recommended": true, "effects": generatedEffects},
+				{"id": candidateID + "-natural", "label": "Natural business identity", "rationale": "Uses an explicit business field when one is identified.", "effect_summary": "Requires a source-supported unique business field.", "benefits": []string{"Business-visible key"}, "risks": []string{"May be mutable or absent"}, "affected_artifact_kinds": []string{"conceptual_model", "logical_model"}, "recommended": false, "effects": generatedEffects},
 			},
-			"recommended_option_id": "generated_identity", "recommendation_confidence": "medium", "warnings": []string{},
-		}},
-		"warnings": []string{}, "confidence_summary": map[string]string{"overall": "mock review proposal"},
+			"recommended_option_id": candidateID + "-generated", "recommendation_confidence": "medium", "warnings": []string{},
+		})
+	}
+	data, err := json.Marshal(map[string]any{
+		"review_candidates": candidates,
+		"warnings":          []string{}, "confidence_summary": map[string]string{"overall": "mock review proposal"},
 	})
 	return json.RawMessage(data), err
 }

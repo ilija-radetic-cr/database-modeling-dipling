@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -22,6 +24,9 @@ type RequirementAtomStageOptions struct {
 	MaxOutputTokens int
 	MaxParallelism  int
 	PromptVersion   string
+	// SourceUnitNotes maps source-unit IDs to requirement ambiguity recorded
+	// during classification.
+	SourceUnitNotes map[string][]string
 }
 
 type FunctionalAnalysisStageOptions struct {
@@ -44,6 +49,207 @@ type CRUDMappingStageOptions struct {
 	ReasoningEffort  string
 	Temperature      float64
 	MaxOutputTokens  int
+}
+
+type requirementSourceUnitInput struct {
+	ID              string                       `json:"id"`
+	Kind            string                       `json:"kind"`
+	Section         string                       `json:"section"`
+	Relevance       string                       `json:"relevance"`
+	Text            string                       `json:"text"`
+	Exact           string                       `json:"exact,omitempty"`
+	StructuredShape *structuredExampleShapeInput `json:"structured_shape,omitempty"`
+	// RequirementNotes flag open questions the atom stage must surface.
+	RequirementNotes []string `json:"requirement_notes,omitempty"`
+}
+
+type structuredExampleShapeInput struct {
+	ObservedKeys         []string `json:"observed_keys"`
+	RepeatedKeys         []string `json:"repeated_keys,omitempty"`
+	LiteralValuesOmitted bool     `json:"literal_values_omitted"`
+	Interpretation       string   `json:"interpretation"`
+}
+
+type functionalRequirementAtomInput struct {
+	ID                string   `json:"id"`
+	Statement         string   `json:"statement"`
+	Ownership         string   `json:"ownership"`
+	ModelingOutcome   string   `json:"modeling_outcome"`
+	PersistenceEffect string   `json:"persistence_effect,omitempty"`
+	SourceUnits       []string `json:"source_units"`
+	ReviewDecisions   []string `json:"review_decisions,omitempty"`
+}
+
+type crudRequirementAtomInput struct {
+	ID                string   `json:"id"`
+	Statement         string   `json:"statement"`
+	Ownership         string   `json:"ownership"`
+	ModelingOutcome   string   `json:"modeling_outcome"`
+	PersistenceEffect string   `json:"persistence_effect,omitempty"`
+	SourceUnits       []string `json:"source_units"`
+	ReviewDecisions   []string `json:"review_decisions,omitempty"`
+	FunctionalArea    string   `json:"functional_area"`
+}
+
+func requirementSourceUnitInputs(units []dsl.SourceUnit) []requirementSourceUnitInput {
+	out := make([]requirementSourceUnitInput, 0, len(units))
+	for _, unit := range units {
+		text := unit.Text.Normalized
+		if strings.TrimSpace(text) == "" {
+			text = unit.Text.Exact
+		}
+		item := requirementSourceUnitInput{
+			ID: unit.ID, Kind: unit.Kind, Section: unit.Section,
+			Relevance: unit.Relevance, Text: text,
+		}
+		if unit.Kind == "structured_example" {
+			raw := unit.Text.Exact
+			if strings.TrimSpace(raw) == "" {
+				raw = text
+			}
+			sketch, observed, repeated := structuredExampleShape(raw)
+			item.Text = sketch
+			item.StructuredShape = &structuredExampleShapeInput{
+				ObservedKeys: observed, RepeatedKeys: repeated, LiteralValuesOmitted: true,
+				Interpretation: "schema_shape_evidence_only",
+			}
+		} else if strings.TrimSpace(unit.Text.Normalized) != "" && unit.Text.Exact != "" && unit.Text.Exact != unit.Text.Normalized {
+			item.Exact = unit.Text.Exact
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// structuredExampleShape keeps JSON-like keys, delimiters and nesting visible to
+// the model while replacing quoted scalar values. Structured examples are shape
+// evidence; their sample values must not silently become enums, seed data or
+// database constraints.
+func structuredExampleShape(value string) (string, []string, []string) {
+	var out strings.Builder
+	counts := map[string]int{}
+	order := []string{}
+	for index := 0; index < len(value); {
+		if value[index] != '"' {
+			out.WriteByte(value[index])
+			index++
+			continue
+		}
+		end := index + 1
+		escaped := false
+		for end < len(value) {
+			if escaped {
+				escaped = false
+				end++
+				continue
+			}
+			if value[end] == '\\' {
+				escaped = true
+				end++
+				continue
+			}
+			if value[end] == '"' {
+				break
+			}
+			end++
+		}
+		if end >= len(value) {
+			out.WriteString(value[index:])
+			break
+		}
+		token := value[index : end+1]
+		next := end + 1
+		for next < len(value) && (value[next] == ' ' || value[next] == '\t' || value[next] == '\r' || value[next] == '\n') {
+			next++
+		}
+		if next < len(value) && value[next] == ':' {
+			out.WriteString(token)
+			key := strings.Trim(token, "\"")
+			if decoded, err := strconv.Unquote(token); err == nil {
+				key = decoded
+			}
+			if counts[key] == 0 {
+				order = append(order, key)
+			}
+			counts[key]++
+		} else {
+			out.WriteString("\"<v>\"")
+		}
+		index = end + 1
+	}
+	repeated := []string{}
+	for _, key := range order {
+		if counts[key] > 1 {
+			repeated = append(repeated, key)
+		}
+	}
+	return strings.TrimSpace(redactBareStructuredValues(out.String())), order, repeated
+}
+
+var bareStructuredValuePattern = regexp.MustCompile(`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null`)
+
+func redactBareStructuredValues(value string) string {
+	matches := bareStructuredValuePattern.FindAllStringIndex(value, -1)
+	if len(matches) == 0 {
+		return value
+	}
+	var out strings.Builder
+	last := 0
+	for _, match := range matches {
+		previous := match[0] - 1
+		for previous >= 0 && (value[previous] == ' ' || value[previous] == '\t' || value[previous] == '\r' || value[previous] == '\n') {
+			previous--
+		}
+		next := match[1]
+		for next < len(value) && (value[next] == ' ' || value[next] == '\t' || value[next] == '\r' || value[next] == '\n') {
+			next++
+		}
+		valuePosition := previous >= 0 && strings.ContainsRune(":[,]", rune(value[previous])) &&
+			next < len(value) && strings.ContainsRune(",}]", rune(value[next]))
+		if !valuePosition {
+			continue
+		}
+		out.WriteString(value[last:match[0]])
+		out.WriteString("\"<v>\"")
+		last = match[1]
+	}
+	if last == 0 {
+		return value
+	}
+	out.WriteString(value[last:])
+	return out.String()
+}
+
+func withRequirementNotes(items []requirementSourceUnitInput, notes map[string][]string) []requirementSourceUnitInput {
+	for i := range items {
+		items[i].RequirementNotes = notes[items[i].ID]
+	}
+	return items
+}
+
+func functionalRequirementAtomInputs(atoms []RequirementAtomProposal) []functionalRequirementAtomInput {
+	out := make([]functionalRequirementAtomInput, 0, len(atoms))
+	for _, atom := range atoms {
+		out = append(out, functionalRequirementAtomInput{
+			ID: atom.ID, Statement: atom.Statement, Ownership: atom.Ownership,
+			ModelingOutcome: atom.ModelingOutcome, PersistenceEffect: atom.PersistenceEffect,
+			SourceUnits: atom.SourceUnits, ReviewDecisions: atom.ReviewDecisions,
+		})
+	}
+	return out
+}
+
+func crudRequirementAtomInputs(atoms []RequirementAtomProposal) []crudRequirementAtomInput {
+	out := make([]crudRequirementAtomInput, 0, len(atoms))
+	for _, atom := range atoms {
+		out = append(out, crudRequirementAtomInput{
+			ID: atom.ID, Statement: atom.Statement, Ownership: atom.Ownership,
+			ModelingOutcome: atom.ModelingOutcome, PersistenceEffect: atom.PersistenceEffect,
+			SourceUnits: atom.SourceUnits, ReviewDecisions: atom.ReviewDecisions,
+			FunctionalArea: atom.FunctionalArea,
+		})
+	}
+	return out
 }
 
 func normalizedParallelism(value, fallback int) int {
@@ -75,7 +281,7 @@ func RunRequirementAtomExtraction(ctx context.Context, client llm.Client, opts R
 	if len(units) == 0 {
 		return RequirementAtomExtractionProposal{}, StageQA{}, errors.New("no model-relevant source units are available")
 	}
-	chunks := chunkSourceUnits(units, 40, 0)
+	chunks := chunkSourceUnits(units, RequirementAtomChunkSize, 0)
 	if len(chunks) == 1 {
 		proposal, _, err := runRequirementAtomChunk(ctx, client, opts, chunks[0], 1, 1)
 		if err != nil {
@@ -130,6 +336,7 @@ func RunRequirementAtomExtraction(ctx context.Context, client llm.Client, opts R
 			merged.RequirementAtoms = append(merged.RequirementAtoms, atom)
 		}
 	}
+	merged.RequirementAtoms = NormalizeRequirementReviewSemantics(merged.RequirementAtoms)
 	qa := ValidateRequirementAtomProposal(merged, opts.SourceUnits)
 	_ = writeJSONFile(filepath.Join(opts.OutDir, "llm_runs", "requirement_atom_consolidation.json"), map[string]any{
 		"strategy": "parallel_section_ordered_chunks", "chunk_count": len(chunks), "overlap_source_units": 0, "max_parallelism": maxParallelism,
@@ -149,11 +356,11 @@ func runRequirementAtomChunk(ctx context.Context, client llm.Client, opts Requir
 		return proposal, qa, nil
 	}
 	fullInput := mustJSON(map[string]any{
-		"source_units": sourceUnitInputs(modelRelevantSourceUnits(opts.SourceUnits)), "pipeline_version": "0.7",
+		"source_units": requirementSourceUnitInputs(modelRelevantSourceUnits(opts.SourceUnits)), "pipeline_version": "0.7",
 		"output_contract": "requirement_atom_extraction", "template_version": resolvedPromptVersion(opts.PromptVersion),
 	})
 	input := mustJSON(map[string]any{
-		"source_units": sourceUnitInputs(units), "pipeline_version": "0.7", "chunk_index": chunkIndex, "chunk_count": chunkCount,
+		"source_units": withRequirementNotes(requirementSourceUnitInputs(units), opts.SourceUnitNotes), "pipeline_version": "0.7", "chunk_index": chunkIndex, "chunk_count": chunkCount,
 		"output_contract": "requirement_atom_extraction", "template_version": resolvedPromptVersion(opts.PromptVersion),
 	})
 	var proposal RequirementAtomExtractionProposal
@@ -162,9 +369,10 @@ func runRequirementAtomChunk(ctx context.Context, client llm.Client, opts Requir
 		Stage: "requirement_atom_extraction", Model: opts.Model, Instructions: requirementAtomExtractionInstructions,
 		Input: input, SchemaName: "DBDSLRequirementAtomExtraction", Schema: requirementAtomExtractionSchema(),
 		ReasoningEffort: opts.ReasoningEffort, Temperature: opts.Temperature, MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{"template_version": resolvedPromptVersion(opts.PromptVersion), "chunk_index": fmt.Sprint(chunkIndex), "chunk_count": fmt.Sprint(chunkCount), "run_key": fmt.Sprintf("chunk_%03d", chunkIndex), "full_context_bytes": fmt.Sprint(len(fullInput)), "context_policy": "bounded_requirement_chunks_v1", "canonicalizer_version": "pipeline_ids_v2"},
+		Metadata: map[string]string{"template_version": resolvedPromptVersion(opts.PromptVersion), "chunk_index": fmt.Sprint(chunkIndex), "chunk_count": fmt.Sprint(chunkCount), "run_key": fmt.Sprintf("chunk_%03d", chunkIndex), "full_context_bytes": fmt.Sprint(len(fullInput)), "context_policy": "bounded_requirement_compact_v2", "canonicalizer_version": "pipeline_ids_v2"},
 	}, &proposal, func() []string {
 		canonicalizeRequirementAtomIDs(&proposal)
+		proposal.RequirementAtoms = NormalizeRequirementReviewSemantics(proposal.RequirementAtoms)
 		qa = ValidateRequirementAtomProposal(proposal, units)
 		return qa.Errors
 	})
@@ -172,6 +380,7 @@ func runRequirementAtomChunk(ctx context.Context, client llm.Client, opts Requir
 		return proposal, qa, err
 	}
 	canonicalizeRequirementAtomIDs(&proposal)
+	proposal.RequirementAtoms = NormalizeRequirementReviewSemantics(proposal.RequirementAtoms)
 	qa = ValidateRequirementAtomProposal(proposal, units)
 	return proposal, qa, nil
 }
@@ -224,6 +433,10 @@ func modelRelevantSourceUnits(units []dsl.SourceUnit) []dsl.SourceUnit {
 	return out
 }
 
+// RequirementAtomChunkSize keeps each extraction call short enough that
+// parallel chunks, not one long generation, determine the stage latency.
+const RequirementAtomChunkSize = 20
+
 func chunkSourceUnits(units []dsl.SourceUnit, maxSize, overlap int) [][]dsl.SourceUnit {
 	if len(units) <= maxSize {
 		return [][]dsl.SourceUnit{units}
@@ -257,7 +470,7 @@ func RunFunctionalAnalysis(ctx context.Context, client llm.Client, opts Function
 		return FunctionalAnalysisProposal{}, StageQA{}, errors.New("output directory and requirement atoms are required")
 	}
 	normalizeAnalysisOptions(&opts.Model, &opts.ReasoningEffort, &opts.MaxOutputTokens)
-	compactAtoms := modelRequirementAtomInputs(opts.RequirementAtoms)
+	compactAtoms := functionalRequirementAtomInputs(opts.RequirementAtoms)
 	input := mustCompactJSON(map[string]any{
 		"requirement_atoms": compactAtoms,
 		"pipeline_version":  "0.7", "output_contract": "functional_analysis", "template_version": promptTemplateVersion,
@@ -269,7 +482,7 @@ func RunFunctionalAnalysis(ctx context.Context, client llm.Client, opts Function
 		Stage: "functional_analysis", Model: opts.Model, Instructions: functionalAnalysisInstructions,
 		Input: input, SchemaName: "DBDSLFunctionalAnalysis", Schema: functionalAnalysisSchema(),
 		ReasoningEffort: opts.ReasoningEffort, Temperature: opts.Temperature, MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{"template_version": promptTemplateVersion, "full_context_bytes": fmt.Sprint(len(fullInput)), "context_policy": "minimal_context_v1", "canonicalizer_version": "pipeline_ids_v2"},
+		Metadata: map[string]string{"template_version": promptTemplateVersion, "full_context_bytes": fmt.Sprint(len(fullInput)), "context_policy": "functional_atoms_compact_v2", "canonicalizer_version": "pipeline_ids_v2"},
 	}, &proposal, func() []string {
 		canonicalizeFunctionalAnalysisIDs(&proposal)
 		qa = ValidateFunctionalAnalysisProposal(proposal, opts.RequirementAtoms)
@@ -315,7 +528,7 @@ func RunCRUDMapping(ctx context.Context, client llm.Client, opts CRUDMappingStag
 		return CRUDMappingProposal{}, StageQA{}, errors.New("output directory, functional areas and actors are required")
 	}
 	normalizeAnalysisOptions(&opts.Model, &opts.ReasoningEffort, &opts.MaxOutputTokens)
-	compactAtoms := modelRequirementAtomInputs(opts.RequirementAtoms)
+	compactAtoms := crudRequirementAtomInputs(opts.RequirementAtoms)
 	compactAreas := make([]conceptualFunctionalAreaInput, 0, len(opts.FunctionalAreas))
 	for _, area := range opts.FunctionalAreas {
 		compactAreas = append(compactAreas, conceptualFunctionalAreaInput{ID: area.ID, Label: area.Label, Purpose: area.Purpose, MainActors: area.MainActors, Atoms: area.Atoms, ModelingFocus: area.ModelingFocus})
@@ -332,7 +545,7 @@ func RunCRUDMapping(ctx context.Context, client llm.Client, opts CRUDMappingStag
 		Stage: "crud_mapping", Model: opts.Model, Instructions: crudMappingInstructions,
 		Input: input, SchemaName: "DBDSLCRUDMapping", Schema: crudMappingSchema(),
 		ReasoningEffort: opts.ReasoningEffort, Temperature: opts.Temperature, MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{"template_version": promptTemplateVersion, "full_context_bytes": fmt.Sprint(len(fullInput)), "context_policy": "minimal_context_v1", "canonicalizer_version": "pipeline_ids_v2"},
+		Metadata: map[string]string{"template_version": promptTemplateVersion, "full_context_bytes": fmt.Sprint(len(fullInput)), "context_policy": "crud_atoms_compact_v2", "canonicalizer_version": "pipeline_ids_v2"},
 	}, &proposal, func() []string {
 		canonicalizeCRUDOperationIDs(&proposal)
 		normalizeCRUDSourceUnits(&proposal, opts.RequirementAtoms)
@@ -381,10 +594,16 @@ func normalizeCRUDSourceUnits(proposal *CRUDMappingProposal, atoms []Requirement
 }
 
 func ValidateRequirementAtomProposal(proposal RequirementAtomExtractionProposal, units []dsl.SourceUnit) StageQA {
+	proposal.RequirementAtoms = NormalizeRequirementReviewSemantics(proposal.RequirementAtoms)
 	qa := newStageQA(proposal.Warnings)
 	sources := map[string]bool{}
+	structuredExamples := map[string]bool{}
+	structuredExampleDisposition := map[string]bool{}
 	for _, unit := range units {
 		sources[unit.ID] = true
+		if unit.Kind == "structured_example" {
+			structuredExamples[unit.ID] = true
+		}
 	}
 	seen := map[string]bool{}
 	covered := map[string]bool{}
@@ -399,9 +618,6 @@ func ValidateRequirementAtomProposal(proposal RequirementAtomExtractionProposal,
 		if strings.TrimSpace(atom.Statement) == "" {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("%s has an empty statement", atom.ID))
 		}
-		if strings.TrimSpace(atom.Subject) == "" || strings.TrimSpace(atom.Predicate) == "" {
-			qa.Warnings = append(qa.Warnings, fmt.Sprintf("%s lacks complete subject/predicate atomic-fact structure", atom.ID))
-		}
 		if len(atom.SourceUnits) == 0 && atom.ModelingOutcome == "represented" {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("%s represented atom has no source evidence", atom.ID))
 		}
@@ -410,7 +626,29 @@ func ValidateRequirementAtomProposal(proposal RequirementAtomExtractionProposal,
 				qa.Errors = append(qa.Errors, fmt.Sprintf("%s references unknown source unit %s", atom.ID, id))
 			} else {
 				covered[id] = true
+				if structuredExamples[id] && atom.ExampleRole != "" && atom.ExampleRole != "none" {
+					structuredExampleDisposition[id] = true
+				}
 			}
+		}
+		switch atom.ExampleRole {
+		case "", "none":
+		case "schema_shape", "seed_data":
+			if atom.ModelingOutcome != "represented" || atom.PersistenceEffect != "required" {
+				qa.Errors = append(qa.Errors, fmt.Sprintf("%s %s example must be represented with persistence_effect=required", atom.ID, atom.ExampleRole))
+			}
+		case "constraint_boundary":
+			validOutcome := atom.ModelingOutcome == "represented" || atom.ModelingOutcome == "requires_app_logic"
+			validPersistence := atom.PersistenceEffect == "required" || atom.PersistenceEffect == "derived_basis"
+			if !validOutcome || !validPersistence {
+				qa.Errors = append(qa.Errors, fmt.Sprintf("%s constraint_boundary example has no enforceable model consequence", atom.ID))
+			}
+		case "illustrative_instance":
+			if atom.ModelingOutcome != "intentionally_not_in_db" || atom.PersistenceEffect != "not_required" {
+				qa.Errors = append(qa.Errors, fmt.Sprintf("%s illustrative example must remain outside the persistent model", atom.ID))
+			}
+		default:
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s has unknown example_role %q", atom.ID, atom.ExampleRole))
 		}
 		if atom.SupportLevel == "assumption" || atom.Confidence == "low" {
 			reviewResolved := len(atom.ReviewDecisions) > 0
@@ -418,12 +656,44 @@ func ValidateRequirementAtomProposal(proposal RequirementAtomExtractionProposal,
 				qa.Errors = append(qa.Errors, fmt.Sprintf("%s assumption/low-confidence atom requires a warning and either an open or linked review decision", atom.ID))
 			}
 		}
+		if !containsStringValue(RequirementReviewClasses, atom.ReviewClass) {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s has unknown review_class %q", atom.ID, atom.ReviewClass))
+		}
+		if !containsStringValue(RequirementReviewTopics, atom.ReviewTopic) {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s has unknown review_topic %q", atom.ID, atom.ReviewTopic))
+		}
+		if atom.ReviewClass != ReviewClassNone && len(atom.Warnings) == 0 {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s non-none review_class requires a warning", atom.ID))
+		}
+		if atom.RequiresReview != IsBlockingReviewClass(atom.ReviewClass) && len(atom.ReviewDecisions) == 0 {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s review flag disagrees with review_class", atom.ID))
+		}
+		if atom.RequiresReview && strings.TrimSpace(atom.ReviewGroup) == "" {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s blocking review has no review_group", atom.ID))
+		}
+		if atom.ModelingOutcome == "represented" && atom.PersistenceEffect == "not_required" {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s cannot be represented with persistence_effect=not_required", atom.ID))
+		}
+	}
+	for id := range structuredExamples {
+		if !structuredExampleDisposition[id] {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("structured example %s has no explicit example_role disposition", id))
+		}
 	}
 	qa.Coverage["source_units_total"] = len(units)
 	qa.Coverage["source_units_covered"] = len(covered)
 	qa.Coverage["requirement_atoms"] = len(proposal.RequirementAtoms)
 	qa.OK = len(qa.Errors) == 0
 	return qa
+}
+
+func containsStringValue(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func ValidateFunctionalAnalysisProposal(proposal FunctionalAnalysisProposal, atoms []RequirementAtomProposal) StageQA {

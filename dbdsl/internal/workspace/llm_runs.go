@@ -59,6 +59,9 @@ type LLMOptimizationReport struct {
 	BatchedManualDecisions    int                                    `json:"batched_manual_decisions"`
 	ActiveReviewMS            int64                                  `json:"active_review_ms"`
 	UnresolvedReviewQuestions int                                    `json:"unresolved_review_questions"`
+	RequirementWarnings       int                                    `json:"requirement_warnings"`
+	BlockingRequirementAtoms  int                                    `json:"blocking_requirement_atoms"`
+	ReviewGroups              int                                    `json:"review_groups"`
 }
 
 func (s *Store) LLMRuns(projectID string) ([]LLMRunSummary, error) {
@@ -81,6 +84,9 @@ func (s *Store) LLMRuns(projectID string) ([]LLMRunSummary, error) {
 		var summary llmpipeline.RunSummary
 		if readJSON(filepath.Join(root, entry.Name(), "run.json"), &summary) != nil {
 			continue
+		}
+		if summary.Errors == nil {
+			summary.Errors = []string{}
 		}
 		items = append(items, LLMRunSummary{ID: entry.Name(), RunSummary: summary})
 	}
@@ -212,6 +218,22 @@ func (s *Store) LLMOptimizationReport(projectID string) (LLMOptimizationReport, 
 			}
 		}
 	}
+	if project.RequirementAtomsProposalPath != "" {
+		var atoms llmpipeline.RequirementAtomExtractionProposal
+		if err := readJSON(s.absoluteWorkspacePath(project.RequirementAtomsProposalPath), &atoms); err == nil {
+			groups := map[string]bool{}
+			for _, atom := range llmpipeline.NormalizeRequirementReviewSemantics(atoms.RequirementAtoms) {
+				if atom.ReviewClass != llmpipeline.ReviewClassNone {
+					report.RequirementWarnings++
+				}
+				if atom.RequiresReview {
+					report.BlockingRequirementAtoms++
+					groups[atom.ReviewGroup] = true
+				}
+			}
+			report.ReviewGroups = len(groups)
+		}
+	}
 	if _, err := os.Stat(filepath.Join(s.projectWorkspaceDir(projectID), "llm_runs", "review_candidate_call_gate.json")); err == nil {
 		report.AvoidedGenerationCalls++
 	}
@@ -219,10 +241,11 @@ func (s *Store) LLMOptimizationReport(projectID string) (LLMOptimizationReport, 
 }
 
 func (report LLMOptimizationReport) Markdown() string {
-	return fmt.Sprintf("# LLM optimization report\n\nProject: `%s`\n\n- Provider calls: %d\n- Provider calls avoided by semantic gates: %d\n- Cache hits: %d\n- Retries: %d\n- Tokens: %d total (%d input, %d output)\n- Wasted tokens: %d\n- Failed attempts with unavailable provider usage: %d\n- Context reduction: %.1f%% (%d bytes avoided)\n- Review-resolution calls avoided: %d\n- Auto-applied low-risk decisions: %d\n- Manually batched decisions: %d\n- Active review time: %d ms\n- Open review questions: %d\n",
+	return fmt.Sprintf("# LLM optimization report\n\nProject: `%s`\n\n- Provider calls: %d\n- Provider calls avoided by semantic gates: %d\n- Cache hits: %d\n- Retries: %d\n- Tokens: %d total (%d input, %d output)\n- Wasted tokens: %d\n- Failed attempts with unavailable provider usage: %d\n- Context reduction: %.1f%% (%d bytes avoided)\n- Requirement warnings: %d\n- Blocking requirement atoms: %d\n- Review groups: %d\n- Review-resolution calls avoided: %d\n- Auto-applied low-risk decisions: %d\n- Manually batched decisions: %d\n- Active review time: %d ms\n- Open review questions: %d\n",
 		report.ProjectID, report.Totals.ProviderCalls, report.AvoidedGenerationCalls, report.Totals.CacheHits, report.Totals.Retries,
 		report.Totals.TotalTokens, report.Totals.InputTokens, report.Totals.OutputTokens, report.Totals.WastedTokens,
-		report.Totals.UnknownUsageAttempts, report.Totals.ReductionRatio*100, report.Totals.ContextBytesSaved, report.AvoidedReviewCalls,
+		report.Totals.UnknownUsageAttempts, report.Totals.ReductionRatio*100, report.Totals.ContextBytesSaved,
+		report.RequirementWarnings, report.BlockingRequirementAtoms, report.ReviewGroups, report.AvoidedReviewCalls,
 		report.AutoAppliedDecisions, report.BatchedManualDecisions, report.ActiveReviewMS, report.UnresolvedReviewQuestions)
 }
 

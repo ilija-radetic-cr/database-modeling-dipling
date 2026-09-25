@@ -625,12 +625,11 @@ func (v *validator) validateFileSpecs() {
 }
 
 func (v *validator) validateImportTarget(prefix, target string) {
-	parts := strings.Split(target, ".")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	entityID, attributeID, ok := splitAttributeReference(target)
+	if !ok {
 		v.add("%s target must be Entity.attribute, got %s", prefix, target)
 		return
 	}
-	entityID, attributeID := parts[0], parts[1]
 	if !v.hasEntity(entityID) {
 		v.add("%s target references unknown entity %s", prefix, entityID)
 		return
@@ -638,6 +637,18 @@ func (v *validator) validateImportTarget(prefix, target string) {
 	if !v.attributeIDs[entityID][attributeID] {
 		v.add("%s target references unknown attribute %s", prefix, target)
 	}
+}
+
+// splitAttributeReference separates a qualified attribute reference at its
+// final dot. Entity IDs may themselves be namespaced (for example,
+// entity.user-account), while attribute IDs are scalar lower-snake-case names
+// and therefore cannot contain dots.
+func splitAttributeReference(ref string) (entityID, attributeID string, ok bool) {
+	separator := strings.LastIndex(ref, ".")
+	if separator <= 0 || separator == len(ref)-1 {
+		return "", "", false
+	}
+	return ref[:separator], ref[separator+1:], true
 }
 
 func (v *validator) validateEvidence() {
@@ -813,7 +824,7 @@ func effectiveFKRequired(relationship dsl.Relationship) bool {
 }
 
 func fkName(entityID string) string {
-	return fmt.Sprintf("%s_id", toSnake(entityID))
+	return dsl.GeneratedForeignKeyName(entityID)
 }
 
 var snakeBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)

@@ -418,16 +418,20 @@ func humanStep(step string) string {
 		return "Loading extracted resources."
 	case "write_source_manifest":
 		return "Writing source manifest."
-	case "segment_source_sentences":
-		return "Segmenting source sentences."
-	case "validate_source_fidelity":
-		return "Validating source fidelity."
+	case "prepare_source_segmentation":
+		return "Preparing complete source resources."
+	case "propose_source_segmentation":
+		return "Segmenting source resources with the LLM."
+	case "assign_segment_ids":
+		return "Assigning segment IDs."
+	case "assign_source_unit_ids":
+		return "Assigning canonical SU evidence IDs."
+	case "validate_source_units":
+		return "Validating source evidence coverage."
 	case "write_combined_document":
 		return "Writing combined source document."
 	case "detect_examples":
 		return "Detecting structured examples."
-	case "create_source_units":
-		return "Creating source units."
 	case "extract_requirements":
 		return "Extracting requirement atoms."
 	case "build_functional_crud":

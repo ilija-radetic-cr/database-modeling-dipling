@@ -98,24 +98,27 @@ type ProjectState struct {
 	ConceptualModelAcceptedPath    string
 	ConceptualModelQAPath          string
 	ConceptualModelDiffPath        string
-	LogicalPatchProposalPath       string
-	ObligationRealizationsPath     string
-	SemanticVerificationPath       string
-	InvariantReportPath            string
-	ValidationReportPath           string
-	LintReportPath                 string
-	QualityReportPath              string
-	DBMLPath                       string
-	TraceReportPath                string
-	FinalModelAccepted             bool
-	Imported                       bool
-	OpenReviewIDs                  map[string]bool
-	AnsweredReviews                map[string]string
-	AcceptedQuality                map[string]bool
-	Resources                      []InputResource
-	CompletedSnapshot              *CompletedSnapshot
-	Artifacts                      map[string]ArtifactRecord
-	LLMExecutionProfile            *LLMExecutionProfile
+	// ConceptualDescriptionPath is set by the segment-based flow: the rich
+	// description the conceptual model was derived from.
+	ConceptualDescriptionPath  string
+	LogicalPatchProposalPath   string
+	ObligationRealizationsPath string
+	SemanticVerificationPath   string
+	InvariantReportPath        string
+	ValidationReportPath       string
+	LintReportPath             string
+	QualityReportPath          string
+	DBMLPath                   string
+	TraceReportPath            string
+	FinalModelAccepted         bool
+	Imported                   bool
+	OpenReviewIDs              map[string]bool
+	AnsweredReviews            map[string]string
+	AcceptedQuality            map[string]bool
+	Resources                  []InputResource
+	CompletedSnapshot          *CompletedSnapshot
+	Artifacts                  map[string]ArtifactRecord
+	LLMExecutionProfile        *LLMExecutionProfile
 }
 
 type ArtifactRecord struct {
@@ -198,6 +201,9 @@ type LLMPlanFromTextOptions struct {
 }
 
 type ArtifactHealth struct {
+	// SegmentFlow marks projects whose conceptual model came from the segment
+	// description; requirement, functional, CRUD and review views do not apply.
+	SegmentFlow                bool   `json:"segment_flow"`
 	AnalysisStatus             string `json:"analysis_status"`
 	SourceManifestStatus       string `json:"source_manifest_status"`
 	CombinedDocumentStatus     string `json:"combined_document_status"`
@@ -218,7 +224,6 @@ type ArtifactHealth struct {
 	CanGenerateModel           bool   `json:"can_generate_model"`
 	CanContinueToDBML          bool   `json:"can_continue_to_dbml"`
 	CanCompleteProject         bool   `json:"can_complete_project"`
-	CanGenerateSourceUnits     bool   `json:"can_generate_source_units"`
 	CanExtractRequirements     bool   `json:"can_extract_requirements"`
 	CanBuildFunctionalAnalysis bool   `json:"can_build_functional_analysis"`
 	CanBuildCRUDMapping        bool   `json:"can_build_crud_mapping"`
@@ -273,8 +278,10 @@ type SourceUnit struct {
 	LinkedExamples       []string                    `json:"linked_examples"`
 	LinkedRequirements   []string                    `json:"linked_requirements"`
 	OpenReviewCandidates []string                    `json:"open_review_candidates"`
-	ODSentenceIDs        []string                    `json:"od_sentence_ids,omitempty"`
+	SegmentIDs           []string                    `json:"segment_ids,omitempty"`
+	ODSentenceIDs        []string                    `json:"od_sentence_ids,omitempty"` // legacy projects only
 	Warnings             []string                    `json:"warnings,omitempty"`
+	RequirementNotes     []string                    `json:"requirement_notes,omitempty"`
 }
 
 type StructuredExample struct {
@@ -315,6 +322,9 @@ type RequirementAtom struct {
 	SupportLevel         string   `json:"support_level"`
 	Confidence           string   `json:"confidence"`
 	ReviewStatus         string   `json:"review_status"`
+	ReviewClass          string   `json:"review_class"`
+	ReviewTopic          string   `json:"review_topic"`
+	Warnings             []string `json:"warnings"`
 	ModelingOutcome      string   `json:"modeling_outcome"`
 	ModelImpactPreview   []string `json:"model_impact_preview"`
 	OpenReviewCandidates []string `json:"open_review_candidates"`
@@ -435,6 +445,9 @@ func NewStore(root string) (*Store, error) {
 		return nil, err
 	}
 	store.refreshCounters()
+	if err := store.repairReviewDecisionPaths(); err != nil {
+		return nil, err
+	}
 	return store, nil
 }
 
@@ -1054,6 +1067,7 @@ func (s *Store) ReopenProject(projectID, note string) (ProjectSummary, string, e
 	reopened.ConceptualModelProposalPath = source.ConceptualModelProposalPath
 	reopened.ConceptualModelAcceptedPath = source.ConceptualModelAcceptedPath
 	reopened.ConceptualModelQAPath = source.ConceptualModelQAPath
+	reopened.ConceptualDescriptionPath = source.ConceptualDescriptionPath
 	reopened.LogicalPatchProposalPath = source.LogicalPatchProposalPath
 	reopened.ValidationReportPath = source.ValidationReportPath
 	reopened.LintReportPath = source.LintReportPath
@@ -1173,8 +1187,12 @@ func (s *Store) ProjectSummary(projectID string) (ProjectSummary, error) {
 		OpenReviewQuestions: len(project.OpenReviewIDs),
 	}
 	if bundle != nil {
-		counts.SourceUnits = boolCount(project.AnalysisReady, len(bundle.SourceUnits.SourceUnits))
-		counts.Examples = boolCount(project.AnalysisReady, len(s.Examples(project.ID)))
+		// The segment-based flow never sets AnalysisReady; its source units are
+		// still real. Requirement, functional and CRUD counts stay zero there
+		// because the bundle only carries derived placeholders for them.
+		sourcesDone := project.AnalysisReady || project.ConceptualDescriptionPath != ""
+		counts.SourceUnits = boolCount(sourcesDone, len(bundle.SourceUnits.SourceUnits))
+		counts.Examples = boolCount(sourcesDone, len(s.Examples(project.ID)))
 		counts.Requirements = boolCount(project.AnalysisReady, len(bundle.RequirementAtoms.RequirementAtoms))
 		counts.FunctionalAreas = boolCount(project.AnalysisReady, len(bundle.FunctionalDecomposition.FunctionalAreas))
 		counts.Operations = boolCount(project.AnalysisReady, len(bundle.CRUDMatrix.Operations))
@@ -1284,10 +1302,13 @@ func (s *Store) artifactHealthForProject(project *ProjectState, report quality.R
 			semanticStatus = "outdated"
 		}
 	}
-	if semanticStatus == "not_generated" && project.ModelGenerated && project.DesignObligationsPath == "" {
+	if semanticStatus == "not_generated" && project.ModelGenerated && project.DesignObligationsPath == "" && project.ConceptualDescriptionPath == "" {
 		if bundle, err := dsl.LoadV05Bundle(project.ModelPath); err == nil && bundle.Document.Source.PipelineVersion != "0.7" {
 			semanticStatus = "legacy_not_applicable"
 		}
+	}
+	if semanticStatus == "not_generated" && semanticVerificationNotApplicable(project) {
+		semanticStatus = "not_applicable"
 	}
 	fidelityStatus := s.artifactStatus(project.SourceFidelityReportPath)
 	if fidelityStatus == "ready" {
@@ -1296,19 +1317,18 @@ func (s *Store) artifactHealthForProject(project *ProjectState, report quality.R
 		}
 	}
 	segmentationStatus := "not_generated"
-	if project.SourceSegmentationProposalPath != "" && project.SourceSegmentationQAPath != "" {
+	if project.SourceSegmentationProposalPath != "" {
 		segmentationStatus = "ready"
-		if proposal, qa, err := s.SourceSegmentation(project.ID); err != nil || !qa.OK {
+		if _, err := s.SourceSegmentation(project.ID); err != nil {
 			segmentationStatus = "not_generated"
-		} else if proposal.FallbackUsed {
-			segmentationStatus = "fallback"
 		}
 	} else if s.artifactStatus(project.CombinedDocumentPath) == "ready" {
 		segmentationStatus = "ready"
 	}
-	semanticSatisfied := semanticStatus == "passed"
+	semanticSatisfied := semanticStatus == "passed" || semanticStatus == "not_applicable"
 	legacyCompleted := semanticStatus == "legacy_not_applicable" && project.FinalModelAccepted && project.DBMLReady
 	return ArtifactHealth{
+		SegmentFlow:                project.ConceptualDescriptionPath != "",
 		AnalysisStatus:             analysisStatus,
 		SourceManifestStatus:       s.artifactStatus(project.SourceManifestPath),
 		CombinedDocumentStatus:     s.artifactStatus(project.CombinedDocumentPath),
@@ -1329,7 +1349,6 @@ func (s *Store) artifactHealthForProject(project *ProjectState, report quality.R
 		CanGenerateModel:           project.AnalysisReady && len(project.OpenReviewIDs) == 0,
 		CanContinueToDBML:          modelValid && (semanticSatisfied || legacyCompleted) && project.FinalModelAccepted,
 		CanCompleteProject:         project.DBMLReady && modelValid && (semanticSatisfied || legacyCompleted) && project.FinalModelAccepted && len(project.OpenReviewIDs) == 0 && dbmlStatus == "ready",
-		CanGenerateSourceUnits:     s.artifactStatus(project.CombinedDocumentPath) == "ready" && fidelityStatus == "ready" && (segmentationStatus == "ready" || segmentationStatus == "fallback"),
 		CanExtractRequirements:     canExtractRequirements,
 		CanBuildFunctionalAnalysis: s.artifactStatus(project.RequirementAtomsPath) == "ready" && s.artifactStatus(project.DesignObligationsPath) == "ready",
 		CanBuildCRUDMapping:        s.artifactStatus(project.FunctionalDecompositionPath) == "ready",
@@ -1560,6 +1579,9 @@ func (s *Store) Requirements(projectID string) ([]RequirementAtom, map[string]in
 			SupportLevel:         atom.SupportLevel,
 			Confidence:           atom.Confidence,
 			ReviewStatus:         reviewStatus,
+			ReviewClass:          atom.ReviewClass,
+			ReviewTopic:          atom.ReviewTopic,
+			Warnings:             []string{},
 			ModelingOutcome:      atom.ModelingOutcome.Status,
 			ModelImpactPreview:   stringSlice(modelImpacts(atom.ModelImpacts)),
 			OpenReviewCandidates: stringSlice(candidateByAtom[atom.ID]),
@@ -1867,6 +1889,19 @@ func (s *Store) DBML(projectID string) (string, error) {
 	return generate.DBMLFile(project.ModelPath)
 }
 
+// PostgreSQL renders DDL from the same accepted DB-DSL model the DBML came from.
+// It is generated on demand, so it can never drift from the model.
+func (s *Store) PostgreSQL(projectID string) (string, error) {
+	project, ok := s.Project(projectID)
+	if !ok {
+		return "", ErrNotFound
+	}
+	if !project.DBMLReady || project.ModelPath == "" {
+		return "", ErrDBMLNotReady
+	}
+	return generate.PostgreSQLFile(project.ModelPath)
+}
+
 func (s *Store) TraceReport(projectID string) (string, error) {
 	project, ok := s.Project(projectID)
 	if !ok {
@@ -1901,6 +1936,10 @@ func (s *Store) ExportBundle(projectID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	postgreSQL, err := s.PostgreSQL(projectID)
+	if err != nil {
+		return nil, err
+	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	bundleDir := filepath.Dir(project.ModelPath)
@@ -1920,14 +1959,12 @@ func (s *Store) ExportBundle(projectID string) ([]byte, error) {
 	files := map[string]string{
 		"TASK.md":                               s.readArtifact(project.TaskPath),
 		"source_manifest.yaml":                  sourceManifest,
-		"source_segments.json":                  s.readArtifact(project.SourceSegmentsPath),
-		"source_fidelity_report.json":           s.readArtifact(project.SourceFidelityReportPath),
 		"source_segmentation.proposed.json":     s.readArtifact(project.SourceSegmentationProposalPath),
-		"source_segmentation_qa.json":           s.readArtifact(project.SourceSegmentationQAPath),
 		"combined_document.md":                  s.readArtifact(project.CombinedDocumentPath),
 		"combined_document_lineage.json":        s.readArtifact(project.CombinedDocumentLineagePath),
 		"source_units.proposed.json":            s.readArtifact(project.SourceUnitsProposalPath),
 		"model.dbml":                            dbml,
+		"schema.postgresql.sql":                 postgreSQL,
 		"traceability_report.md":                report,
 		"db_model.dsl.yaml":                     readString(project.ModelPath),
 		"source_units.yaml":                     nonEmpty(readString(filepath.Join(bundleDir, "source_units.yaml")), s.readArtifact(project.SourceUnitsPath)),
@@ -1953,6 +1990,7 @@ func (s *Store) ExportBundle(projectID string) ([]byte, error) {
 		"conceptual_model.accepted.json":        s.readArtifact(project.ConceptualModelAcceptedPath),
 		"conceptual_model_qa.json":              s.readArtifact(project.ConceptualModelQAPath),
 		"conceptual_model_diff.json":            s.readArtifact(project.ConceptualModelDiffPath),
+		"conceptual_description.json":           s.readArtifact(project.ConceptualDescriptionPath),
 		"dbdsl_patch.proposed.json":             s.readArtifact(project.LogicalPatchProposalPath),
 		"obligation_realizations.json":          s.readArtifact(project.ObligationRealizationsPath),
 		"semantic_verification_report.json":     s.readArtifact(project.SemanticVerificationPath),
@@ -2000,9 +2038,13 @@ func (s *Store) ExportBundle(projectID string) ([]byte, error) {
 	}
 	manifestArtifacts := map[string]any{}
 	for name, content := range files {
-		if content != "" {
-			manifestArtifacts[name] = map[string]any{"sha256": sha256Hash([]byte(content)), "bytes": len(content)}
+		if content == "" {
+			// Artifacts a flow did not produce (e.g. design obligations in the
+			// segment-based flow) are left out of the archive and the manifest alike.
+			delete(files, name)
+			continue
 		}
+		manifestArtifacts[name] = map[string]any{"sha256": sha256Hash([]byte(content)), "bytes": len(content)}
 	}
 	modelHash := sha256Hash([]byte(files["db_model.dsl.yaml"]))
 	manifestBytes, _ := json.MarshalIndent(map[string]any{
@@ -2196,6 +2238,7 @@ func (s *Store) saveLocked() error {
 		cp.ConceptualModelProposalPath = s.relativePath(cp.ConceptualModelProposalPath)
 		cp.ConceptualModelAcceptedPath = s.relativePath(cp.ConceptualModelAcceptedPath)
 		cp.ConceptualModelQAPath = s.relativePath(cp.ConceptualModelQAPath)
+		cp.ConceptualDescriptionPath = s.relativePath(cp.ConceptualDescriptionPath)
 		cp.LogicalPatchProposalPath = s.relativePath(cp.LogicalPatchProposalPath)
 		cp.ValidationReportPath = s.relativePath(cp.ValidationReportPath)
 		cp.LintReportPath = s.relativePath(cp.LintReportPath)
@@ -2264,6 +2307,7 @@ func (s *Store) normalizeLoadedProject(project *ProjectState) {
 	project.ConceptualModelAcceptedPath = s.absoluteWorkspacePath(project.ConceptualModelAcceptedPath)
 	project.ConceptualModelQAPath = s.absoluteWorkspacePath(project.ConceptualModelQAPath)
 	project.ConceptualModelDiffPath = s.absoluteWorkspacePath(project.ConceptualModelDiffPath)
+	project.ConceptualDescriptionPath = s.absoluteWorkspacePath(project.ConceptualDescriptionPath)
 	project.LogicalPatchProposalPath = s.absoluteWorkspacePath(project.LogicalPatchProposalPath)
 	project.ObligationRealizationsPath = s.absoluteWorkspacePath(project.ObligationRealizationsPath)
 	project.SemanticVerificationPath = s.absoluteWorkspacePath(project.SemanticVerificationPath)
@@ -2349,6 +2393,7 @@ func (s *Store) refreshArtifactRegistry(project *ProjectState) {
 		"review_decisions": project.ReviewDecisionsPath, "last_review_patch": project.LastAppliedPatchPath,
 		"conceptual_model_proposed": project.ConceptualModelProposalPath, "conceptual_model_accepted": project.ConceptualModelAcceptedPath,
 		"conceptual_model_qa": project.ConceptualModelQAPath, "conceptual_model_diff": project.ConceptualModelDiffPath,
+		"conceptual_description": project.ConceptualDescriptionPath,
 		"logical_patch_proposed": project.LogicalPatchProposalPath, "obligation_realizations": project.ObligationRealizationsPath,
 		"semantic_verification": project.SemanticVerificationPath, "invariant_report": project.InvariantReportPath,
 		"logical_model_accepted": project.ModelPath, "validation_report": project.ValidationReportPath,

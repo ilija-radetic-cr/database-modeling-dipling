@@ -15,7 +15,7 @@ import (
 
 const (
 	DefaultModel           = "gpt-5.6-sol"
-	DefaultReasoningEffort = "medium"
+	DefaultReasoningEffort = "low"
 	DefaultMaxOutputTokens = 12000
 	DefaultOpenAIEndpoint  = "https://api.openai.com/v1/responses"
 	DefaultHTTPTimeout     = 10 * time.Minute
@@ -71,6 +71,17 @@ type Usage struct {
 	InputTokens  int `json:"input_tokens,omitempty"`
 	OutputTokens int `json:"output_tokens,omitempty"`
 	TotalTokens  int `json:"total_tokens,omitempty"`
+	// Provider details: prompt-cache hits and hidden reasoning inside output_tokens.
+	InputTokensDetails  *InputTokensDetails  `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *OutputTokensDetails `json:"output_tokens_details,omitempty"`
+}
+
+type InputTokensDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+type OutputTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 type RequestLog struct {

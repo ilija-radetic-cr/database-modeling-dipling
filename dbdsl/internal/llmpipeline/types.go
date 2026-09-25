@@ -2,7 +2,7 @@ package llmpipeline
 
 import "dbdsl/internal/dsl"
 
-const PipelineVersion = "0.7.4"
+const PipelineVersion = "0.8.0"
 
 type CombinedDocumentResource struct {
 	ID            string                 `json:"id"`
@@ -32,12 +32,17 @@ type CombinedDocumentSentence struct {
 	ID                   string                   `json:"id"`
 	Kind                 string                   `json:"kind,omitempty"`
 	Role                 string                   `json:"role,omitempty"`
+	Section              string                   `json:"section,omitempty"`
+	Relevance            string                   `json:"relevance,omitempty"`
+	Tags                 []string                 `json:"tags,omitempty"`
 	Text                 string                   `json:"text"`
-	DerivedFrom          []CombinedDocumentOrigin `json:"derived_from"`
-	Transformation       string                   `json:"transformation"`
+	NormalizedText       string                   `json:"normalized_text,omitempty"`
+	DerivedFrom          []CombinedDocumentOrigin `json:"derived_from,omitempty"`
+	Transformation       string                   `json:"transformation,omitempty"`
 	SegmentationStrategy string                   `json:"segmentation_strategy,omitempty"`
-	Confidence           string                   `json:"confidence"`
-	Warnings             []string                 `json:"warnings"`
+	Confidence           string                   `json:"confidence,omitempty"`
+	RequiresReview       bool                     `json:"requires_review,omitempty"`
+	Warnings             []string                 `json:"warnings,omitempty"`
 }
 
 const (
@@ -75,55 +80,16 @@ type SourceSegment struct {
 	Authority  string `json:"authority"`
 }
 
-// SourceSegmentationCandidate is a backend-owned exact span. The LLM may only
-// classify and connect candidate IDs; it never authors source text.
-type SourceSegmentationCandidate struct {
-	ID            string `json:"id"`
-	SegmentID     string `json:"segment_id"`
-	ResourceID    string `json:"resource_id"`
-	LineStart     int    `json:"line_start"`
-	LineEnd       int    `json:"line_end"`
-	StartByte     int    `json:"start_byte"`
-	EndByte       int    `json:"end_byte"`
-	ExactText     string `json:"exact_text"`
-	SuggestedRole string `json:"suggested_role,omitempty"`
-}
-
-type SourceSegmentationGroup struct {
-	ID             string   `json:"id"`
-	Role           string   `json:"role"`
-	CandidateIDs   []string `json:"candidate_ids"`
-	Confidence     string   `json:"confidence"`
-	RequiresReview bool     `json:"requires_review"`
-	Warnings       []string `json:"warnings"`
-	ODSentenceID   string   `json:"od_sentence_id,omitempty"`
+// SourceSegmentationSegment is one segment as the LLM returned it, with the
+// SU ID the backend assigned. The backend adds nothing else.
+type SourceSegmentationSegment struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 type SourceSegmentationProposal struct {
-	Candidates        []SourceSegmentationCandidate `json:"candidates"`
-	Groups            []SourceSegmentationGroup     `json:"groups"`
-	Strategy          string                        `json:"strategy"`
-	LLMAssisted       bool                          `json:"llm_assisted"`
-	FallbackUsed      bool                          `json:"fallback_used"`
-	FallbackReason    string                        `json:"fallback_reason,omitempty"`
-	Warnings          []string                      `json:"warnings"`
-	ConfidenceSummary map[string]string             `json:"confidence_summary"`
-}
-
-type SourceSegmentationQA struct {
-	OK                 bool           `json:"ok"`
-	Strategy           string         `json:"strategy"`
-	CandidatesTotal    int            `json:"candidates_total"`
-	CandidatesAssigned int            `json:"candidates_assigned"`
-	SemanticGroups     int            `json:"semantic_groups"`
-	StructuralGroups   int            `json:"structural_groups"`
-	LayoutGroups       int            `json:"layout_groups"`
-	NeedsAttention     []string       `json:"needs_attention"`
-	Errors             []string       `json:"errors"`
-	Warnings           []string       `json:"warnings"`
-	RoleCounts         map[string]int `json:"role_counts"`
-	FallbackUsed       bool           `json:"fallback_used"`
-	FallbackReason     string         `json:"fallback_reason,omitempty"`
+	Segments []SourceSegmentationSegment `json:"segments"`
 }
 
 type SourceSegmentDisposition struct {
@@ -157,10 +123,13 @@ type SourceUnitProposal struct {
 	ExactText      string                      `json:"exact_text"`
 	NormalizedText string                      `json:"normalized_text"`
 	Normalization  dsl.SourceTextNormalization `json:"normalization"`
-	ODSentenceIDs  []string                    `json:"od_sentence_ids"`
+	SegmentIDs     []string                    `json:"segment_ids,omitempty"`
+	ODSentenceIDs  []string                    `json:"od_sentence_ids,omitempty"` // legacy proposals only
 	Confidence     string                      `json:"confidence"`
 	RequiresReview bool                        `json:"requires_review"`
 	Warnings       []string                    `json:"warnings"`
+	// RequirementNotes carry requirement-level ambiguity to the atom stage.
+	RequirementNotes []string `json:"requirement_notes,omitempty"`
 }
 
 type SourceUnitExtractionProposal struct {
@@ -186,9 +155,12 @@ type SourceUnitReviewDecision struct {
 type SourceUnitQA struct {
 	OK                      bool                       `json:"ok"`
 	DerivationStrategy      string                     `json:"derivation_strategy"`
-	ODSentencesTotal        int                        `json:"od_sentences_total"`
-	ODSentencesReferenced   int                        `json:"od_sentences_referenced"`
-	UnreferencedODSentences []string                   `json:"unreferenced_od_sentences"`
+	SegmentsTotal           int                        `json:"segments_total,omitempty"`
+	SegmentsReferenced      int                        `json:"segments_referenced,omitempty"`
+	UnreferencedSegments    []string                   `json:"unreferenced_segments,omitempty"`
+	ODSentencesTotal        int                        `json:"od_sentences_total,omitempty"`        // legacy QA only
+	ODSentencesReferenced   int                        `json:"od_sentences_referenced,omitempty"`   // legacy QA only
+	UnreferencedODSentences []string                   `json:"unreferenced_od_sentences,omitempty"` // legacy QA only
 	NeedsAttention          []string                   `json:"needs_attention"`
 	OriginChains            map[string][]string        `json:"origin_chains"`
 	Errors                  []string                   `json:"errors"`
@@ -233,6 +205,9 @@ type RequirementAtomProposal struct {
 	SupportLevel      string   `json:"support_level"`
 	Confidence        string   `json:"confidence"`
 	RequiresReview    bool     `json:"requires_review"`
+	ReviewClass       string   `json:"review_class,omitempty" yaml:"review_class,omitempty"`
+	ReviewTopic       string   `json:"review_topic,omitempty" yaml:"review_topic,omitempty"`
+	ReviewGroup       string   `json:"review_group,omitempty" yaml:"review_group,omitempty"`
 	ModelingOutcome   string   `json:"modeling_outcome"`
 	PersistenceEffect string   `json:"persistence_effect,omitempty" yaml:"persistence_effect,omitempty"`
 	ExampleRole       string   `json:"example_role,omitempty" yaml:"example_role,omitempty"`
@@ -408,11 +383,17 @@ type ReviewResolutionPatchProposal struct {
 }
 
 type ConceptualAttributeProposal struct {
-	ID          string           `json:"id" yaml:"id"`
-	Label       string           `json:"label" yaml:"label"`
-	Description string           `json:"description" yaml:"description"`
-	Required    bool             `json:"required" yaml:"required"`
-	Evidence    EvidenceProposal `json:"evidence" yaml:"evidence"`
+	ID          string `json:"id" yaml:"id"`
+	Label       string `json:"label" yaml:"label"`
+	Description string `json:"description" yaml:"description"`
+	// Name, ValueType, Unique and EnumValues are decided at the conceptual gate so
+	// that the logical projection can be a deterministic mapping.
+	Name       string           `json:"name,omitempty" yaml:"name,omitempty"`
+	ValueType  string           `json:"value_type,omitempty" yaml:"value_type,omitempty"`
+	Required   bool             `json:"required" yaml:"required"`
+	Unique     bool             `json:"unique,omitempty" yaml:"unique,omitempty"`
+	EnumValues []string         `json:"enum_values,omitempty" yaml:"enum_values,omitempty"`
+	Evidence   EvidenceProposal `json:"evidence" yaml:"evidence"`
 }
 
 type ConceptualEntityProposal struct {
@@ -431,6 +412,7 @@ type ConceptualRelationshipProposal struct {
 	From        string           `json:"from" yaml:"from"`
 	To          string           `json:"to" yaml:"to"`
 	Cardinality string           `json:"cardinality" yaml:"cardinality"`
+	Required    *bool            `json:"required,omitempty" yaml:"required,omitempty"`
 	Evidence    EvidenceProposal `json:"evidence" yaml:"evidence"`
 }
 
@@ -440,6 +422,7 @@ type ConceptualConstraintProposal struct {
 	Description string           `json:"description" yaml:"description"`
 	Kind        string           `json:"kind" yaml:"kind"`
 	Targets     []string         `json:"targets" yaml:"targets"`
+	Expression  string           `json:"expression,omitempty" yaml:"expression,omitempty"`
 	Evidence    EvidenceProposal `json:"evidence" yaml:"evidence"`
 }
 
@@ -496,6 +479,21 @@ type PlanElementProposal struct {
 	Kind             string   `json:"kind"`
 	SourceUnits      []string `json:"source_units"`
 	RequirementAtoms []string `json:"requirement_atoms"`
+	// Lifecycle concepts: the owning entity, its status attribute and the states.
+	Owner       string                 `json:"owner,omitempty"`
+	Field       string                 `json:"field,omitempty"`
+	States      []string               `json:"states,omitempty"`
+	Initial     string                 `json:"initial,omitempty"`
+	Terminal    []string               `json:"terminal,omitempty"`
+	Transitions []ConceptualTransition `json:"transitions,omitempty"`
+	// Derived concepts: the entities they are computed from and what they show.
+	Sources []string `json:"sources,omitempty"`
+	Metrics []string `json:"metrics,omitempty"`
+}
+
+type ConceptualTransition struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 type PatchProposal struct {
@@ -506,14 +504,16 @@ type PatchProposal struct {
 }
 
 type PatchOperation struct {
-	Operation    string                `json:"operation"`
-	Entity       *EntityProposal       `json:"entity"`
-	Relationship *RelationshipProposal `json:"relationship"`
-	Constraint   *ConstraintProposal   `json:"constraint"`
-	StateMachine *StateMachineProposal `json:"state_machine"`
-	DerivedView  *DerivedViewProposal  `json:"derived_view"`
-	FileSpec     *FileSpecProposal     `json:"file_spec"`
-	ImportSpec   *ImportSpecProposal   `json:"import_spec"`
+	Operation       string                `json:"operation"`
+	TargetOperation string                `json:"target_operation"`
+	TargetID        string                `json:"target_id"`
+	Entity          *EntityProposal       `json:"entity"`
+	Relationship    *RelationshipProposal `json:"relationship"`
+	Constraint      *ConstraintProposal   `json:"constraint"`
+	StateMachine    *StateMachineProposal `json:"state_machine"`
+	DerivedView     *DerivedViewProposal  `json:"derived_view"`
+	FileSpec        *FileSpecProposal     `json:"file_spec"`
+	ImportSpec      *ImportSpecProposal   `json:"import_spec"`
 }
 
 type EntityProposal struct {

@@ -30,6 +30,28 @@ func TestFKNameNormalizesNamespacedLogicalEntityID(t *testing.T) {
 	}
 }
 
+func TestDBMLResolvesRelationshipIDsInCompositeUniqueConstraint(t *testing.T) {
+	doc := &dsl.Document{
+		DSL: dsl.DSLMeta{Version: "0.5"}, Model: dsl.ModelInfo{ID: "inventory"},
+		Entities: []dsl.Entity{
+			{ID: "ENT-ITEM-INVENTORY", TableName: "item_inventory", Kind: "association"},
+			{ID: "ENT-ITEM", TableName: "items", Kind: "regular"},
+			{ID: "ENT-WAREHOUSE-FACILITY", TableName: "warehouse_facilities", Kind: "regular"},
+		},
+		Relationships: []dsl.Relationship{
+			{ID: "REL-INVENTORY-ITEM", From: "ENT-ITEM-INVENTORY", To: "ENT-ITEM", Cardinality: "many_to_one"},
+			{ID: "REL-INVENTORY-LOCATION", From: "ENT-ITEM-INVENTORY", To: "ENT-WAREHOUSE-FACILITY", Cardinality: "many_to_one"},
+		},
+		Constraints: []dsl.Constraint{{
+			ID: "CON-INVENTORY-ITEM-LOCATION-UNIQUE", Type: "unique", Owner: "ENT-ITEM-INVENTORY",
+			Fields: []string{"REL-INVENTORY-ITEM", "REL-INVENTORY-LOCATION"},
+		}},
+	}
+
+	got := DBML(doc)
+	assertContains(t, got, "(item_id, warehouse_facility_id) [unique, name: 'CON-INVENTORY-ITEM-LOCATION-UNIQUE']")
+}
+
 func TestTraceReportIncludesEvidenceTrail(t *testing.T) {
 	doc := generatorFixtureDocument()
 	source := &dsl.ReviewedSource{

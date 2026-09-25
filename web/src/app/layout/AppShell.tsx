@@ -4,9 +4,18 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart3, CheckCircle2, FolderKanban, GitBranch, Settings, Workflow } from "lucide-react";
 import { api, projectDefaultPath } from "@/shared/api/client";
 import { routeParts, useRouter } from "@/shared/lib/router";
+import { finalizePath } from "@/shared/lib/autopilot";
 
 const defaultProjectId = "project_phf";
 const lastProjectStorageKey = "dbdsl:lastProjectId";
+
+function readLastProject() {
+  try {
+    return window.localStorage.getItem(lastProjectStorageKey);
+  } catch {
+    return null;
+  }
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -28,12 +37,22 @@ function Sidebar() {
 
   useEffect(() => {
     if (routeProjectId) {
-      window.localStorage.setItem(lastProjectStorageKey, routeProjectId);
+      try {
+        window.localStorage.setItem(lastProjectStorageKey, routeProjectId);
+      } catch {
+        // Remembering the last project is a convenience only.
+      }
     }
   }, [routeProjectId]);
 
-  const currentProjectId = routeProjectId ?? window.localStorage.getItem(lastProjectStorageKey) ?? defaultProjectId;
   const projectItems = projects.data?.items ?? [];
+  // A remembered project may have been deleted; fall back to the most recent one.
+  const rememberedProjectId = readLastProject();
+  const currentProjectId = routeProjectId
+    ?? (rememberedProjectId && (projects.isLoading || projectItems.some((project) => project.id === rememberedProjectId)) ? rememberedProjectId : undefined)
+    ?? projectItems.find((project) => project.lifecycle_status !== "completed")?.id
+    ?? projectItems[0]?.id
+    ?? defaultProjectId;
   const currentProject = projectItems.find((project) => project.id === currentProjectId);
   const currentProjectHref = currentProject ? projectDefaultPath(currentProject) : `/projects/${currentProjectId}/analysis/sources`;
 	const projectState = useQuery({
@@ -51,7 +70,7 @@ function Sidebar() {
         label: "Current Project",
         icon: Workflow,
         href: currentProjectHref,
-        active: path.startsWith(`/projects/${currentProjectId}/`) && !path.includes("/analysis/review") && !path.includes("/model") && !path.includes("/completed"),
+        active: path.startsWith(`/projects/${currentProjectId}/`) && !path.includes("/analysis/review") && !path.includes("/model") && !path.includes("/completed") && !path.endsWith("/dbml"),
       },
       {
         label: "Reviews",
@@ -70,15 +89,15 @@ function Sidebar() {
 		reason: "The model workspace unlocks after the conceptual model stage.",
       },
       {
-        label: "Completed",
+        label: currentProject?.lifecycle_status === "completed" ? "Completed" : "Finalize",
         icon: CheckCircle2,
-        href: `/projects/${currentProjectId}/completed`,
-        active: path.startsWith(`/projects/${currentProjectId}/completed`),
-		disabled: !health?.can_complete_project && currentProject?.lifecycle_status !== "completed",
+        href: finalizePath(currentProjectId, currentProject?.lifecycle_status),
+        active: path.startsWith(`/projects/${currentProjectId}/completed`) || path.startsWith(`/projects/${currentProjectId}/dbml`),
+		disabled: health?.dbml_status !== "ready" && !health?.can_complete_project && currentProject?.lifecycle_status !== "completed",
 		reason: "Finalize the accepted model and generate current DBML and trace outputs first.",
       },
       { label: "Settings", icon: Settings, href: "/settings", active: path === "/settings" },
-    ],
+    ].filter((item) => item.label !== "Reviews" || (!health?.segment_flow && health?.review_candidates_status === "ready")),
 	[currentProject?.lifecycle_status, currentProjectHref, currentProjectId, health, path],
   );
 
@@ -100,7 +119,7 @@ function Sidebar() {
           {!currentProject && <option value={currentProjectId}>{currentProjectId}</option>}
           {projectItems.map((project) => (
             <option value={project.id} key={project.id}>
-              {project.name} ({project.counts.entities ?? 0} tables)
+              {project.name}
             </option>
           ))}
         </select>
@@ -109,7 +128,7 @@ function Sidebar() {
         {items.map((item) => {
           const Icon = item.icon;
           return (
-			<button className={`nav-item ${item.active ? "active" : ""}`} key={item.href} onClick={() => navigate(item.href)} disabled={item.disabled} title={item.disabled ? item.reason : undefined}>
+			<button className={`nav-item ${item.active ? "active" : ""}`} key={item.label} onClick={() => navigate(item.href)} disabled={item.disabled} title={item.disabled ? item.reason : undefined}>
               <Icon size={18} />
               <span>{item.label}</span>
             </button>

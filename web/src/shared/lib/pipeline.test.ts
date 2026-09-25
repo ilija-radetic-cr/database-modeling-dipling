@@ -49,23 +49,27 @@ describe("pipeline action state", () => {
     })).toBe(false);
   });
 
-  it("recovers active and failed jobs but not completed jobs", () => {
-    expect(isTerminalJobStatus("running")).toBe(false);
-    expect(isTerminalJobStatus("failed")).toBe(true);
-    expect(shouldRecoverLatestJob("queued")).toBe(true);
-    expect(shouldRecoverLatestJob("failed")).toBe(true);
-    expect(shouldRecoverLatestJob("completed")).toBe(false);
-  });
+	it("recovers active jobs and only current-revision failures", () => {
+		expect(isTerminalJobStatus("running")).toBe(false);
+		expect(isTerminalJobStatus("failed")).toBe(true);
+		expect(shouldRecoverLatestJob({ status: "queued", input_revision: 15 }, 16)).toBe(true);
+		expect(shouldRecoverLatestJob({ status: "failed", input_revision: 16 }, 16)).toBe(true);
+		expect(shouldRecoverLatestJob({ status: "failed", input_revision: 15 }, 16)).toBe(false);
+		expect(shouldRecoverLatestJob({ status: "completed", input_revision: 16 }, 16)).toBe(false);
+	});
 
   it("enforces final model acceptance before output generation", () => {
-    expect(finalModelAction({ modelReady: true, accepted: false, dbmlReady: false })).toBe("accept_model");
-    expect(finalModelAction({ modelReady: true, accepted: true, dbmlReady: false })).toBe("generate_outputs");
-    expect(finalModelAction({ modelReady: true, accepted: true, dbmlReady: true })).toBe("finalize");
+		expect(finalModelAction({ modelReady: true, accepted: false, dbmlReady: false, semanticStatus: "not_generated" })).toBe("verify_semantic");
+		expect(finalModelAction({ modelReady: true, accepted: false, dbmlReady: false, semanticStatus: "blocked" })).toBe("resolve_semantic");
+		expect(finalModelAction({ modelReady: true, accepted: false, dbmlReady: false, semanticStatus: "passed" })).toBe("accept_model");
+		expect(finalModelAction({ modelReady: true, accepted: true, dbmlReady: false, semanticStatus: "passed" })).toBe("generate_outputs");
+		expect(finalModelAction({ modelReady: true, accepted: true, dbmlReady: true, semanticStatus: "passed" })).toBe("finalize");
+		// The segment-based flow has no design obligations to verify.
+		expect(finalModelAction({ modelReady: true, accepted: false, dbmlReady: false, semanticStatus: "not_applicable" })).toBe("accept_model");
   });
 
-  it("renders the project next-stage action explicitly", () => {
-		expect(nextStageLabel("combined_document", 0)).toBe("Build LLM-assisted Source Document");
-		expect(nextStageLabel("source_units", 0)).toBe("Classify Source Units");
+	it("renders the project next-stage action explicitly", () => {
+		expect(nextStageLabel("combined_document", 0)).toBe("Segment Sources");
     expect(nextStageLabel("conceptual_model", 0)).toBe("Generate Conceptual Model");
     expect(nextStageLabel("review_decisions", 2)).toBe("Resolve 2 decisions");
   });

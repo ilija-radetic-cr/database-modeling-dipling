@@ -247,7 +247,13 @@ func (s *Store) CombinedDocument(projectID string) (CombinedDocumentResponse, er
 			sentenceCount++
 		}
 	}
-	segmentation, segmentationQA, _ := s.SourceSegmentation(projectID)
+	segmentation, _ := s.SourceSegmentation(projectID)
+	layoutCount := 0
+	for _, segment := range segmentation.Segments {
+		if segment.Type == "page_header" || segment.Type == "page_footer" || segment.Type == "page_number" {
+			layoutCount++
+		}
+	}
 	return CombinedDocumentResponse{
 		Markdown: string(markdown),
 		Lineage:  lineage,
@@ -258,11 +264,11 @@ func (s *Store) CombinedDocument(projectID string) (CombinedDocumentResponse, er
 			StructuralUnitCount:  structuralCount,
 			ResourceCount:        len(project.Resources),
 			WarningCount:         warnings,
-			SegmentationStrategy: nonEmpty(segmentation.Strategy, "legacy_deterministic"),
-			LLMAssisted:          segmentation.LLMAssisted,
-			FallbackUsed:         segmentation.FallbackUsed,
-			NeedsAttentionCount:  len(segmentationQA.NeedsAttention),
-			LayoutSegmentCount:   segmentationQA.LayoutGroups,
+			SegmentationStrategy: "llm_complete_resource",
+			LLMAssisted:          len(segmentation.Segments) > 0,
+			FallbackUsed:         false,
+			NeedsAttentionCount:  0,
+			LayoutSegmentCount:   layoutCount,
 		},
 	}, nil
 }
@@ -298,13 +304,17 @@ func (s *Store) artifactStatus(resourcePath string) string {
 	return "not_generated"
 }
 
-// ProcessSources preserves the pre-v0.7.4 store API and uses the documented
-// deterministic fallback. API callers use ProcessSourcesWithLLM.
+// ProcessSources is the offline/test entry point. API callers use
+// ProcessSourcesWithLLM with the configured provider client.
 func (s *Store) ProcessSources(projectID string, opts ProcessSourcesOptions) (int, []string, error) {
-	return s.ProcessSourcesWithLLM(context.Background(), nil, projectID, opts)
+	return s.ProcessSourcesWithLLM(context.Background(), llm.NewDefaultMockClient(), projectID, opts)
 }
 
 func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, projectID string, opts ProcessSourcesOptions) (int, []string, error) {
+	// Sources may have changed since the last run, so detect the language afresh
+	// instead of reusing the frozen profile.
+	sourceLanguage := s.detectSourceLanguage(projectID)
+	ctx = llmpipeline.WithOutputLanguage(ctx, sourceLanguage)
 	project, ok := s.Project(projectID)
 	if !ok {
 		return 0, nil, ErrNotFound
@@ -328,7 +338,10 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 
 	emit("write_source_manifest", "Preparing refreshed source manifest.", 25, map[string]any{"resource_count": len(resources)})
 
-	emit("build_source_segments", "Building lossless physical source segments.", 36, map[string]any{"resource_count": len(resources)})
+	if client == nil {
+		return 0, nil, errors.New("LLM client is required for source segmentation")
+	}
+	emit("prepare_source_segmentation", "Preparing complete source resources for segmentation.", 36, map[string]any{"resource_count": len(resources)})
 	llmResources := make([]llmpipeline.CombinedDocumentResource, 0, len(resources))
 	for _, resource := range resources {
 		lines := make([]llmpipeline.CombinedDocumentLine, 0, len(resource.Lines))
@@ -347,41 +360,21 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 			Lines:         lines,
 		})
 	}
-	segments, deterministicProposal, _ := llmpipeline.BuildLosslessCombinedDocument(llmResources)
 	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "source_segmentation", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	controls := s.resolveLLMExecutionControls(projectID)
-	candidateCount := len(llmpipeline.BuildSourceSegmentationCandidates(llmResources, segments))
-	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "source_segmentation", opts.MaxOutputTokens, stageBudgetInput{Sentences: candidateCount})
-	emit("propose_source_segmentation", "Grouping exact source spans with LLM assistance.", 50, map[string]any{"candidate_count": candidateCount, "llm_available": client != nil})
-	segmentation, proposal, segmentationQA := llmpipeline.RunSourceSegmentation(ctx, client, llmpipeline.SourceSegmentationOptions{
-		OutDir: s.projectWorkspaceDir(projectID), Resources: llmResources, Segments: segments, Fallback: deterministicProposal,
+	lineCount := 0
+	for _, resource := range llmResources {
+		lineCount += len(resource.Lines)
+	}
+	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "source_segmentation", opts.MaxOutputTokens, stageBudgetInput{Sentences: lineCount})
+	emit("propose_source_segmentation", "Segmenting complete source resources sequentially.", 55, map[string]any{"resource_count": len(llmResources)})
+	segmentation, proposal, stageErr := llmpipeline.RunSourceSegmentation(ctx, client, llmpipeline.SourceSegmentationOptions{
+		OutDir: s.projectWorkspaceDir(projectID), Resources: llmResources,
 		Model: opts.Model, ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
-		MaxParallelism: controls.MaxParallelism, PromptVersion: controls.PromptVersion,
+		PromptVersion: controls.PromptVersion,
 	})
-	if !segmentationQA.OK {
-		return 0, nil, fmt.Errorf("source-segmentation gate failed: %s", strings.Join(segmentationQA.Errors, "; "))
-	}
-	emit("validate_source_segmentation", "Validating candidate coverage and backend reconstruction.", 64, map[string]any{
-		"strategy": segmentation.Strategy, "groups": len(segmentation.Groups), "needs_attention": len(segmentationQA.NeedsAttention),
-		"fallback_used": segmentation.FallbackUsed,
-	})
-	fidelity := llmpipeline.BuildSourceFidelityReportFromSegmentation(segments, segmentation)
-	for _, resource := range resources {
-		if resource.Resource.ExtractionStatus != "needs_attention" {
-			continue
-		}
-		message := fmt.Sprintf("%s requires extraction review", resource.Resource.ID)
-		fidelity.NeedsAttention = append(fidelity.NeedsAttention, message)
-		fidelity.Warnings = append(fidelity.Warnings, append([]string{message}, resource.Resource.Warnings...)...)
-	}
-	if !fidelity.OK {
-		return 0, nil, fmt.Errorf("source-fidelity gate failed: %s", strings.Join(fidelity.Errors, "; "))
-	}
-
-	emit("validate_source_fidelity", "Validating source fidelity and combined-document lineage.", 76, map[string]any{"unit_count": len(proposal.Sentences)})
-	lineageWarnings, err := validateCombinedDocumentLineage(proposal, resources)
-	if err != nil {
-		return 0, nil, err
+	if stageErr != nil {
+		return 0, nil, stageErr
 	}
 	lineage := CombinedDocumentLineage{
 		Document: CombinedDocumentLineageDocument{
@@ -393,30 +386,45 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 			CreatedAt:          time.Now(),
 		},
 		Sentences:         proposal.Sentences,
-		Warnings:          append(stringSlice(proposal.Warnings), lineageWarnings...),
+		Warnings:          stringSlice(proposal.Warnings),
 		ConfidenceSummary: proposal.ConfidenceSummary,
 	}
-	emit("write_combined_document", "Writing validated combined-document artifacts.", 88, map[string]any{"unit_count": len(proposal.Sentences)})
+	document := llmpipeline.CombinedDocumentProposal{
+		Sentences:         proposal.Sentences,
+		Warnings:          proposal.Warnings,
+		ConfidenceSummary: proposal.ConfidenceSummary,
+	}
+	emit("assign_source_unit_ids", "Canonical SU evidence IDs assigned to the LLM evidence units.", 78, map[string]any{"segment_count": len(proposal.Sentences)})
+	sourceArtifacts, err := deriveSourceUnitArtifacts(project, document)
+	if err != nil {
+		return 0, nil, err
+	}
+	emit("validate_source_units", "Validating source evidence coverage and origin chains.", 84, map[string]any{
+		"source_unit_count": len(sourceArtifacts.Accepted.SourceUnits),
+		"needs_attention":   len(sourceArtifacts.QA.NeedsAttention),
+		"strategy":          llmpipeline.SegmentUnitStrategy,
+	})
+	emit("write_combined_document", "Writing segmented source and evidence artifacts in one revision.", 90, map[string]any{
+		"unit_count":        len(proposal.Sentences),
+		"source_unit_count": len(sourceArtifacts.Accepted.SourceUnits),
+	})
 
+	var sourcePaths sourceUnitArtifactPaths
 	err = s.withProject(projectID, opts.BaseRevision, func(project *ProjectState) error {
 		// Recheck the revision under the store lock before replacing canonical
 		// artifacts, so a stale background job cannot overwrite newer intake.
+		var err error
+		sourcePaths, err = s.writeSourceUnitArtifacts(projectID, project.CurrentRevision+1, sourceArtifacts)
+		if err != nil {
+			return err
+		}
 		if err := s.writeSourceManifestLocked(project); err != nil {
 			return err
 		}
 		if err := s.writeCombinedDocumentArtifacts(project, lineage); err != nil {
 			return err
 		}
-		if err := writeJSONArtifact(s.absoluteWorkspacePath(s.sourceSegmentsRel(project.ID)), segments); err != nil {
-			return err
-		}
-		if err := writeJSONArtifact(s.absoluteWorkspacePath(s.sourceFidelityReportRel(project.ID)), fidelity); err != nil {
-			return err
-		}
 		if err := writeJSONArtifact(s.absoluteWorkspacePath(s.sourceSegmentationProposalRel(project.ID)), segmentation); err != nil {
-			return err
-		}
-		if err := writeJSONArtifact(s.absoluteWorkspacePath(s.sourceSegmentationQARel(project.ID)), segmentationQA); err != nil {
 			return err
 		}
 		profile := defaultLLMExecutionProfile(opts.Model)
@@ -426,15 +434,19 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 		if opts.MaxOutputTokens > 0 {
 			profile.MaxOutputTokens = opts.MaxOutputTokens
 		}
+		profile.OutputLanguage = sourceLanguage
 		project.LLMExecutionProfile = &profile
 		s.invalidateDerivedFromCombinedDocument(project)
 		project.SourceManifestPath = s.sourceManifestRel(project.ID)
 		project.CombinedDocumentPath = s.combinedDocumentRel(project.ID)
 		project.CombinedDocumentLineagePath = s.combinedDocumentLineageRel(project.ID)
-		project.SourceSegmentsPath = s.sourceSegmentsRel(project.ID)
-		project.SourceFidelityReportPath = s.sourceFidelityReportRel(project.ID)
+		project.SourceSegmentsPath = ""
+		project.SourceFidelityReportPath = ""
 		project.SourceSegmentationProposalPath = s.sourceSegmentationProposalRel(project.ID)
-		project.SourceSegmentationQAPath = s.sourceSegmentationQARel(project.ID)
+		project.SourceSegmentationQAPath = ""
+		project.SourceUnitsProposalPath = sourcePaths.Proposal
+		project.SourceUnitsPath = sourcePaths.Accepted
+		project.SourceUnitQAPath = sourcePaths.QA
 		project.CombinedDocumentReady = true
 		project.AnalysisReady = false
 		project.ModelGenerated = false
@@ -443,20 +455,20 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 		project.ModelPath = ""
 		project.TaskPath = ""
 		project.BundlePath = ""
-		project.LifecycleStatus = "sources_processed"
+		if len(sourceArtifacts.QA.NeedsAttention) > 0 {
+			project.LifecycleStatus = "source_review"
+		} else {
+			project.LifecycleStatus = "sources_processed"
+		}
 		project.OpenReviewIDs = map[string]bool{}
 		project.AnsweredReviews = map[string]string{}
-		if segmentation.FallbackUsed {
-			project.LastActivity = "Combined source document passed fidelity validation using deterministic segmentation fallback."
-		} else {
-			project.LastActivity = "LLM-assisted source segmentation passed backend reconstruction and fidelity validation."
-		}
+		project.LastActivity = "Source resources were segmented and assigned canonical SU evidence IDs in one revision."
 		return nil
 	})
 	if err != nil {
 		return 0, nil, err
 	}
-	updated := []string{"resources", "source_manifest", "source_segments", "source_segmentation", "source_segmentation_qa", "source_fidelity", "combined_document"}
+	updated := []string{"resources", "source_manifest", "source_segmentation", "combined_document", "source_units", "source_unit_qa"}
 	project, _ = s.Project(projectID)
 	return project.CurrentRevision, updated, nil
 }
@@ -556,23 +568,19 @@ func (s *Store) SourceFidelity(projectID string) (llmpipeline.SourceFidelityRepo
 	return report, nil
 }
 
-func (s *Store) SourceSegmentation(projectID string) (llmpipeline.SourceSegmentationProposal, llmpipeline.SourceSegmentationQA, error) {
+func (s *Store) SourceSegmentation(projectID string) (llmpipeline.SourceSegmentationProposal, error) {
 	project, ok := s.Project(projectID)
 	if !ok {
-		return llmpipeline.SourceSegmentationProposal{}, llmpipeline.SourceSegmentationQA{}, ErrNotFound
+		return llmpipeline.SourceSegmentationProposal{}, ErrNotFound
 	}
-	if project.SourceSegmentationProposalPath == "" || project.SourceSegmentationQAPath == "" {
-		return llmpipeline.SourceSegmentationProposal{}, llmpipeline.SourceSegmentationQA{}, ErrNotFound
+	if project.SourceSegmentationProposalPath == "" {
+		return llmpipeline.SourceSegmentationProposal{}, ErrNotFound
 	}
 	var proposal llmpipeline.SourceSegmentationProposal
-	var qa llmpipeline.SourceSegmentationQA
 	if err := readJSON(s.absoluteWorkspacePath(project.SourceSegmentationProposalPath), &proposal); err != nil {
-		return proposal, qa, err
+		return proposal, err
 	}
-	if err := readJSON(s.absoluteWorkspacePath(project.SourceSegmentationQAPath), &qa); err != nil {
-		return proposal, qa, err
-	}
-	return proposal, qa, nil
+	return proposal, nil
 }
 
 func (s *Store) invalidateDerivedFromCombinedDocument(project *ProjectState) {

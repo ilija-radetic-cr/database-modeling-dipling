@@ -1,11 +1,13 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Download, Lock, RefreshCcw } from "lucide-react";
 import { api } from "@/shared/api/client";
 import { Button, Metric, Panel, StatusBadge } from "@/shared/components/ui";
 import { useRouter } from "@/shared/lib/router";
+import { SchemaOutput } from "./SchemaOutput";
 
 export function DbmlPage({ projectId }: { projectId: string }) {
-  const { navigate } = useRouter();
+  const { navigate, redirect } = useRouter();
   const queryClient = useQueryClient();
   const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
   const dbml = useQuery({ queryKey: ["dbml", projectId], queryFn: () => api.dbml(projectId), retry: false });
@@ -20,13 +22,18 @@ export function DbmlPage({ projectId }: { projectId: string }) {
 
   const health = project.data?.artifact_health;
   const canComplete = health?.can_complete_project ?? false;
+  const lifecycle = project.data?.project.lifecycle_status;
+  // A completed project is locked; its outputs live on the completed page.
+  useEffect(() => {
+    if (lifecycle === "completed") redirect(`/projects/${projectId}/completed`);
+  }, [lifecycle, redirect, projectId]);
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">{project.data?.project.name ?? "Project"} | DBML Finalization</h1>
-          <p className="page-subtitle">Read-only DBML output, exports and completion gate.</p>
+          <h1 className="page-title">{project.data?.project.name ?? "Project"} | Finalization</h1>
+          <p className="page-subtitle">DBML and PostgreSQL schema, exports and completion gate.</p>
         </div>
         <div className="toolbar">
           <Button onClick={() => regenerate.mutate()} disabled={regenerate.isPending}>
@@ -47,13 +54,7 @@ export function DbmlPage({ projectId }: { projectId: string }) {
       </div>
 
       <div className="grid-2">
-        <Panel title="DBML">
-          {dbml.isError ? (
-            <p className="muted">DBML is not ready yet. Generate the database model first.</p>
-          ) : (
-            <pre className="code-view">{dbml.data?.dbml ?? ""}</pre>
-          )}
-        </Panel>
+        <SchemaOutput projectId={projectId} ready={!dbml.isError && health?.dbml_status === "ready"} />
         <Panel title="Completion Checklist">
           <div className="field" style={{ gap: 12 }}>
             <ChecklistItem done={(project.data?.project.quality.validation_errors ?? 1) === 0} label="Validation errors = 0" />
@@ -64,6 +65,10 @@ export function DbmlPage({ projectId }: { projectId: string }) {
               <Button disabled={dbml.isError} onClick={() => window.open(api.exportURL(projectId, "dbml"), "_blank")}>
                 <Download size={18} />
                 DBML
+              </Button>
+              <Button disabled={dbml.isError} onClick={() => window.open(api.exportURL(projectId, "sql"), "_blank")}>
+                <Download size={18} />
+                SQL
               </Button>
               <Button disabled={dbml.isError} onClick={() => window.open(api.exportURL(projectId, "report"), "_blank")}>
                 <Download size={18} />

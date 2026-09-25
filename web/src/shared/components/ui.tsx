@@ -29,16 +29,18 @@ export function StatusBadge({ value }: { value: string }) {
 }
 
 export function Panel({
+  id,
   title,
   action,
   children,
 }: {
+  id?: string;
   title?: ReactNode;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className="panel">
+    <section className="panel" id={id}>
       {(title || action) && (
         <div className="panel-header">
           {title && <h2 className="panel-title">{title}</h2>}

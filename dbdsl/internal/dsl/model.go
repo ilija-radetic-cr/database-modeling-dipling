@@ -276,6 +276,9 @@ type RequirementAtom struct {
 	SupportLevel      string                  `yaml:"support_level"`
 	Confidence        string                  `yaml:"confidence"`
 	RequiresReview    bool                    `yaml:"requires_review"`
+	ReviewClass       string                  `yaml:"review_class,omitempty"`
+	ReviewTopic       string                  `yaml:"review_topic,omitempty"`
+	ReviewGroup       string                  `yaml:"review_group,omitempty"`
 	ReviewDecisions   []string                `yaml:"review_decisions"`
 	ModelImpacts      RequirementModelImpacts `yaml:"model_impacts"`
 	ModelingOutcome   RequirementOutcome      `yaml:"modeling_outcome"`

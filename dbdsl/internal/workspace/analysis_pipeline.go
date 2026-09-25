@@ -58,6 +58,22 @@ type DesignObligationArtifacts struct {
 	QA       llmpipeline.DesignObligationQA    `json:"qa"`
 }
 
+// sourceUnitRequirementNotes returns the requirement ambiguity recorded when the
+// source units were classified, keyed by source-unit ID.
+func (s *Store) sourceUnitRequirementNotes(projectID string) map[string][]string {
+	artifacts, err := s.SourceUnitArtifacts(projectID)
+	if err != nil {
+		return nil
+	}
+	notes := map[string][]string{}
+	for _, unit := range artifacts.Proposal.SourceUnits {
+		if len(unit.RequirementNotes) > 0 {
+			notes[unit.ID] = unit.RequirementNotes
+		}
+	}
+	return notes
+}
+
 func (s *Store) GenerateRequirementAtoms(ctx context.Context, client llm.Client, projectID string, opts AnalysisStageOptions) (int, []string, error) {
 	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "requirement_atoms", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
 	project, units, err := s.analysisStageInputs(projectID, opts.BaseRevision)
@@ -68,15 +84,15 @@ func (s *Store) GenerateRequirementAtoms(ctx context.Context, client llm.Client,
 		return 0, nil, errors.New("LLM client is required for requirement extraction")
 	}
 	chunkUnits := len(units)
-	if chunkUnits > 40 {
-		chunkUnits = 40
+	if chunkUnits > llmpipeline.RequirementAtomChunkSize {
+		chunkUnits = llmpipeline.RequirementAtomChunkSize
 	}
 	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "requirement_atoms", opts.MaxOutputTokens, stageBudgetInput{Units: chunkUnits})
 	controls := s.resolveLLMExecutionControls(projectID)
 	emit := stageEmitter(opts.OnProgress)
 	emit("extract_requirement_atoms", "Extracting atomic requirements.", 20, map[string]any{"source_units": len(units)})
 	proposal, qa, err := llmpipeline.RunRequirementAtomExtraction(ctx, client, llmpipeline.RequirementAtomStageOptions{
-		OutDir: s.projectWorkspaceDir(projectID), SourceUnits: units, Model: opts.Model,
+		OutDir: s.projectWorkspaceDir(projectID), SourceUnits: units, Model: opts.Model, SourceUnitNotes: s.sourceUnitRequirementNotes(projectID),
 		ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
 		MaxParallelism: controls.MaxParallelism, PromptVersion: controls.PromptVersion,
 	})
@@ -335,11 +351,12 @@ func buildRequirementAtomsArtifact(project *ProjectState, proposal llmpipeline.R
 			Condition: item.Condition, TemporalSemantics: item.TemporalSemantics, Ownership: item.Ownership,
 			SourceUnits: item.SourceUnits, FunctionalArea: item.FunctionalArea, FunctionalPattern: item.FunctionalPattern,
 			SupportLevel: item.SupportLevel, Confidence: item.Confidence, RequiresReview: item.RequiresReview,
+			ReviewClass: item.ReviewClass, ReviewTopic: item.ReviewTopic, ReviewGroup: item.ReviewGroup,
 			ReviewDecisions: append([]string(nil), item.ReviewDecisions...), ModelingOutcome: dsl.RequirementOutcome{Status: item.ModelingOutcome},
 		})
 	}
 	return dsl.V05RequirementAtomsFile{
-		Document:         map[string]any{"id": project.ID + "_requirement_atoms", "title": project.Name + " requirement atoms", "pipeline_version": "0.7", "source_units_file": filepath.Base(project.SourceUnitsPath), "generation_strategy": "llm_granular_stage_with_design_obligations"},
+		Document:         map[string]any{"id": project.ID + "_requirement_atoms", "title": project.Name + " requirement atoms", "pipeline_version": "0.7.3", "review_policy_version": "review_semantics/v2", "source_units_file": filepath.Base(project.SourceUnitsPath), "generation_strategy": "llm_granular_stage_with_design_obligations"},
 		RequirementAtoms: atoms,
 		CoverageChecks:   []map[string]any{{"id": "source_references_valid", "status": "passed"}},
 	}
@@ -411,6 +428,7 @@ func invalidateModelArtifacts(project *ProjectState) {
 	project.ConceptualModelAcceptedPath = ""
 	project.ConceptualModelQAPath = ""
 	project.ConceptualModelDiffPath = ""
+	project.ConceptualDescriptionPath = ""
 	project.LogicalPatchProposalPath = ""
 	project.ObligationRealizationsPath = ""
 	project.SemanticVerificationPath = ""
@@ -454,6 +472,7 @@ func (s *Store) projectRequirementAtoms(projectID string) ([]RequirementAtom, ma
 	if err := readJSON(s.absoluteWorkspacePath(project.RequirementAtomsProposalPath), &proposal); err != nil {
 		return nil, nil, false, err
 	}
+	proposal.RequirementAtoms = llmpipeline.NormalizeRequirementReviewSemantics(proposal.RequirementAtoms)
 	items := make([]RequirementAtom, 0, len(proposal.RequirementAtoms))
 	covered := map[string]bool{}
 	for _, item := range proposal.RequirementAtoms {
@@ -469,6 +488,7 @@ func (s *Store) projectRequirementAtoms(projectID string) ([]RequirementAtom, ma
 			Condition: item.Condition, TemporalSemantics: item.TemporalSemantics, Ownership: item.Ownership,
 			SourceUnits: item.SourceUnits, FunctionalArea: item.FunctionalArea, FunctionalPattern: item.FunctionalPattern,
 			SupportLevel: item.SupportLevel, Confidence: item.Confidence, ReviewStatus: status, ModelingOutcome: item.ModelingOutcome,
+			ReviewClass: item.ReviewClass, ReviewTopic: item.ReviewTopic, Warnings: append([]string(nil), item.Warnings...),
 			ModelImpactPreview: []string{}, OpenReviewCandidates: []string{}})
 	}
 	coverage := map[string]int{"source_units_covered": len(covered), "requirements_needing_review": countRequirementReview(items), "direct_db_requirements": countDirectDB(items), "non_model_requirements": len(items) - countDirectDB(items)}

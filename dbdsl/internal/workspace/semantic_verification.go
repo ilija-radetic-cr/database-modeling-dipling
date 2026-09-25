@@ -128,6 +128,9 @@ func (s *Store) SemanticVerification(projectID string) (SemanticVerificationRepo
 	if err := readJSON(s.absoluteWorkspacePath(project.SemanticVerificationPath), &report); err != nil {
 		return report, err
 	}
+	if report.Issues == nil {
+		report.Issues = []SemanticIssue{}
+	}
 	return report, nil
 }
 

@@ -251,8 +251,17 @@ func buildUniqueIndexes(doc *dsl.Document) map[string][]dbmlIndex {
 		if constraint.Type != "unique" || len(fields) == 0 {
 			continue
 		}
+		physicalFields := make([]string, 0, len(fields))
+		for _, field := range fields {
+			resolved, err := dsl.ResolveConstraintReference(doc, constraint.Owner, field)
+			if err != nil {
+				physicalFields = append(physicalFields, field)
+				continue
+			}
+			physicalFields = append(physicalFields, resolved.PhysicalFields...)
+		}
 		indexes[constraint.Owner] = append(indexes[constraint.Owner], dbmlIndex{
-			Fields:   fields,
+			Fields:   physicalFields,
 			Settings: fmt.Sprintf("[unique, name: '%s']", dbmlQuote(constraint.ID)),
 		})
 	}
@@ -274,25 +283,26 @@ func addOneToOneIndexes(doc *dsl.Document, indexes map[string][]dbmlIndex) {
 func buildTableComments(doc *dsl.Document) map[string][]string {
 	comments := map[string][]string{}
 	for _, constraint := range doc.Constraints {
+		field := physicalConstraintField(doc, constraint.Owner, constraint.Field)
 		switch constraint.Type {
 		case "min_inclusive":
 			comments[constraint.Owner] = append(comments[constraint.Owner],
-				fmt.Sprintf("Constraint %s: %s >= %v", constraint.ID, constraint.Field, constraintBoundValue(constraint)))
+				fmt.Sprintf("Constraint %s: %s >= %v", constraint.ID, field, constraintBoundValue(constraint)))
 		case "min_exclusive":
 			comments[constraint.Owner] = append(comments[constraint.Owner],
-				fmt.Sprintf("Constraint %s: %s > %v", constraint.ID, constraint.Field, constraintBoundValue(constraint)))
+				fmt.Sprintf("Constraint %s: %s > %v", constraint.ID, field, constraintBoundValue(constraint)))
 		case "max_inclusive":
 			comments[constraint.Owner] = append(comments[constraint.Owner],
-				fmt.Sprintf("Constraint %s: %s <= %v", constraint.ID, constraint.Field, constraintBoundValue(constraint)))
+				fmt.Sprintf("Constraint %s: %s <= %v", constraint.ID, field, constraintBoundValue(constraint)))
 		case "max_exclusive":
 			comments[constraint.Owner] = append(comments[constraint.Owner],
-				fmt.Sprintf("Constraint %s: %s < %v", constraint.ID, constraint.Field, constraintBoundValue(constraint)))
+				fmt.Sprintf("Constraint %s: %s < %v", constraint.ID, field, constraintBoundValue(constraint)))
 		case "length":
 			comments[constraint.Owner] = append(comments[constraint.Owner],
-				fmt.Sprintf("Constraint %s: length(%s) value=%v min=%v max=%v", constraint.ID, constraint.Field, constraint.Value, constraint.Min, constraint.Max))
+				fmt.Sprintf("Constraint %s: length(%s) value=%v min=%v max=%v", constraint.ID, field, constraint.Value, constraint.Min, constraint.Max))
 		case "regex":
 			comments[constraint.Owner] = append(comments[constraint.Owner],
-				fmt.Sprintf("Constraint %s: %s matches %s", constraint.ID, constraint.Field, constraint.Pattern))
+				fmt.Sprintf("Constraint %s: %s matches %s", constraint.ID, field, constraint.Pattern))
 		case "check":
 			comments[constraint.Owner] = append(comments[constraint.Owner],
 				fmt.Sprintf("Constraint %s: %s", constraint.ID, constraint.Expression))
@@ -301,10 +311,18 @@ func buildTableComments(doc *dsl.Document) map[string][]string {
 				fmt.Sprintf("Constraint %s: conditional required", constraint.ID))
 		case "required":
 			comments[constraint.Owner] = append(comments[constraint.Owner],
-				fmt.Sprintf("Constraint %s: %s is required", constraint.ID, constraint.Field))
+				fmt.Sprintf("Constraint %s: %s is required", constraint.ID, field))
 		}
 	}
 	return comments
+}
+
+func physicalConstraintField(doc *dsl.Document, owner, field string) string {
+	resolved, err := dsl.ResolveConstraintReference(doc, owner, field)
+	if err == nil && len(resolved.PhysicalFields) == 1 {
+		return resolved.PhysicalFields[0]
+	}
+	return field
 }
 
 func columnSettings(attribute dsl.Attribute) string {
@@ -407,7 +425,7 @@ func formatDefault(value any) string {
 }
 
 func fkName(entityID string) string {
-	return fmt.Sprintf("%s_id", toSnake(entityID))
+	return dsl.GeneratedForeignKeyName(entityID)
 }
 
 var snakeBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)

@@ -30,6 +30,8 @@ func run(args []string) int {
 		return runLint(args[1:])
 	case "dbml":
 		return runDBML(args[1:])
+	case "sql":
+		return runSQL(args[1:])
 	case "trace":
 		return runTrace(args[1:])
 	case "generate":
@@ -103,6 +105,35 @@ func runLint(args []string) int {
 	if opts.Strict && result.HasWarnings() {
 		return 1
 	}
+	return 0
+}
+
+func runSQL(args []string) int {
+	opts, ok := parseCommandOptions("sql", args, true, false)
+	if !ok {
+		return 2
+	}
+	if !validateBeforeGeneration(opts.Path) {
+		return 1
+	}
+	output, err := generate.PostgreSQLFile(opts.Path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "generate sql: %v\n", err)
+		return 1
+	}
+	if opts.Write {
+		outputPath, ok := outputPathFor(opts, "sql")
+		if !ok {
+			return 2
+		}
+		if err := writeOutput(outputPath, output); err != nil {
+			fmt.Fprintf(os.Stderr, "write sql: %v\n", err)
+			return 1
+		}
+		fmt.Printf("wrote %s\n", outputPath)
+		return 0
+	}
+	fmt.Print(output)
 	return 0
 }
 
@@ -239,6 +270,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  dbdsl validate <db_model.dsl.yaml>")
 	fmt.Fprintln(os.Stderr, "  dbdsl lint <db_model.dsl.yaml> [--strict]")
 	fmt.Fprintln(os.Stderr, "  dbdsl dbml <db_model.dsl.yaml>")
+	fmt.Fprintln(os.Stderr, "  dbdsl sql <db_model.dsl.yaml>   (PostgreSQL DDL)")
 	fmt.Fprintln(os.Stderr, "  dbdsl trace <db_model.dsl.yaml>")
 	fmt.Fprintln(os.Stderr, "  dbdsl validate --poc <case> --version <version>")
 	fmt.Fprintln(os.Stderr, "  dbdsl lint --poc <case> --version <version> [--strict]")
@@ -488,6 +520,8 @@ func outputPathFor(opts commandOptions, kind string) (string, bool) {
 		return filepath.Join(dir, opts.POC+".dbml"), true
 	case "trace":
 		return filepath.Join(dir, opts.POC+"_traceability_report.md"), true
+	case "sql":
+		return filepath.Join(dir, opts.POC+".postgresql.sql"), true
 	default:
 		fmt.Fprintf(os.Stderr, "unknown output kind %s\n", kind)
 		return "", false

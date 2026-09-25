@@ -1,11 +1,8 @@
 package workspace
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
-
-	"dbdsl/internal/llm"
 )
 
 func TestReviewSourceUnitPersistsRevisionedDecision(t *testing.T) {
@@ -16,8 +13,8 @@ func TestReviewSourceUnitPersistsRevisionedDecision(t *testing.T) {
 		expectedText      string
 		expectedRelevance string
 	}{
-		{name: "accept", decision: "accept", expectedText: "Products have names.", expectedRelevance: "model_relevant"},
-		{name: "revise", decision: "revise", expectedText: "Products have names.", expectedRelevance: "model_relevant"},
+		{name: "accept", decision: "accept", expectedText: "Products have names.", expectedRelevance: ""},
+		{name: "revise", decision: "revise", expectedText: "Products have names.", expectedRelevance: ""},
 		{name: "exclude", decision: "exclude", expectedText: "Products have names.", expectedRelevance: "non_model"},
 	}
 	for _, test := range tests {
@@ -31,14 +28,9 @@ func TestReviewSourceUnitPersistsRevisionedDecision(t *testing.T) {
 			if err != nil {
 				t.Fatalf("add resource: %v", err)
 			}
-			mock := llm.NewDefaultMockClient()
 			revision, _, err = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 			if err != nil {
 				t.Fatalf("process sources: %v", err)
-			}
-			revision, _, err = store.GenerateSourceUnits(context.Background(), mock, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision, Model: "mock-model"})
-			if err != nil {
-				t.Fatalf("generate source units: %v", err)
 			}
 
 			state, _ := store.Project(project.ID)
@@ -118,32 +110,13 @@ func TestReviewSourceUnitRejectsFreeFormNormalization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("process sources: %v", err)
 	}
-	mock := llm.NewDefaultMockClient()
-	mock.Structured["source_unit_extraction"] = json.RawMessage(`{
-	  "classifications": [{
-	    "od_sentence_id": "OD-S-0001",
-	    "kind": "requirement_sentence",
-	    "section": "catalog",
-	    "relevance": "model_relevant",
-	    "tags": ["product"],
-	    "confidence": "low",
-	    "requires_review": true,
-	    "warnings": ["Needs human review."]
-	  }],
-	  "warnings": [],
-	  "confidence_summary": {"overall": "low"}
-	}`)
-	revision, _, err = store.GenerateSourceUnits(context.Background(), mock, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision, Model: "mock-model"})
-	if err != nil {
-		t.Fatalf("generate source units: %v", err)
-	}
 	if _, _, err := store.ReviewSourceUnit(project.ID, "SU-001", ReviewSourceUnitOptions{
 		BaseRevision: revision, Decision: "revise", NormalizedText: "Product must have a name.",
 	}); err == nil {
 		t.Fatal("free-form translation must not be accepted as normalized source text")
 	}
 	artifacts, err := store.SourceUnitArtifacts(project.ID)
-	if err != nil || len(artifacts.QA.NeedsAttention) != 1 {
-		t.Fatalf("rejected normalization unexpectedly cleared review gate: qa=%+v err=%v", artifacts.QA, err)
+	if err != nil || artifacts.Accepted.SourceUnits[0].Text.Normalized == "Product must have a name." {
+		t.Fatalf("rejected normalization changed the source unit: units=%+v err=%v", artifacts.Accepted.SourceUnits, err)
 	}
 }

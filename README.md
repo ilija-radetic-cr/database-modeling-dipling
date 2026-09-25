@@ -30,7 +30,7 @@ Open <http://127.0.0.1:5173>. The Vite development server proxies `/api` to the 
 
 The backend creates local runtime state, project artifacts and LLM audit logs in `.dbdsl_workbench/`; this directory is intentionally ignored by Git.
 
-The application workflow covers source intake, source segmentation, deterministic text normalization, source-unit review, requirement extraction, functional and CRUD analysis, human review, conceptual modeling, logical DB-DSL projection, validation and final DBML generation.
+The application workflow covers source intake, source segmentation, deterministic text normalization, source-unit review, requirement extraction, functional and CRUD analysis, human review, conceptual modeling, logical DB-DSL projection, semantic-obligation resolution, validation and repair, and final DBML and SQL generation.
 
 ## Offline development
 

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dbdsl/internal/dsl"
 )
 
 func TestValidateV05ValidModel(t *testing.T) {
@@ -13,6 +15,32 @@ func TestValidateV05ValidModel(t *testing.T) {
 	result := ValidateFile(modelPath)
 	if !result.OK() {
 		t.Fatalf("expected validation ok, got:\n%s", strings.Join(result.Errors, "\n"))
+	}
+}
+
+func TestV05AttributeReferencesSupportNamespacedEntityIDs(t *testing.T) {
+	v := validatorV05{
+		entityByID: map[string]dsl.Entity{
+			"entity.user-account": {ID: "entity.user-account"},
+		},
+		attributeIDs: map[string]map[string]bool{
+			"entity.user-account": {"username": true},
+		},
+	}
+	if !v.hasAttributeRef("entity.user-account.username") {
+		t.Fatal("namespaced entity attribute reference was not resolved")
+	}
+	v.validateImportTarget("import mapping", "entity.user-account.username")
+	if len(v.errors) != 0 {
+		t.Fatalf("namespaced import target was rejected: %v", v.errors)
+	}
+}
+
+func TestSplitAttributeReferenceRejectsMalformedValues(t *testing.T) {
+	for _, ref := range []string{"", "username", ".username", "entity.user-account."} {
+		if _, _, ok := splitAttributeReference(ref); ok {
+			t.Fatalf("malformed attribute reference %q was accepted", ref)
+		}
 	}
 }
 

@@ -219,7 +219,7 @@ func TestProcessSourcesEndpointWritesCombinedDocumentWithMock(t *testing.T) {
 	docReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/combined-document", nil)
 	docRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(docRec, docReq)
-	if docRec.Code != http.StatusOK || !strings.Contains(docRec.Body.String(), "OD-S-0001") {
+	if docRec.Code != http.StatusOK || !strings.Contains(docRec.Body.String(), "SU-001") {
 		t.Fatalf("expected combined document, got %d: %s", docRec.Code, docRec.Body.String())
 	}
 	if !strings.Contains(docRec.Body.String(), `"llm_assisted":true`) || strings.Contains(docRec.Body.String(), `"fallback_used":true`) {
@@ -228,12 +228,12 @@ func TestProcessSourcesEndpointWritesCombinedDocumentWithMock(t *testing.T) {
 	segmentationReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/source-segmentation", nil)
 	segmentationRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(segmentationRec, segmentationReq)
-	if segmentationRec.Code != http.StatusOK || !strings.Contains(segmentationRec.Body.String(), `"candidates_total":1`) {
-		t.Fatalf("expected segmentation audit artifact, got %d: %s", segmentationRec.Code, segmentationRec.Body.String())
+	if segmentationRec.Code != http.StatusOK || !strings.Contains(segmentationRec.Body.String(), `"segments":[{"id":"SU-001"`) {
+		t.Fatalf("expected ID-enriched segmentation output, got %d: %s", segmentationRec.Code, segmentationRec.Body.String())
 	}
 }
 
-func TestCanonicalProcessSourcesStageRunsWithoutLLM(t *testing.T) {
+func TestCanonicalProcessSourcesStageRequiresLLM(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	server := newTestServer(t)
 	projectID, revision := createProjectAndAddPastedText(t, server, "First sentence. Second sentence.")
@@ -248,31 +248,8 @@ func TestCanonicalProcessSourcesStageRunsWithoutLLM(t *testing.T) {
 	runReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/stages/process_sources/run", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d,"model":"mock-model"}`, revision))))
 	runRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(runRec, runReq)
-	if runRec.Code != http.StatusAccepted {
-		t.Fatalf("canonical process_sources stage returned %d: %s", runRec.Code, runRec.Body.String())
-	}
-	var started struct {
-		Job struct {
-			ID    string `json:"id"`
-			Stage string `json:"stage"`
-		} `json:"job"`
-	}
-	if err := json.Unmarshal(runRec.Body.Bytes(), &started); err != nil {
-		t.Fatalf("decode process job: %v", err)
-	}
-	if started.Job.Stage != "process_sources" {
-		t.Fatalf("unexpected stage name: %+v", started.Job)
-	}
-	waitForTestJob(t, server, started.Job.ID)
-
-	docReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/combined-document", nil)
-	docRec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(docRec, docReq)
-	if docRec.Code != http.StatusOK || !strings.Contains(docRec.Body.String(), `"sentence_count":2`) {
-		t.Fatalf("canonical stage did not sentence-segment the document: %d %s", docRec.Code, docRec.Body.String())
-	}
-	if !strings.Contains(docRec.Body.String(), `"fallback_used":true`) || !strings.Contains(docRec.Body.String(), `"segmentation_strategy":"deterministic_fallback"`) {
-		t.Fatalf("LLM-free fallback is not visible in the combined-document summary: %s", docRec.Body.String())
+	if runRec.Code != http.StatusPreconditionFailed || !strings.Contains(runRec.Body.String(), `"code":"llm_unavailable"`) {
+		t.Fatalf("process_sources must fail before starting without an LLM: %d %s", runRec.Code, runRec.Body.String())
 	}
 }
 
@@ -382,27 +359,11 @@ func TestResourceEndpointsRejectStaleBaseRevision(t *testing.T) {
 	}
 }
 
-func TestSourceUnitEndpointRunsRealRunnerAndReturnsQA(t *testing.T) {
+func TestProcessSourcesProducesSourceUnitQAAndUnits(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	server := newTestServer(t)
 	projectID, revision := createProjectAndAddPastedText(t, server, "Products have names.")
-	revision = processSourcesWithMock(t, server, projectID, revision)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/source-units/generate", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d,"mock":true}`, revision))))
-	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var started struct {
-		Job struct {
-			ID string `json:"id"`
-		} `json:"job"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil {
-		t.Fatalf("decode job: %v", err)
-	}
-	waitForTestJob(t, server, started.Job.ID)
+	_ = processSourcesWithMock(t, server, projectID, revision)
 
 	qaReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/source-units/qa", nil)
 	qaRec := httptest.NewRecorder()
@@ -416,6 +377,12 @@ func TestSourceUnitEndpointRunsRealRunnerAndReturnsQA(t *testing.T) {
 	if unitsRec.Code != http.StatusOK || !strings.Contains(unitsRec.Body.String(), "SU-001") {
 		t.Fatalf("unexpected units response %d: %s", unitsRec.Code, unitsRec.Body.String())
 	}
+	stagesReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/stages", nil)
+	stagesRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(stagesRec, stagesReq)
+	if stagesRec.Code != http.StatusOK || !strings.Contains(stagesRec.Body.String(), `"next_stage":"conceptual_model"`) {
+		t.Fatalf("source processing did not advance directly to conceptual model: %d %s", stagesRec.Code, stagesRec.Body.String())
+	}
 }
 
 func TestSourceUnitReviewEndpointResolvesAttentionGate(t *testing.T) {
@@ -423,24 +390,7 @@ func TestSourceUnitReviewEndpointResolvesAttentionGate(t *testing.T) {
 	server, testRoot := newTestServerWithRoot(t)
 	projectID, revision := createProjectAndAddPastedText(t, server, "Products have names.")
 	revision = processSourcesWithMock(t, server, projectID, revision)
-
-	generateReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/source-units/generate", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d,"mock":true}`, revision))))
-	generateRec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(generateRec, generateReq)
-	if generateRec.Code != http.StatusAccepted {
-		t.Fatalf("generate source units returned %d: %s", generateRec.Code, generateRec.Body.String())
-	}
-	var started struct {
-		Job struct {
-			ID string `json:"id"`
-		} `json:"job"`
-	}
-	if err := json.Unmarshal(generateRec.Body.Bytes(), &started); err != nil {
-		t.Fatalf("decode source-unit job: %v", err)
-	}
-	waitForTestJob(t, server, started.Job.ID)
 	state, _ := server.store.Project(projectID)
-	revision = state.CurrentRevision
 	artifacts, err := server.store.SourceUnitArtifacts(projectID)
 	if err != nil {
 		t.Fatalf("load source-unit artifacts: %v", err)
@@ -464,8 +414,8 @@ func TestSourceUnitReviewEndpointResolvesAttentionGate(t *testing.T) {
 	stageReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/stages", nil)
 	stageRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(stageRec, stageReq)
-	if stageRec.Code != http.StatusOK || !strings.Contains(stageRec.Body.String(), `"next_stage":"requirement_atoms"`) {
-		t.Fatalf("requirement stage was not unlocked: %d %s", stageRec.Code, stageRec.Body.String())
+	if stageRec.Code != http.StatusOK || !strings.Contains(stageRec.Body.String(), `"next_stage":"conceptual_model"`) {
+		t.Fatalf("conceptual stage was not unlocked: %d %s", stageRec.Code, stageRec.Body.String())
 	}
 }
 

@@ -2,14 +2,12 @@ package workspace
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"dbdsl/internal/llm"
 	"dbdsl/internal/scaffold"
 )
 
@@ -72,13 +70,13 @@ func TestAddUploadedTextResourceExtractsText(t *testing.T) {
 	}
 }
 
-func TestProcessSourcesWritesCombinedDocumentWithLineage(t *testing.T) {
+func TestProcessSourcesWritesCombinedDocumentWithoutLineage(t *testing.T) {
 	store := newIngestionTestStore(t)
 	project, err := store.CreateProject("Products", "", "en", "catalog")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	resource, revision, err := store.AddPastedTextResource(project.ID, 0, "Task text", "System stores products in a catalog.")
+	_, revision, err := store.AddPastedTextResource(project.ID, 0, "Task text", "System stores products in a catalog.")
 	if err != nil {
 		t.Fatalf("add pasted text: %v", err)
 	}
@@ -96,15 +94,15 @@ func TestProcessSourcesWritesCombinedDocumentWithLineage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("combined document: %v", err)
 	}
-	if document.Summary.SentenceCount != 1 || !strings.Contains(document.Markdown, "[OD-S-0001]") {
+	if document.Summary.SentenceCount != 1 || !strings.Contains(document.Markdown, "[SU-001]") {
 		t.Fatalf("unexpected combined document: %+v", document.Summary)
 	}
-	if document.Lineage.Sentences[0].DerivedFrom[0].ResourceID != resource.ID {
-		t.Fatalf("unexpected lineage: %+v", document.Lineage.Sentences[0].DerivedFrom)
+	if len(document.Lineage.Sentences[0].DerivedFrom) != 0 {
+		t.Fatalf("segmentation unexpectedly reconstructed lineage: %+v", document.Lineage.Sentences[0].DerivedFrom)
 	}
-	fidelity, err := store.SourceFidelity(project.ID)
-	if err != nil || !fidelity.OK || fidelity.NormativeCoverage != 1 {
-		t.Fatalf("expected complete deterministic source fidelity: report=%+v err=%v", fidelity, err)
+	segmentation, err := store.SourceSegmentation(project.ID)
+	if err != nil || len(segmentation.Segments) != 1 || segmentation.Segments[0].ID != "SU-001" {
+		t.Fatalf("unexpected enriched segmentation: proposal=%+v err=%v", segmentation, err)
 	}
 }
 
@@ -160,7 +158,7 @@ func TestIntakeMutationsEnforceOptionalBaseRevision(t *testing.T) {
 	}
 }
 
-func TestGenerateSourceUnitsWritesRevisionedArtifacts(t *testing.T) {
+func TestProcessSourcesWritesSourceUnitsInSameRevision(t *testing.T) {
 	store := newIngestionTestStore(t)
 	project, err := store.CreateProject("Products", "", "en", "catalog")
 	if err != nil {
@@ -170,16 +168,12 @@ func TestGenerateSourceUnitsWritesRevisionedArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add resource: %v", err)
 	}
-	revision, _, err = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+	revision, updated, err := store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 	if err != nil {
 		t.Fatalf("process sources: %v", err)
 	}
-	revision, updated, err := store.GenerateSourceUnits(context.Background(), llm.NewDefaultMockClient(), project.ID, GenerateSourceUnitsOptions{BaseRevision: revision, Model: "mock-model"})
-	if err != nil {
-		t.Fatalf("generate source units: %v", err)
-	}
 	if !testContains(updated, "source_units") {
-		t.Fatalf("expected source-unit update, got %v", updated)
+		t.Fatalf("source processing did not report source-unit artifacts: %v", updated)
 	}
 	artifacts, err := store.SourceUnitArtifacts(project.ID)
 	if err != nil {
@@ -190,27 +184,26 @@ func TestGenerateSourceUnitsWritesRevisionedArtifacts(t *testing.T) {
 	}
 	state, _ := store.Project(project.ID)
 	if !strings.Contains(state.SourceUnitsPath, fmt.Sprintf("rev_%06d", revision)) {
-		t.Fatalf("source units are not revisioned: %s", state.SourceUnitsPath)
+		t.Fatalf("source units do not belong to the source-processing revision: %s", state.SourceUnitsPath)
 	}
 	units, err := store.SourceUnits(project.ID)
-	if err != nil || len(units) != 1 || len(units[0].OriginSpans) != 1 {
+	if err != nil || len(units) != 1 || len(units[0].OriginSpans) != 0 {
 		t.Fatalf("unexpected API source units: units=%+v err=%v", units, err)
-	}
-	if units[0].OriginSpans[0].EndOffset == 0 || !strings.Contains(units[0].OriginSpans[0].Label, "bytes") {
-		t.Fatalf("source-unit origin did not preserve candidate byte lineage: %+v", units[0].OriginSpans[0])
 	}
 }
 
-func TestGenerateSourceUnitsFailsClosedWithoutLLM(t *testing.T) {
+// Source units are derived deterministically during source processing.
+func TestProcessSourcesDerivesSourceUnitsDeterministically(t *testing.T) {
 	store := newIngestionTestStore(t)
 	project, _ := store.CreateProject("Products", "", "en", "catalog")
 	_, revision, _ := store.AddPastedTextResource(project.ID, 0, "Task", "Products have names.")
-	revision, _, err := store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+	_, _, err := store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 	if err != nil {
 		t.Fatalf("process sources: %v", err)
 	}
-	if _, _, err := store.GenerateSourceUnits(context.Background(), nil, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision}); err == nil {
-		t.Fatal("real source-unit generation must fail closed when the LLM is unavailable")
+	artifacts, err := store.SourceUnitArtifacts(project.ID)
+	if err != nil || artifacts.QA.DerivationStrategy != "segments_v1" || len(artifacts.Accepted.SourceUnits) == 0 {
+		t.Fatalf("unexpected source units: %+v err=%v", artifacts.QA, err)
 	}
 }
 

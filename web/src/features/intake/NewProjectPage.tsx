@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Database, Eye, FileText, FileUp, FolderOpen, Play, Plus, Sparkles, Trash2, UploadCloud } from "lucide-react";
+import { Bot, CheckCircle2, Database, Eye, FileUp, FolderOpen, Play, Sparkles, Trash2, UserCheck } from "lucide-react";
 import { api } from "@/shared/api/client";
 import type { BundleCandidate, InputResource, Job } from "@/shared/api/types";
 import { Badge, Button, Drawer, Field, LoadingState, Metric, Panel, StatusBadge } from "@/shared/components/ui";
 import { useRouter } from "@/shared/lib/router";
 import { JobProgress } from "@/features/jobs/JobProgress";
-	import { newProjectActionState } from "@/shared/lib/pipeline";
+import { requestAutoRun } from "@/shared/lib/autopilot";
 
 export function NewProjectPage() {
   const { navigate } = useRouter();
@@ -23,6 +23,8 @@ export function NewProjectPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedResource, setSelectedResource] = useState<InputResource | null>(null);
+  const [textAdded, setTextAdded] = useState(false);
+  const [phase, setPhase] = useState("");
 
   const llmStatus = useQuery({
     queryKey: ["llm-status"],
@@ -64,6 +66,42 @@ export function NewProjectPage() {
       setProjectRevision(project.current_revision);
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
+  });
+  // One action from task text to a running pipeline: create the project, attach
+  // every source, build the lossless source document, then hand over to autopilot.
+  const start = useMutation({
+    mutationFn: async () => {
+      let id = projectId;
+      if (!id) {
+        setPhase("Creating project");
+        const created = await api.createProject({ name, description, language: "sr-Cyrl", domain: "information_system" });
+        id = created.project.id;
+        setProjectId(id);
+      }
+      if (sourceText.trim() !== "" && !textAdded) {
+        setPhase("Adding task text");
+        await api.addPastedText(id, { title: sourceTitle.trim() || "Task text", content: sourceText });
+        setTextAdded(true);
+      }
+      for (const file of selectedFiles) {
+        setPhase(`Uploading ${file.name}`);
+        const form = new FormData();
+        form.append("file", file);
+        form.append("title", file.name);
+        await api.uploadFile(id, form);
+      }
+      setSelectedFiles([]);
+      setPhase("Building the source document");
+      const fresh = await api.getProject(id);
+      const started = await api.processSources(id, fresh.project.current_revision, { model: llmModel.trim() || undefined, mock: llmUseMock });
+      return started.job;
+    },
+    onSuccess: (started) => {
+      setPhase("");
+      setJob(started);
+      void queryClient.invalidateQueries();
+    },
+    onError: () => setPhase(""),
   });
   const addText = useMutation({
     mutationFn: (id: string) => api.addPastedText(id, { title: sourceTitle, content: sourceText }),
@@ -157,17 +195,8 @@ export function NewProjectPage() {
   const readyResourceCount = resourceItems.filter((item) => item.extraction_status === "ready" || item.extraction_status === "needs_attention").length;
   const activeRevision = project.data?.project.current_revision ?? projectRevision;
   const manifestSummary = sourceManifest.data?.manifest.summary;
-	const actionState = newProjectActionState({ created: ready, name, sourceText, readyResources: readyResourceCount });
-
-  async function addTextToCurrentProject() {
-    if (!projectId) return;
-    await addText.mutateAsync(projectId);
-  }
-
-  async function uploadSelectedFiles() {
-    if (!projectId) return;
-    await upload.mutateAsync(projectId);
-  }
+  const hasSources = sourceText.trim() !== "" || selectedFiles.length > 0 || readyResourceCount > 0;
+  const canStart = name.trim() !== "" && hasSources && !start.isPending && !job;
 
   return (
     <div className="page">
@@ -179,185 +208,152 @@ export function NewProjectPage() {
         <Button onClick={() => navigate("/projects")}>Projects</Button>
       </div>
 
-      <div className="grid-2">
-        <Panel title="Project setup">
-          <div className="field" style={{ gap: 14 }}>
-            <Field label="Project name">
-              <input className="input" value={name} onChange={(event) => setName(event.target.value)} />
-            </Field>
-            <Field label="Description">
-              <textarea className="textarea" value={description} onChange={(event) => setDescription(event.target.value)} />
-            </Field>
-            <Field label="Source title">
-              <input className="input" value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} />
-            </Field>
-            <Field label="Paste text">
-              <textarea className="textarea" value={sourceText} onChange={(event) => setSourceText(event.target.value)} />
-            </Field>
-            <div className="toolbar">
-			<Button variant="primary" onClick={() => create.mutate()} disabled={create.isPending || !actionState.canCreate}>
-                <Plus size={18} />
-				Create Project
-              </Button>
-			<Button onClick={addTextToCurrentProject} disabled={addText.isPending || !actionState.canAddText}>
-                <FileText size={18} />
-                Add Text
-              </Button>
-			<Button
-				variant="primary"
-                onClick={() => {
-                  if (projectId) void process.mutateAsync(projectId);
-                }}
-				disabled={!actionState.canBuildCombinedDocument || process.isPending || !!job}
-              >
-                <Play size={18} />
-				Build LLM-assisted Source Document
-              </Button>
+      <div className="intake-layout">
+        <Panel title="Start a modeling project">
+          <div className="field" style={{ gap: 16 }}>
+            <div className="intake-step">
+              <span className="step-number">1</span>
+              <div className="field" style={{ gap: 10 }}>
+                <Field label="Project name">
+                  <input className="input" value={name} placeholder="e.g. Pizzeria ordering system" onChange={(event) => setName(event.target.value)} disabled={ready} />
+                </Field>
+                <Field label="Description (optional)">
+                  <input className="input" value={description} onChange={(event) => setDescription(event.target.value)} disabled={ready} />
+                </Field>
+              </div>
             </div>
-			<p className="muted">The backend owns exact spans and fidelity validation. The LLM may only group candidate spans into sentences; if it is unavailable or invalid, processing completes with a visible deterministic fallback.</p>
-            <Field label="Upload documents">
-              <input
-                className="input"
-                type="file"
-                multiple
-                accept=".txt,.md,.markdown,.json,.csv,.xml,.pdf,.docx,text/plain,text/markdown,application/json,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
-                disabled={!projectId || upload.isPending}
-              />
-            </Field>
-            <div className="toolbar">
-              <Button onClick={uploadSelectedFiles} disabled={!projectId || selectedFiles.length === 0 || upload.isPending}>
-                <UploadCloud size={18} />
-                Upload {selectedFiles.length > 0 ? selectedFiles.length : ""}
-              </Button>
-              <Badge tone={readyResourceCount ? "good" : "default"}>{readyResourceCount} ready resources</Badge>
-              <Badge>rev {activeRevision}</Badge>
+            <div className="intake-step">
+              <span className="step-number">2</span>
+              <div className="field" style={{ gap: 10 }}>
+                <Field label="Task text">
+                  <textarea
+                    className="textarea intake-text"
+                    value={sourceText}
+                    placeholder="Paste the project assignment (Serbian Cyrillic or Latin, or English)…"
+                    onChange={(event) => { setSourceText(event.target.value); setTextAdded(false); }}
+                  />
+                </Field>
+                <Field label="…or upload documents (PDF, DOCX, TXT, MD, JSON, CSV, XML)">
+                  <input
+                    className="input"
+                    type="file"
+                    multiple
+                    accept=".txt,.md,.markdown,.json,.csv,.xml,.pdf,.docx,text/plain,text/markdown,application/json,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
+                    disabled={start.isPending}
+                  />
+                </Field>
+              </div>
             </div>
-            {scaffoldAndImport.isError && <p className="error-text">{(scaffoldAndImport.error as Error).message}</p>}
-            {addText.isError && <p className="error-text">{(addText.error as Error).message}</p>}
-            {upload.isError && <p className="error-text">{(upload.error as Error).message}</p>}
-            {process.isError && <p className="error-text">{(process.error as Error).message}</p>}
-			<details>
-				<summary><strong>Developer / Experiments</strong></summary>
-			<div className="llm-box" style={{ marginTop: 12 }}>
-              <div className="bundle-main">
-				<div className="toolbar">
-					<Button onClick={() => scaffoldAndImport.mutate()} disabled={sourceText.trim() === "" || scaffoldAndImport.isPending}>
-						<Database size={18} /> Generate Scaffold
-					</Button>
-                  <Bot size={18} />
-                  <strong>LLM Draft</strong>
-                  <Badge tone={llmAvailable ? "good" : "warn"}>{llmUseMock ? "mock" : llmStatus.data?.available ? "ready" : "no key"}</Badge>
+            <div className="intake-step">
+              <span className="step-number">3</span>
+              <div className="field" style={{ gap: 8 }}>
+                <div className="toolbar">
+                  <Button variant="primary" className="large" onClick={() => start.mutate()} disabled={!canStart}>
+                    <Play size={18} />
+                    {start.isPending ? `${phase}…` : "Start analysis"}
+                  </Button>
+                  {readyResourceCount > 0 && <Badge tone="good">{readyResourceCount} source{readyResourceCount === 1 ? "" : "s"} attached</Badge>}
                 </div>
-                <label className="toolbar toggle-label">
-                  <input type="checkbox" checked={llmUseMock} onChange={(event) => setLlmUseMock(event.target.checked)} />
-                  Mock
-                </label>
+                <p className="muted small">The pipeline runs automatically and stops only where a design decision needs you.</p>
               </div>
-              <Field label="Model">
-                <input
-                  className="input"
-                  value={llmModel}
-                  onChange={(event) => setLlmModel(event.target.value)}
-                  disabled={llmUseMock || llmDraftAndImport.isPending}
-                />
-              </Field>
-              <div className="toolbar">
-                <Button
-                  variant="primary"
-                  onClick={() => llmDraftAndImport.mutate()}
-                  disabled={sourceText.trim() === "" || !llmAvailable || llmDraftAndImport.isPending}
-                >
-                  <Sparkles size={18} />
-                  {llmDraftAndImport.isPending ? "Generating LLM Draft..." : "Generate LLM Draft"}
-                </Button>
-              </div>
-              {llmStatus.isError && <p className="error-text">{(llmStatus.error as Error).message}</p>}
-              {llmDraftAndImport.isError && <p className="error-text">{(llmDraftAndImport.error as Error).message}</p>}
-			</div>
-			</details>
-            {job && projectId && (
-			<JobProgress projectId={projectId} job={job} onDone={() => navigate(`/projects/${projectId}/analysis/sources`)} />
+            </div>
+            {(start.isError || addText.isError || upload.isError || process.isError) && (
+              <p className="error-text">{((start.error ?? addText.error ?? upload.error ?? process.error) as Error).message}</p>
             )}
+            {job && projectId && (
+              <JobProgress
+                projectId={projectId}
+                job={job}
+                onDone={() => {
+                  requestAutoRun(projectId);
+                  navigate(`/projects/${projectId}/analysis/overview`);
+                }}
+              />
+            )}
+            <details className="dev-tools">
+              <summary>Developer tools</summary>
+              <div className="field" style={{ gap: 14, marginTop: 12 }}>
+                <div className="llm-box">
+                  <div className="bundle-main">
+                    <div className="toolbar">
+                      <Button onClick={() => scaffoldAndImport.mutate()} disabled={sourceText.trim() === "" || scaffoldAndImport.isPending}>
+                        <Database size={18} /> Generate Scaffold
+                      </Button>
+                      <Bot size={18} />
+                      <strong>One-shot LLM draft</strong>
+                      <Badge tone={llmAvailable ? "good" : "warn"}>{llmUseMock ? "mock" : llmStatus.data?.available ? "ready" : "no key"}</Badge>
+                    </div>
+                    <label className="toolbar toggle-label">
+                      <input type="checkbox" checked={llmUseMock} onChange={(event) => setLlmUseMock(event.target.checked)} />
+                      Mock LLM
+                    </label>
+                  </div>
+                  <Field label="Model">
+                    <input className="input" value={llmModel} onChange={(event) => setLlmModel(event.target.value)} disabled={llmUseMock || llmDraftAndImport.isPending} />
+                  </Field>
+                  <div className="toolbar">
+                    <Button onClick={() => llmDraftAndImport.mutate()} disabled={sourceText.trim() === "" || !llmAvailable || llmDraftAndImport.isPending}>
+                      <Sparkles size={18} />
+                      {llmDraftAndImport.isPending ? "Generating LLM Draft..." : "Generate LLM Draft"}
+                    </Button>
+                  </div>
+                  {llmStatus.isError && <p className="error-text">{(llmStatus.error as Error).message}</p>}
+                  {llmDraftAndImport.isError && <p className="error-text">{(llmDraftAndImport.error as Error).message}</p>}
+                  {scaffoldAndImport.isError && <p className="error-text">{(scaffoldAndImport.error as Error).message}</p>}
+                </div>
+                <Field label="Import existing v0.5 bundle path">
+                  <input className="input" value={bundlePath} onChange={(event) => setBundlePath(event.target.value)} />
+                </Field>
+                <div className="toolbar">
+                  <Button onClick={() => importExisting.mutate(bundlePath)} disabled={bundlePath.trim() === "" || importExisting.isPending}>
+                    <FolderOpen size={18} />
+                    Import Path
+                  </Button>
+                </div>
+                {importExisting.isError && <p className="error-text">{(importExisting.error as Error).message}</p>}
+                <div className="bundle-list">
+                  {bundles.isLoading && <p className="muted">Loading bundles...</p>}
+                  {bundleItems.map((bundle) => (
+                    <BundleCard bundle={bundle} importing={importExisting.isPending} key={bundle.id} onImport={(path) => importExisting.mutate(path)} />
+                  ))}
+                </div>
+              </div>
+            </details>
           </div>
         </Panel>
 
         <div className="field" style={{ gap: 16 }}>
-		<Panel title="Developer / Experiments">
-			<details>
-				<summary><strong>Import Existing v0.5 Bundle</strong></summary>
-            <div className="field" style={{ gap: 14 }}>
-              <Field label="Bundle path">
-                <input className="input" value={bundlePath} onChange={(event) => setBundlePath(event.target.value)} />
-              </Field>
-              <div className="toolbar">
-                <Button
-                  variant="primary"
-                  onClick={() => importExisting.mutate(bundlePath)}
-                  disabled={bundlePath.trim() === "" || importExisting.isPending}
-                >
-                  <FolderOpen size={18} />
-                  Import Path
-                </Button>
-              </div>
-              {importExisting.isError && <p className="error-text">{(importExisting.error as Error).message}</p>}
-              <div className="bundle-list">
-                {bundles.isLoading && <p className="muted">Loading bundles...</p>}
-                {!bundles.isLoading && bundleItems.length === 0 && <p className="muted">No v0.5 bundles found in poc.</p>}
-                {bundleItems.map((bundle) => (
-                  <BundleCard
-                    bundle={bundle}
-                    importing={importExisting.isPending}
-                    key={bundle.id}
-                    onImport={(path) => importExisting.mutate(path)}
-                  />
-                ))}
-              </div>
-			</div>
-			</details>
-          </Panel>
-
-          <Panel title="Resource Intake">
-            <div className="field" style={{ gap: 14 }}>
-              <div className="grid-3 compact-metrics">
-                <Metric label="Resources" value={manifestSummary?.total ?? resourceItems.length} />
-                <Metric label="Ready" value={manifestSummary?.ready ?? readyResourceCount} />
-                <Metric label="OD Sentences" value={project.data?.project.counts.combined_sentences ?? 0} />
-              </div>
-              <div className="toolbar">
-                <FileUp size={18} />
-                <span>Manifest</span>
-                <StatusBadge value={project.data?.artifact_health.source_manifest_status ?? "not_generated"} />
-                <span>Combined document</span>
-                <StatusBadge value={project.data?.artifact_health.combined_document_status ?? "not_generated"} />
-				<span>Segmentation</span>
-				<StatusBadge value={project.data?.artifact_health.source_segmentation_status ?? "not_generated"} />
-              </div>
-              {resources.isLoading ? (
-                <LoadingState />
-              ) : (
-                <ResourceTable
-                  items={resourceItems}
-                  removing={removeResource.isPending}
-                  onPreview={setSelectedResource}
-                  onDelete={(resourceId) => removeResource.mutate(resourceId)}
-                />
-              )}
-              {combinedDocument.data?.combined_document && (
-                <div className="artifact-preview">
-                  <div className="toolbar">
-                    <Badge tone="good">{combinedDocument.data.combined_document.summary.sentence_count} OD sentences</Badge>
-					<Badge tone={combinedDocument.data.combined_document.summary.fallback_used ? "warn" : "good"}>
-						{combinedDocument.data.combined_document.summary.fallback_used ? "deterministic fallback" : "LLM-assisted segmentation"}
-					</Badge>
-                    <Badge tone={combinedDocument.data.combined_document.summary.warning_count ? "warn" : "good"}>
-                      {combinedDocument.data.combined_document.summary.warning_count} warnings
-                    </Badge>
-                  </div>
-                  <pre>{combinedDocument.data.combined_document.markdown}</pre>
+          {ready ? (
+            <Panel title="Sources">
+              <div className="field" style={{ gap: 14 }}>
+                <div className="toolbar">
+                  <FileUp size={18} />
+                  <StatusBadge value={project.data?.artifact_health.combined_document_status ?? "not_generated"} />
+                  <span className="muted small">{manifestSummary?.total ?? resourceItems.length} resources · {project.data?.project.counts.combined_sentences ?? 0} sentences · rev {activeRevision}</span>
                 </div>
-              )}
-            </div>
+                {resources.isLoading ? (
+                  <LoadingState />
+                ) : (
+                  <ResourceTable
+                    items={resourceItems}
+                    removing={removeResource.isPending}
+                    onPreview={setSelectedResource}
+                    onDelete={(resourceId) => removeResource.mutate(resourceId)}
+                  />
+                )}
+              </div>
+            </Panel>
+          ) : null}
+          <Panel title="How the analysis works">
+            <ol className="how-it-works">
+              <li><Sparkles size={16} /><div><strong>Sources</strong><span>The text is split into traceable sentences and classified.</span></div></li>
+              <li><Sparkles size={16} /><div><strong>Evidence</strong><span>Atomic requirements, functional areas and CRUD operations are extracted.</span></div></li>
+              <li className="gate"><UserCheck size={16} /><div><strong>Your decisions</strong><span>Ambiguities become questions with options and consequences.</span></div></li>
+              <li><Sparkles size={16} /><div><strong>Conceptual model</strong><span>Entities, attributes, types and relationships are proposed.</span></div></li>
+              <li className="gate"><UserCheck size={16} /><div><strong>Your acceptance</strong><span>You review the ER diagram before it becomes a database model.</span></div></li>
+              <li><CheckCircle2 size={16} /><div><strong>Database model</strong><span>Deterministic rules produce DB-DSL, validated and traced to the source; DBML is generated.</span></div></li>
+            </ol>
           </Panel>
         </div>
       </div>

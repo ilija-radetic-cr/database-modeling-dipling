@@ -93,6 +93,22 @@ func TestConceptualModelInputFallsBackToExactSourceText(t *testing.T) {
 	}
 }
 
+func TestModelInputUsesStructuredShapeWithoutLiteralValues(t *testing.T) {
+	inputs := modelSourceUnitInputs([]dsl.SourceUnit{{
+		ID: "SU-JSON", Kind: "structured_example", Relevance: "example",
+		Text: dsl.SourceUnitText{Exact: `{"category":"country","terms":["China","Cyprus"]}`},
+	}})
+	if len(inputs) != 1 || strings.Contains(inputs[0].Normalized, "China") || strings.Contains(inputs[0].Normalized, "Cyprus") {
+		t.Fatalf("model input leaked illustrative values: %+v", inputs)
+	}
+	if !strings.Contains(inputs[0].Normalized, `"category"`) || !strings.Contains(inputs[0].Normalized, `"terms"`) {
+		t.Fatalf("model input lost schema-shape keys: %+v", inputs)
+	}
+	if inputs[0].StructuredShape == nil || !inputs[0].StructuredShape.LiteralValuesOmitted {
+		t.Fatalf("model input lacks shape metadata: %+v", inputs)
+	}
+}
+
 func TestValidateConceptualModelAllowsEntityToFileConceptRelationship(t *testing.T) {
 	evidence := EvidenceProposal{
 		SourceUnits: []string{"SU-001"}, RequirementAtoms: []string{"RA-001"},
@@ -270,6 +286,20 @@ func TestConceptualMergePreservesExistingEvidenceAndAttributes(t *testing.T) {
 	}
 }
 
+func TestConceptualMergeKeepsEmptyCollectionsJSONStable(t *testing.T) {
+	merged := mergeConceptualModel(ConceptualModelProposal{}, ConceptualModelProposal{})
+	if merged.EntityConcepts == nil || merged.Relationships == nil || merged.LifecycleConcepts == nil || merged.DerivedConcepts == nil || merged.FileConcepts == nil || merged.ImportConcepts == nil {
+		t.Fatalf("conceptual merge returned nil collections: %+v", merged)
+	}
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		t.Fatalf("marshal conceptual merge: %v", err)
+	}
+	if bytes.Contains(encoded, []byte(`"relationships":null`)) {
+		t.Fatalf("empty relationships must serialize as an array: %s", encoded)
+	}
+}
+
 func TestConceptualRepairInputIsDeltaScoped(t *testing.T) {
 	opts := ConceptualModelOptions{
 		SourceUnits:       []dsl.SourceUnit{{ID: "SU-001", Text: dsl.SourceUnitText{Exact: "Store account."}}, {ID: "SU-002", Text: dsl.SourceUnitText{Exact: "Store product."}}},
@@ -380,6 +410,62 @@ func TestLogicalRepairFocusAndMergePreserveUnaffectedOperations(t *testing.T) {
 	}
 }
 
+func TestLogicalRepairCanRemoveInvalidPriorOperation(t *testing.T) {
+	base := PatchProposal{Operations: []PatchOperation{
+		{Operation: "add_entity", Entity: &EntityProposal{ID: "ENT-ITEM", TableName: "items"}},
+		{Operation: "add_constraint", Constraint: &ConstraintProposal{ID: "CON-REDUNDANT", Owner: "ENT-ITEM", Type: "required", Field: "REL-ITEM-UNIT"}},
+	}}
+	fragment := PatchProposal{Operations: []PatchOperation{{
+		Operation: "remove_operation", TargetOperation: "add_constraint", TargetID: "CON-REDUNDANT",
+	}}}
+	merged := mergeLogicalPatch(base, fragment)
+	if len(merged.Operations) != 1 || merged.Operations[0].Entity == nil || merged.Operations[0].Entity.ID != "ENT-ITEM" {
+		t.Fatalf("remove_operation did not delete only its target: %+v", merged.Operations)
+	}
+}
+
+func TestLogicalProjectionRepairsFullValidationWithinOneRun(t *testing.T) {
+	client := &logicalRepairClient{}
+	evidence := EvidenceProposal{SourceUnits: []string{"SU-001"}, RequirementAtoms: []string{"RA-001"}, SupportLevel: "explicit", Confidence: "high"}
+	opts := LogicalProjectionOptions{
+		OutDir: t.TempDir(), Model: "mock-model", MaxOutputTokens: 8000, RepairMaxOutputTokens: 6000, MaxRepairAttempts: 2,
+		ConceptualModel: ConceptualModelProposal{EntityConcepts: []ConceptualEntityProposal{{ID: "ENT-ITEM", Evidence: evidence}}},
+		SourceUnits:     []dsl.SourceUnit{{ID: "SU-001"}}, RequirementAtoms: []RequirementAtomProposal{{ID: "RA-001"}},
+		ValidateProposal: func(proposal PatchProposal) []string {
+			for _, operation := range proposal.Operations {
+				if operation.Constraint != nil && operation.Constraint.ID == "CON-BAD" {
+					return []string{"constraint CON-BAD is redundant"}
+				}
+			}
+			return nil
+		},
+	}
+	patch, qa, err := RunLogicalProjection(context.Background(), client, opts)
+	if err != nil || !qa.OK || client.calls != 2 {
+		t.Fatalf("in-job repair failed: calls=%d qa=%+v err=%v", client.calls, qa, err)
+	}
+	if len(patch.Operations) != 1 || patch.Operations[0].Entity == nil {
+		t.Fatalf("repair did not remove invalid constraint: %+v", patch.Operations)
+	}
+}
+
+type logicalRepairClient struct{ calls int }
+
+func (c *logicalRepairClient) GenerateStructured(_ context.Context, _ llm.Request) (llm.Response, error) {
+	c.calls++
+	var payload string
+	if c.calls == 1 {
+		payload = `{"operations":[{"operation":"add_entity","target_operation":"","target_id":"","entity":{"id":"ENT-ITEM","label":"Item","description":"Item.","table_name":"items","kind":"regular","evidence":{"source_units":["SU-001"],"requirement_atoms":["RA-001"],"review_decisions":[],"support_level":"explicit","confidence":"high","notes":[]},"attributes":[]},"relationship":null,"constraint":null,"state_machine":null,"derived_view":null,"file_spec":null,"import_spec":null},{"operation":"add_constraint","target_operation":"","target_id":"","entity":null,"relationship":null,"constraint":{"id":"CON-BAD","type":"required","owner":"ENT-ITEM","field":"missing","fields":[],"value":null,"min":null,"max":null,"pattern":"","expression":"","description":"Bad.","evidence":{"source_units":["SU-001"],"requirement_atoms":["RA-001"],"review_decisions":[],"support_level":"explicit","confidence":"high","notes":[]}},"state_machine":null,"derived_view":null,"file_spec":null,"import_spec":null}],"warnings":[],"unresolved_questions":[],"confidence_summary":{}}`
+	} else {
+		payload = `{"operations":[{"operation":"remove_operation","target_operation":"add_constraint","target_id":"CON-BAD","entity":null,"relationship":null,"constraint":null,"state_machine":null,"derived_view":null,"file_spec":null,"import_spec":null}],"warnings":[],"unresolved_questions":[],"confidence_summary":{}}`
+	}
+	return llm.Response{Raw: payload, Text: payload, Parsed: json.RawMessage(payload)}, nil
+}
+
+func (c *logicalRepairClient) GenerateText(_ context.Context, _ llm.TextRequest) (llm.TextResponse, error) {
+	return llm.TextResponse{}, fmt.Errorf("unexpected text request")
+}
+
 func TestLogicalProjectionUsesBoundedEntityChunks(t *testing.T) {
 	opts := LogicalProjectionOptions{OutDir: t.TempDir(), Model: "mock-model", MaxOutputTokens: 40000, MaxParallelism: 2}
 	for index := 1; index <= LogicalEntityChunkSize+1; index++ {
@@ -409,15 +495,21 @@ func TestLogicalProjectionUsesBoundedEntityChunks(t *testing.T) {
 	}
 }
 
-func assertFields(t *testing.T, item map[string]any, expected ...string) {
+// assertFields checks that an LLM input item exposes only the allowed fields.
+// Empty values are pruned before sending, so allowed fields may be absent.
+func assertFields(t *testing.T, item map[string]any, allowed ...string) {
 	t.Helper()
-	if len(item) != len(expected) {
-		t.Fatalf("fields = %#v, want exactly %v", item, expected)
+	permitted := map[string]bool{}
+	for _, field := range allowed {
+		permitted[field] = true
 	}
-	for _, field := range expected {
-		if _, ok := item[field]; !ok {
-			t.Fatalf("field %q is missing from %#v", field, item)
+	for field := range item {
+		if !permitted[field] {
+			t.Fatalf("field %q is not allowed in %#v (allowed %v)", field, item, allowed)
 		}
+	}
+	if _, ok := item["id"]; permitted["id"] && !ok {
+		t.Fatalf("id is missing from %#v", item)
 	}
 }
 

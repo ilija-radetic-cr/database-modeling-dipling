@@ -66,6 +66,10 @@ type ModelCorrectionRequest struct {
 // CreateModelCorrectionCandidate turns feedback from the read-only model
 // projection into an auditable blocking decision. The current draft remains
 // inspectable, but acceptance and generated outputs are invalidated.
+// ErrModelCorrectionUnavailable is returned in the segment-based flow, where a
+// model is corrected by regenerating the conceptual model.
+var ErrModelCorrectionUnavailable = errors.New("model corrections through the review queue are not available in the segment-based flow; regenerate the conceptual model instead")
+
 func (s *Store) CreateModelCorrectionCandidate(projectID string, request ModelCorrectionRequest) (int, string, error) {
 	project, ok := s.Project(projectID)
 	if !ok {
@@ -76,6 +80,11 @@ func (s *Store) CreateModelCorrectionCandidate(projectID string, request ModelCo
 	}
 	if !project.ModelGenerated {
 		return 0, "", ErrModelNotGenerated
+	}
+	if project.ConceptualDescriptionPath != "" {
+		// Corrections become review candidates over requirement atoms, which the
+		// segment-based flow does not produce.
+		return 0, "", ErrModelCorrectionUnavailable
 	}
 	details, found, err := s.ElementDetails(projectID, request.ElementID)
 	if err != nil {
@@ -202,12 +211,18 @@ func (s *Store) GenerateReviewCandidates(ctx context.Context, client llm.Client,
 	if err := readJSON(s.absoluteWorkspacePath(project.CRUDMappingProposalPath), &crud); err != nil {
 		return 0, nil, err
 	}
-	reviewClusters := 0
-	for _, atom := range atoms.RequirementAtoms {
-		if atom.RequiresReview || atom.ModelingOutcome == "deferred" || atom.ModelingOutcome == "unsupported" || atom.PersistenceEffect == "unclear" || atom.SupportLevel == "assumption" || atom.Confidence == "low" {
-			reviewClusters++
+	reviewGroupSet := map[string]bool{}
+	normalizedAtoms := llmpipeline.NormalizeRequirementReviewSemantics(atoms.RequirementAtoms)
+	for _, atom := range normalizedAtoms {
+		if atom.RequiresReview || atom.ModelingOutcome == "deferred" || atom.ModelingOutcome == "unsupported" || atom.PersistenceEffect == "unclear" {
+			key := atom.ReviewGroup
+			if key == "" {
+				key = atom.ID
+			}
+			reviewGroupSet[key] = true
 		}
 	}
+	reviewClusters := len(reviewGroupSet)
 	if reviewClusters > 0 && client == nil {
 		return 0, nil, errors.New("LLM client is required for review proposal")
 	}
@@ -261,10 +276,14 @@ func (s *Store) GenerateReviewCandidates(ctx context.Context, client llm.Client,
 		return 0, nil, err
 	}
 	current, _ := s.Project(projectID)
+	revision, changed := current.CurrentRevision, []string{"review_candidates", "review_decisions"}
 	if automatic := autoReviewSelections(proposal.ReviewCandidates); len(automatic) > 0 {
-		return s.ApplyProjectReviewDecisionBatch(projectID, ApplyReviewBatchOptions{BaseRevision: current.CurrentRevision, Selections: automatic, ReviewedBy: "system_policy", DecisionMode: "auto_low_risk"})
+		revision, changed, err = s.ApplyProjectReviewDecisionBatch(projectID, ApplyReviewBatchOptions{BaseRevision: current.CurrentRevision, Selections: automatic, ReviewedBy: "system_policy", DecisionMode: "auto_low_risk"})
+		if err != nil {
+			return revision, changed, err
+		}
 	}
-	return current.CurrentRevision, []string{"review_candidates", "review_decisions"}, nil
+	return revision, changed, nil
 }
 
 func (s *Store) ApplyProjectReviewDecision(ctx context.Context, client llm.Client, projectID, candidateID string, opts ApplyReviewDecisionOptions) (int, []string, error) {
@@ -362,6 +381,18 @@ func (s *Store) ApplyProjectReviewDecision(ctx context.Context, client llm.Clien
 	if err != nil {
 		return 0, nil, err
 	}
+	var reclassifiedObligations llmpipeline.DesignObligationsFile
+	var obligationQA llmpipeline.DesignObligationQA
+	if project.DesignObligationsPath != "" {
+		obligationArtifacts, obligationErr := s.DesignObligations(projectID)
+		if obligationErr != nil {
+			return 0, nil, obligationErr
+		}
+		reclassifiedObligations, obligationQA = llmpipeline.ReclassifyDesignObligations(obligationArtifacts.Accepted, patchedAtoms.RequirementAtoms)
+		if !obligationQA.OK {
+			return 0, nil, fmt.Errorf("reclassified design obligations failed QA: %s", strings.Join(obligationQA.Errors, "; "))
+		}
+	}
 	emit("validate_review_patch", "Validating the patched analysis copy.", 68, coverageMetadata(qa.Coverage))
 	atomQA := llmpipeline.ValidateRequirementAtomProposal(patchedAtoms, acceptedSourceUnits)
 	if !atomQA.OK {
@@ -386,12 +417,18 @@ func (s *Store) ApplyProjectReviewDecision(ctx context.Context, client llm.Clien
 	})
 	acceptedCandidates := ReviewCandidatesArtifact{Document: candidates.Document, ReviewCandidates: newCandidates}
 	acceptedAtoms := buildRequirementAtomsArtifact(project, patchedAtoms)
-	paths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
+	artifacts := map[string]artifactValue{
 		"requirement_atoms.proposed.json": {Value: patchedAtoms, JSON: true}, "requirement_atoms.yaml": {Value: acceptedAtoms},
 		"requirement_atom_qa.json": {Value: atomQA, JSON: true}, "review_candidates.yaml": {Value: acceptedCandidates},
 		"review_candidate_qa.json": {Value: reviewQA, JSON: true}, "review_decisions.yaml": {Value: decisions},
 		"review_resolution_patch.proposed.json": {Value: patch, JSON: true}, "review_resolution_patch_qa.json": {Value: qa, JSON: true},
-	})
+	}
+	if project.DesignObligationsPath != "" {
+		artifacts["design_obligations.proposed.json"] = artifactValue{Value: reclassifiedObligations, JSON: true}
+		artifacts["design_obligations.yaml"] = artifactValue{Value: reclassifiedObligations}
+		artifacts["design_obligation_qa.json"] = artifactValue{Value: obligationQA, JSON: true}
+	}
+	paths, err := s.writeAnalysisRevision(project, artifacts)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -399,6 +436,11 @@ func (s *Store) ApplyProjectReviewDecision(ctx context.Context, client llm.Clien
 		current.RequirementAtomsProposalPath = paths["requirement_atoms.proposed.json"]
 		current.RequirementAtomsPath = paths["requirement_atoms.yaml"]
 		current.RequirementAtomQAPath = paths["requirement_atom_qa.json"]
+		if path := paths["design_obligations.proposed.json"]; path != "" {
+			current.DesignObligationsProposalPath = path
+			current.DesignObligationsPath = paths["design_obligations.yaml"]
+			current.DesignObligationQAPath = paths["design_obligation_qa.json"]
+		}
 		current.ReviewCandidatesPath = paths["review_candidates.yaml"]
 		current.ReviewCandidateQAPath = paths["review_candidate_qa.json"]
 		current.ReviewDecisionsPath = paths["review_decisions.yaml"]
@@ -802,6 +844,19 @@ func applyReviewPatch(input llmpipeline.RequirementAtomExtractionProposal, patch
 			return out, semantic, fmt.Errorf("unsupported review patch operation %s", operation.Operation)
 		}
 	}
+	// A decision may turn an atom into a human-approved assumption. Atom QA
+	// requires such atoms to carry a warning, so record which decision made it.
+	for i := range out.RequirementAtoms {
+		atom := &out.RequirementAtoms[i]
+		if atom.SupportLevel != "assumption" && atom.Confidence != "low" {
+			continue
+		}
+		if !containsString(atom.ReviewDecisions, decisionID) || len(atom.Warnings) > 0 {
+			continue
+		}
+		atom.Warnings = append(atom.Warnings, fmt.Sprintf("Assumption approved by review decision %s; not stated explicitly in the source.", decisionID))
+	}
+	out.RequirementAtoms = llmpipeline.NormalizeRequirementReviewSemantics(out.RequirementAtoms)
 	return out, semantic, nil
 }
 

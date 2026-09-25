@@ -1,10 +1,11 @@
-import type {
+import type { LogicalMappingReport,
   ActorSummary,
   ApiError,
   ArtifactHealth,
   BundleCandidate,
 	CombinedDocument,
 	ConceptualModel,
+	ConceptualDescription,
   CrudOperation,
   FunctionalArea,
   InputResource,
@@ -25,13 +26,13 @@ import type {
   RequirementAtom,
   ReviewCandidate,
   ReviewDecision,
+	SemanticVerificationReport,
   SourceManifest,
 	SourceUnit,
 	SourceUnitQA,
 	SourceUnitReviewResult,
 	SourceFidelityReport,
 	SourceSegmentationProposal,
-	SourceSegmentationQA,
   StructuredExample,
   TraceIndex,
 } from "./types";
@@ -128,7 +129,7 @@ export const api = {
   sourceManifest: (projectId: string) => request<{ manifest: SourceManifest }>(`/projects/${projectId}/source-manifest`),
   combinedDocument: (projectId: string) => request<{ combined_document: CombinedDocument }>(`/projects/${projectId}/combined-document`),
 	sourceSegmentation: (projectId: string) =>
-		request<{ proposal: SourceSegmentationProposal; qa: SourceSegmentationQA }>(`/projects/${projectId}/source-segmentation`),
+		request<{ proposal: SourceSegmentationProposal }>(`/projects/${projectId}/source-segmentation`),
   sourceFidelity: (projectId: string) => request<{ source_fidelity: SourceFidelityReport }>(`/projects/${projectId}/source-fidelity`),
   processSources: (
     projectId: string,
@@ -155,11 +156,6 @@ export const api = {
     request<Page<SourceUnit> & { project_revision: number }>(
       `/projects/${projectId}/source-units?filter=${encodeURIComponent(filter)}&search=${encodeURIComponent(search)}`,
     ),
-	generateSourceUnits: (projectId: string, baseRevision: number, mock = false) =>
-		request<JobRef>(`/projects/${projectId}/source-units/generate`, {
-			method: "POST",
-			body: JSON.stringify({ base_revision: baseRevision, mock }),
-		}),
 	sourceUnitQA: (projectId: string) => request<{ qa: SourceUnitQA }>(`/projects/${projectId}/source-units/qa`),
 	sourceUnit: (projectId: string, sourceUnitId: string) =>
     request<{ source_unit: SourceUnit; original_excerpt: { text: string } }>(
@@ -221,12 +217,18 @@ export const api = {
       body: JSON.stringify({ base_revision: baseRevision }),
     }),
 	conceptualModel: (projectId: string) =>
-		request<{ conceptual_model: ConceptualModel; accepted: boolean; diff: Record<string, unknown>; qa: { ok: boolean; errors: string[]; warnings: string[]; coverage: Record<string, number> } }>(`/projects/${projectId}/conceptual-model`),
+		request<{ conceptual_model: ConceptualModel; accepted: boolean; diff: Record<string, unknown>; qa: { ok: boolean; errors: string[]; warnings: string[]; coverage: Record<string, number> }; description?: ConceptualDescription | null }>(`/projects/${projectId}/conceptual-model`),
 	acceptConceptualModel: (projectId: string, baseRevision: number) =>
 		request<{ project_revision: number; message: string }>(`/projects/${projectId}/conceptual-model/accept`, {
 			method: "POST", body: JSON.stringify({ base_revision: baseRevision }),
 		}),
-	semanticVerification: (projectId: string) => request<{ semantic_verification: { ok: boolean; obligations_total: number; obligations_required: number; obligations_realized: number; blocking_issues: number; issues: Array<{ id: string; severity: string; code: string; message: string }> } }>(`/projects/${projectId}/semantic-verification`),
+	logicalMappingReport: (projectId: string) =>
+		request<{ logical_mapping_report: LogicalMappingReport }>(`/projects/${projectId}/logical-mapping-report`),
+	semanticVerification: (projectId: string) => request<{ semantic_verification: SemanticVerificationReport }>(`/projects/${projectId}/semantic-verification`),
+	createSemanticRepairCandidates: (projectId: string, baseRevision: number) =>
+		request<{ project_revision: number; review_candidate_ids: string[]; message: string }>(`/projects/${projectId}/semantic-verification/repair-candidates`, {
+			method: "POST", body: JSON.stringify({ base_revision: baseRevision }),
+		}),
 	acceptModel: (projectId: string, baseRevision: number) =>
 		request<{ project_revision: number; message: string }>(`/projects/${projectId}/model-acceptance`, {
 			method: "POST", body: JSON.stringify({ base_revision: baseRevision }),
@@ -254,7 +256,8 @@ export const api = {
 	optimizationReport: (projectId: string) => request<{ report: LLMOptimizationReport }>(`/projects/${projectId}/optimization-report`),
 	retryJob: (projectId: string, jobId: string, baseRevision: number) =>
 		request<JobRef>(`/projects/${projectId}/jobs/${jobId}/retry`, { method: "POST", body: JSON.stringify({ base_revision: baseRevision }) }),
-  exportURL: (projectId: string, kind: "dbml" | "report" | "bundle") => `${baseURL}/projects/${projectId}/exports/${kind}`,
+  postgresql: (projectId: string) => request<{ dialect: string; sql: string }>(`/projects/${projectId}/sql`),
+  exportURL: (projectId: string, kind: "dbml" | "sql" | "report" | "bundle") => `${baseURL}/projects/${projectId}/exports/${kind}`,
 };
 
 export function subscribeToJob(

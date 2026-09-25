@@ -140,6 +140,7 @@ func runConceptualChunk(ctx context.Context, client llm.Client, opts ConceptualM
 		"chunk_index":             fmt.Sprint(chunk.Index),
 		"chunk_count":             fmt.Sprint(chunk.Count),
 		"budget_policy":           "adaptive_v1",
+		"verifier_version":        "conceptual_coverage_v2+review_semantics_v2",
 		"stage_max_output_tokens": fmt.Sprint(opts.MaxOutputTokens),
 	}
 	if chunk.Count > 1 {
@@ -152,6 +153,7 @@ func runConceptualChunk(ctx context.Context, client llm.Client, opts ConceptualM
 		Input: input, SchemaName: "DBDSLConceptualModelFragment", Schema: conceptualModelSchema(),
 		ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: budget, Metadata: metadata,
 	}, &proposal, func() []string {
+		sanitizeConceptualReferences(&proposal, opts.ReviewDecisions)
 		qa = validateConceptualChunk(proposal, compact, chunk.Obligations)
 		return qa.Errors
 	})
@@ -366,6 +368,7 @@ func runConceptualRepairScope(ctx context.Context, client llm.Client, opts Conce
 			"chunk_count": fmt.Sprint(scope.Count),
 		},
 	}, &fragment, func() []string {
+		sanitizeConceptualReferences(&fragment, opts.ReviewDecisions)
 		merged := mergeConceptualRepair(base, fragment)
 		qa = ValidateConceptualModelWithObligations(merged, opts.SourceUnits, opts.RequirementAtoms, opts.ReviewDecisions, opts.DesignObligations)
 		return conceptualRepairValidationErrors(baseErrors, scope.Errors, qa.Errors)
@@ -594,4 +597,52 @@ func sortedUniqueStrings(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// sanitizeConceptualReferences removes references that cannot be valid instead
+// of paying for an LLM repair round: unresolved_review_ids may only name review
+// candidates (obligation IDs there are a model mistake, and coverage is checked
+// separately), and evidence may only cite accepted review decisions (free text
+// written into an ID field is dropped). Every removal is kept as a warning.
+func sanitizeConceptualReferences(proposal *ConceptualModelProposal, reviewDecisions []string) {
+	known := map[string]bool{}
+	for _, id := range reviewDecisions {
+		known[id] = true
+	}
+	kept := []string{}
+	for _, id := range proposal.UnresolvedReviewIDs {
+		if strings.HasPrefix(id, "RC-") {
+			kept = append(kept, id)
+		} else {
+			proposal.Warnings = append(proposal.Warnings, "Ignored non-review ID in unresolved_review_ids: "+id)
+		}
+	}
+	proposal.UnresolvedReviewIDs = kept
+	clean := func(owner string, evidence *EvidenceProposal) {
+		valid := []string{}
+		for _, id := range evidence.ReviewDecisions {
+			if known[id] {
+				valid = append(valid, id)
+			} else {
+				proposal.Warnings = append(proposal.Warnings, fmt.Sprintf("%s: dropped unknown review decision reference %q", owner, id))
+			}
+		}
+		evidence.ReviewDecisions = valid
+		if evidence.SupportLevel == "assumption" && len(valid) == 0 {
+			evidence.SupportLevel = "inferred"
+		}
+	}
+	for i := range proposal.EntityConcepts {
+		entity := &proposal.EntityConcepts[i]
+		clean(entity.ID, &entity.Evidence)
+		for j := range entity.Attributes {
+			clean(entity.ID+"."+entity.Attributes[j].ID, &entity.Attributes[j].Evidence)
+		}
+	}
+	for i := range proposal.Relationships {
+		clean(proposal.Relationships[i].ID, &proposal.Relationships[i].Evidence)
+	}
+	for i := range proposal.ConstraintConcepts {
+		clean(proposal.ConstraintConcepts[i].ID, &proposal.ConstraintConcepts[i].Evidence)
+	}
 }

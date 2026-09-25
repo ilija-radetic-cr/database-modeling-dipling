@@ -14,10 +14,11 @@ import (
 	"dbdsl/internal/llm"
 )
 
-var sourceUnitIDPattern = regexp.MustCompile(`^SU-[0-9]{3,}$`)
+// List items derived from a list segment use a sub-ID (SU-011.3).
+var sourceUnitIDPattern = regexp.MustCompile(`^SU-[0-9]{3,}(\.[0-9]+)?$`)
 
 const (
-	SourceUnitChunkSize             = 80
+	SourceUnitChunkSize             = 40
 	defaultSourceUnitMaxParallelism = 3
 )
 
@@ -41,6 +42,9 @@ type sourceUnitClassification struct {
 	Confidence     string   `json:"confidence"`
 	RequiresReview bool     `json:"requires_review"`
 	Warnings       []string `json:"warnings"`
+	// RequirementNotes record ambiguity in what the sentence requires. They do
+	// not block source review; they travel to requirement extraction instead.
+	RequirementNotes []string `json:"requirement_notes"`
 }
 
 type sourceUnitClassificationProposal struct {
@@ -133,14 +137,14 @@ func runSourceUnitChunk(ctx context.Context, client llm.Client, opts SourceUnitE
 
 func runSourceUnitClassificationChunk(ctx context.Context, client llm.Client, opts SourceUnitExtractionOptions, document CombinedDocumentProposal, chunkIndex, chunkCount, fullContextBytes int) (sourceUnitClassificationProposal, SourceUnitQA, error) {
 	promptVersion := resolvedPromptVersion(opts.PromptVersion)
-	sentences := make([]map[string]string, 0, len(document.Sentences))
+	segments := make([]map[string]string, 0, len(document.Sentences))
 	for _, sentence := range document.Sentences {
-		sentences = append(sentences, map[string]string{
-			"id": sentence.ID, "kind": CombinedDocumentUnitKind(sentence), "text": sentence.Text,
+		segments = append(segments, map[string]string{
+			"id": sentence.ID, "type": nonEmpty(sentence.Role, sentence.Kind), "text": sentence.Text,
 		})
 	}
 	input := mustJSON(map[string]any{
-		"sentences":        sentences,
+		"segments":         segments,
 		"pipeline_version": PipelineVersion,
 		"chunk_index":      chunkIndex,
 		"chunk_count":      chunkCount,
@@ -217,13 +221,13 @@ func sourceUnitChunkBudget(ceiling, sentences int) int {
 }
 
 func sourceUnitInputBytes(document CombinedDocumentProposal) int {
-	sentences := make([]map[string]string, 0, len(document.Sentences))
+	segments := make([]map[string]string, 0, len(document.Sentences))
 	for _, sentence := range document.Sentences {
-		sentences = append(sentences, map[string]string{
-			"id": sentence.ID, "kind": CombinedDocumentUnitKind(sentence), "text": sentence.Text,
+		segments = append(segments, map[string]string{
+			"id": sentence.ID, "type": nonEmpty(sentence.Role, sentence.Kind), "text": sentence.Text,
 		})
 	}
-	return len(mustJSON(map[string]any{"sentences": sentences}))
+	return len(mustJSON(map[string]any{"segments": segments}))
 }
 
 func validateSourceUnitClassifications(document CombinedDocumentProposal, proposal sourceUnitClassificationProposal) []string {
@@ -273,6 +277,7 @@ func buildSourceUnitsFromClassification(document CombinedDocumentProposal, propo
 			ID: fmt.Sprintf("SU-%03d", i+1), Kind: nonEmpty(item.Kind, "noise"), Section: nonEmpty(item.Section, "combined_document"),
 			Relevance: nonEmpty(item.Relevance, "non_model"), Tags: item.Tags, ExactText: sentence.Text, NormalizedText: normalized, Normalization: normalization,
 			ODSentenceIDs: []string{sentence.ID}, Confidence: confidence, RequiresReview: requiresReview, Warnings: warnings,
+			RequirementNotes: item.RequirementNotes,
 		})
 	}
 	return SourceUnitExtractionProposal{SourceUnits: units, Warnings: proposal.Warnings, ConfidenceSummary: proposal.ConfidenceSummary}
@@ -319,12 +324,23 @@ func BuildSourceUnitFallback(document CombinedDocumentProposal) (SourceUnitExtra
 func ValidateSourceUnitProposal(proposal SourceUnitExtractionProposal, document CombinedDocumentProposal, strategy string) SourceUnitQA {
 	qa := SourceUnitQA{
 		DerivationStrategy: strategy,
-		ODSentencesTotal:   len(document.Sentences),
 		OriginChains:       map[string][]string{},
 		Errors:             []string{},
 		Warnings:           append([]string(nil), proposal.Warnings...),
 		NeedsAttention:     []string{},
 		ReviewDecisions:    []SourceUnitReviewDecision{},
+	}
+	segmentContract := false
+	for _, unit := range proposal.SourceUnits {
+		if len(unit.SegmentIDs) > 0 {
+			segmentContract = true
+			break
+		}
+	}
+	if segmentContract {
+		qa.SegmentsTotal = len(document.Sentences)
+	} else {
+		qa.ODSentencesTotal = len(document.Sentences)
 	}
 	sentences := map[string]CombinedDocumentSentence{}
 	for _, sentence := range document.Sentences {
@@ -344,19 +360,27 @@ func ValidateSourceUnitProposal(proposal SourceUnitExtractionProposal, document 
 		if strings.TrimSpace(unit.ExactText) == "" || strings.TrimSpace(unit.NormalizedText) == "" {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("%s has empty exact or normalized text", unit.ID))
 		}
-		expectedNormalized, expectedAudit := NormalizeSourceText(unit.ExactText)
-		if unit.NormalizedText != expectedNormalized {
-			qa.Errors = append(qa.Errors, fmt.Sprintf("%s normalized_text was not produced by the deterministic backend normalizer", unit.ID))
+		if strategy == SegmentUnitStrategy {
+			// Segment text is stored verbatim; there is no backend normalization.
+			if unit.NormalizedText != unit.ExactText {
+				qa.Errors = append(qa.Errors, fmt.Sprintf("%s text must be the segment text unchanged", unit.ID))
+			}
+		} else {
+			expectedNormalized, expectedAudit := NormalizeSourceText(unit.ExactText)
+			if unit.NormalizedText != expectedNormalized {
+				qa.Errors = append(qa.Errors, fmt.Sprintf("%s normalized_text was not produced by the deterministic backend normalizer", unit.ID))
+			}
+			if !reflect.DeepEqual(unit.Normalization, expectedAudit) {
+				qa.Errors = append(qa.Errors, fmt.Sprintf("%s normalization audit does not match exact_text", unit.ID))
+			}
 		}
-		if !reflect.DeepEqual(unit.Normalization, expectedAudit) {
-			qa.Errors = append(qa.Errors, fmt.Sprintf("%s normalization audit does not match exact_text", unit.ID))
-		}
-		if len(unit.ODSentenceIDs) == 0 {
-			qa.Errors = append(qa.Errors, fmt.Sprintf("%s has no OD sentence reference", unit.ID))
+		segmentIDs := sourceUnitSegmentIDs(unit)
+		if len(segmentIDs) == 0 {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s has no source-segment reference", unit.ID))
 		}
 		var supporting []string
 		originSet := map[string]bool{}
-		for _, sentenceID := range unit.ODSentenceIDs {
+		for _, sentenceID := range segmentIDs {
 			sentence, ok := sentences[sentenceID]
 			if !ok {
 				qa.Errors = append(qa.Errors, fmt.Sprintf("%s references unknown OD sentence %s", unit.ID, sentenceID))
@@ -381,7 +405,9 @@ func ValidateSourceUnitProposal(proposal SourceUnitExtractionProposal, document 
 		if unit.Confidence == "low" && (!unit.RequiresReview || len(unit.Warnings) == 0) {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("%s low confidence requires review and a warning", unit.ID))
 		}
-		if unit.RequiresReview || len(unit.Warnings) > 0 {
+		// Only source problems stop the pipeline here. Informational warnings and
+		// requirement ambiguity are resolved later as modeling decisions.
+		if unit.RequiresReview || unit.Confidence == "low" {
 			qa.NeedsAttention = append(qa.NeedsAttention, unit.ID)
 		}
 	}
@@ -390,18 +416,34 @@ func ValidateSourceUnitProposal(proposal SourceUnitExtractionProposal, document 
 	}
 	for _, sentence := range document.Sentences {
 		if !covered[sentence.ID] {
-			qa.UnreferencedODSentences = append(qa.UnreferencedODSentences, sentence.ID)
+			if segmentContract {
+				qa.UnreferencedSegments = append(qa.UnreferencedSegments, sentence.ID)
+			} else {
+				qa.UnreferencedODSentences = append(qa.UnreferencedODSentences, sentence.ID)
+			}
 		} else if !faithfullyCovered[sentence.ID] {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("%s is referenced but its source text is not preserved by any source unit", sentence.ID))
 		}
 	}
+	sort.Strings(qa.UnreferencedSegments)
 	sort.Strings(qa.UnreferencedODSentences)
-	if len(qa.UnreferencedODSentences) > 0 {
+	if len(qa.UnreferencedSegments)+len(qa.UnreferencedODSentences) > 0 {
 		qa.Errors = append(qa.Errors, "one or more combined-document sentences are not covered")
 	}
-	qa.ODSentencesReferenced = len(covered)
+	if segmentContract {
+		qa.SegmentsReferenced = len(covered)
+	} else {
+		qa.ODSentencesReferenced = len(covered)
+	}
 	qa.OK = len(qa.Errors) == 0
 	return qa
+}
+
+func sourceUnitSegmentIDs(unit SourceUnitProposal) []string {
+	if len(unit.SegmentIDs) > 0 {
+		return unit.SegmentIDs
+	}
+	return unit.ODSentenceIDs
 }
 
 func containsNormalized(haystack, needle string) bool {

@@ -4,17 +4,10 @@ import "sort"
 
 func sourceSegmentationSchema() map[string]any {
 	return object(map[string]any{
-		"classifications": array(object(map[string]any{
-			"candidate_id":         str(),
-			"role":                 enum("sentence", "heading", "list_item", "footnote", "structured_example", "external_reference", "layout_noise", "other_structural"),
-			"boundary":             enum("start", "continue", "resume"),
-			"join_to_candidate_id": str(),
-			"confidence":           enum("high", "medium", "low"),
-			"requires_review":      boolSchema(),
-			"warnings":             array(str()),
+		"segments": array(object(map[string]any{
+			"type": enum("heading", "sentence", "list", "example", "footnote", "page_header", "page_footer", "page_number", "other"),
+			"text": str(),
 		})),
-		"warnings":           array(str()),
-		"confidence_summary": confidenceSummarySchema(),
 	})
 }
 
@@ -25,7 +18,7 @@ func sourceUnitClassificationSchema() map[string]any {
 			"kind":           enum("requirement_sentence", "business_rule", "actor", "operation", "data_example", "structured_example", "ui_requirement", "report_requirement", "file_requirement", "heading", "noise"),
 			"section":        str(), "relevance": enum("model_relevant", "model_supporting", "non_model", "example"),
 			"tags": array(str()), "confidence": enum("high", "medium", "low"),
-			"requires_review": boolSchema(), "warnings": array(str()),
+			"requires_review": boolSchema(), "warnings": array(str()), "requirement_notes": array(str()),
 		})),
 		"warnings": array(str()), "confidence_summary": confidenceSummarySchema(),
 	})
@@ -36,21 +29,16 @@ func requirementAtomExtractionSchema() map[string]any {
 		"requirement_atoms": array(object(map[string]any{
 			"id":                 str(),
 			"statement":          str(),
-			"subject":            str(),
-			"predicate":          str(),
-			"object":             str(),
 			"quantifier":         str(),
 			"condition":          str(),
-			"temporal_semantics": str(),
-			"ownership":          str(),
-			"atom_type":          str(),
+			"atom_type":          enum(RequirementAtomTypes...),
 			"modeling_relevance": enum("direct_db", "model_supporting", "non_model", "ui_only", "application_logic", "external"),
 			"source_units":       array(str()),
-			"functional_area":    str(),
-			"functional_pattern": str(),
 			"support_level":      enum("explicit", "example_based", "inferred", "assumption"),
 			"confidence":         enum("high", "medium", "low"),
-			"requires_review":    boolSchema(),
+			"review_class":       enum(RequirementReviewClasses...),
+			"review_topic":       enum(RequirementReviewTopics...),
+			"review_group":       str(),
 			"modeling_outcome":   enum("represented", "intentionally_not_in_db", "requires_app_logic", "external_system", "unsupported", "deferred"),
 			"persistence_effect": enum("required", "derived_basis", "audit_history", "not_required", "external", "unclear"),
 			"example_role":       enum("none", "schema_shape", "seed_data", "constraint_boundary", "illustrative_instance"),
@@ -181,30 +169,47 @@ func reviewResolutionPatchSchema() map[string]any {
 	})
 }
 
+// ConceptualValueTypes are the DB-DSL scalar types a conceptual attribute may
+// declare; the surrogate "id" type is excluded because keys are generated.
+var ConceptualValueTypes = []string{"string", "text", "integer", "decimal", "boolean", "date", "time", "datetime", "uuid", "email", "phone", "url", "file_path", "money"}
+
 func conceptualModelSchema() map[string]any {
 	conceptEvidence := evidenceSchema()
 	planElements := array(object(map[string]any{
 		"id": str(), "label": str(), "description": str(), "table_name": str(), "kind": str(),
 		"source_units": array(str()), "requirement_atoms": array(str()),
 	}))
+	lifecycleElements := array(object(map[string]any{
+		"id": str(), "label": str(), "description": str(), "table_name": str(), "kind": str(),
+		"source_units": array(str()), "requirement_atoms": array(str()),
+		"owner": str(), "field": str(), "states": array(str()), "initial": str(), "terminal": array(str()),
+		"transitions": array(object(map[string]any{"from": str(), "to": str()})),
+	}))
+	derivedElements := array(object(map[string]any{
+		"id": str(), "label": str(), "description": str(), "table_name": str(), "kind": str(),
+		"source_units": array(str()), "requirement_atoms": array(str()),
+		"sources": array(str()), "metrics": array(str()),
+	}))
 	return object(map[string]any{
 		"entity_concepts": array(object(map[string]any{
 			"id": str(), "label": str(), "description": str(), "kind": enum("regular", "lookup", "association", "weak"),
 			"attributes": array(object(map[string]any{
-				"id": str(), "label": str(), "description": str(), "required": boolSchema(), "evidence": conceptEvidence,
+				"id": str(), "label": str(), "description": str(), "name": str(), "value_type": enum(ConceptualValueTypes...),
+				"required": boolSchema(), "unique": boolSchema(), "enum_values": array(str()), "evidence": conceptEvidence,
 			})),
 			"evidence": conceptEvidence,
 		})),
 		"relationships": array(object(map[string]any{
 			"id": str(), "label": str(), "description": str(), "from": str(), "to": str(),
-			"cardinality": enum("one_to_one", "one_to_many", "many_to_one", "many_to_many", "unknown"), "evidence": conceptEvidence,
+			"cardinality": enum("one_to_one", "one_to_many", "many_to_one", "many_to_many", "unknown"),
+			"required":    boolSchema(), "evidence": conceptEvidence,
 		})),
 		"constraint_concepts": array(object(map[string]any{
 			"id": str(), "label": str(), "description": str(),
 			"kind":    enum("uniqueness", "check", "cardinality", "ownership", "security", "temporal", "cross_row", "application_enforced"),
-			"targets": array(str()), "evidence": conceptEvidence,
+			"targets": array(str()), "expression": str(), "evidence": conceptEvidence,
 		})),
-		"lifecycle_concepts": planElements, "derived_concepts": planElements, "file_concepts": planElements, "import_concepts": planElements,
+		"lifecycle_concepts": lifecycleElements, "derived_concepts": derivedElements, "file_concepts": planElements, "import_concepts": planElements,
 		"unresolved_review_ids": array(str()), "warnings": array(str()), "confidence_summary": confidenceSummarySchema(),
 	})
 }
@@ -297,14 +302,16 @@ func repairSchema() map[string]any {
 
 func patchOperationSchema() map[string]any {
 	return object(map[string]any{
-		"operation":     enum("add_entity", "add_relationship", "add_constraint", "add_state_machine", "add_derived_view", "add_file_spec", "add_import_spec"),
-		"entity":        nullable(entitySchema()),
-		"relationship":  nullable(relationshipSchema()),
-		"constraint":    nullable(constraintSchema()),
-		"state_machine": nullable(stateMachineSchema()),
-		"derived_view":  nullable(derivedViewSchema()),
-		"file_spec":     nullable(fileSpecSchema()),
-		"import_spec":   nullable(importSpecSchema()),
+		"operation":        enum("add_entity", "add_relationship", "add_constraint", "add_state_machine", "add_derived_view", "add_file_spec", "add_import_spec", "remove_operation"),
+		"target_operation": str(),
+		"target_id":        str(),
+		"entity":           nullable(entitySchema()),
+		"relationship":     nullable(relationshipSchema()),
+		"constraint":       nullable(constraintSchema()),
+		"state_machine":    nullable(stateMachineSchema()),
+		"derived_view":     nullable(derivedViewSchema()),
+		"file_spec":        nullable(fileSpecSchema()),
+		"import_spec":      nullable(importSpecSchema()),
 	})
 }
 

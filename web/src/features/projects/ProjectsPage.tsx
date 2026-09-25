@@ -15,6 +15,9 @@ export function ProjectsPage() {
     queryKey: ["projects", status, search],
     queryFn: () => api.listProjects(status, search),
   });
+  // Metrics describe the whole workspace, independent of the table filter.
+  const allProjects = useQuery({ queryKey: ["projects", "all", ""], queryFn: () => api.listProjects("all", "") });
+  const activeProjects = useQuery({ queryKey: ["projects", "active", ""], queryFn: () => api.listProjects("active", "") });
   const deleteProject = useMutation({
     mutationFn: (projectId: string) => api.deleteProject(projectId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -28,8 +31,9 @@ export function ProjectsPage() {
   };
 
   const items = projects.data?.items ?? [];
-  const active = items.filter((project) => project.lifecycle_status !== "completed").length;
-  const completed = items.filter((project) => project.lifecycle_status === "completed").length;
+  const everything = allProjects.data?.items ?? [];
+  const active = activeProjects.data?.items.length ?? 0;
+  const completed = everything.filter((project) => project.lifecycle_status === "completed").length;
 
   return (
     <div className="page">
@@ -47,14 +51,14 @@ export function ProjectsPage() {
       <div className="grid-3">
         <Metric label="Active projects" value={active} />
         <Metric label="Completed" value={completed} />
-        <Metric label="Open reviews" value={items.reduce((sum, item) => sum + item.counts.open_review_questions, 0)} />
+        <Metric label="Open reviews" value={everything.reduce((sum, item) => sum + item.counts.open_review_questions, 0)} />
       </div>
 
       <Panel
-        title="Workspace"
+        title={`${items.length} project${items.length === 1 ? "" : "s"}`}
         action={
-          <div className="toolbar">
-            <select className="select" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <div className="toolbar nowrap">
+            <select className="select compact" value={status} onChange={(event) => setStatus(event.target.value)}>
               <option value="active">Active</option>
               <option value="completed">Completed</option>
               <option value="all">All</option>
@@ -103,43 +107,42 @@ function ProjectsTable({
     return <p className="muted">No projects match the current filter.</p>;
   }
   return (
-    <table className="data-table">
+    <table className="data-table projects-table">
       <thead>
         <tr>
-          <th style={{ width: "25%" }}>Project</th>
+          <th>Project</th>
           <th>Status</th>
           <th>Analysis</th>
           <th>Quality</th>
-          <th>Last activity</th>
-          <th style={{ width: 280 }}>Actions</th>
+          <th aria-label="Actions" />
         </tr>
       </thead>
       <tbody>
         {projects.map((project) => (
-          <tr key={project.id}>
+          <tr key={project.id} className="clickable-row" onClick={() => onOpen(project)}>
             <td>
               <strong>{project.name}</strong>
-              <div className="muted truncate">{project.description}</div>
+              <div className="muted small truncate" title={project.last_activity}>{project.last_activity || project.description}</div>
             </td>
             <td>
               <StatusBadge value={project.lifecycle_status} />
             </td>
-            <td>
-              <div className="toolbar">
-                <Badge>{project.counts.source_units} sources</Badge>
-                <Badge>{project.counts.requirements} reqs</Badge>
-                <Badge tone={project.counts.open_review_questions ? "warn" : "good"}>{project.counts.open_review_questions} reviews</Badge>
-              </div>
+            <td className="muted">
+              {project.counts.source_units} sources · {project.counts.requirements} requirements
+              {project.counts.open_review_questions > 0 && (
+                <div><Badge tone="warn">{project.counts.open_review_questions} open decisions</Badge></div>
+              )}
             </td>
             <td>
-              <div className="toolbar">
-                <Badge tone={project.quality.validation_errors ? "bad" : "good"}>{project.quality.validation_errors} errors</Badge>
-                <Badge tone={project.quality.lint_warnings ? "warn" : "good"}>{project.quality.lint_warnings} warnings</Badge>
-              </div>
+              {project.quality.validation_errors > 0 ? (
+                <Badge tone="bad">{project.quality.validation_errors} errors</Badge>
+              ) : (
+                <Badge tone="good">valid</Badge>
+              )}
+              {project.quality.lint_warnings > 0 && <span className="muted small"> · {project.quality.lint_warnings} warnings</span>}
             </td>
-            <td className="muted">{project.last_activity}</td>
-            <td>
-              <div className="toolbar">
+            <td onClick={(event) => event.stopPropagation()}>
+              <div className="toolbar row-actions">
                 <Button onClick={() => onOpen(project)}>
                   <FolderOpen size={16} />
                   Open
@@ -151,13 +154,14 @@ function ProjectsTable({
                   </Button>
                 )}
                 <Button
-                  variant="danger"
+                  variant="ghost"
+                  className="icon-danger"
                   disabled={deletingId === project.id}
                   onClick={() => onDelete(project)}
                   aria-label={`Delete ${project.name}`}
+                  title="Delete project"
                 >
                   <Trash2 size={16} />
-                  {deletingId === project.id ? "Deleting..." : "Delete"}
                 </Button>
               </div>
             </td>

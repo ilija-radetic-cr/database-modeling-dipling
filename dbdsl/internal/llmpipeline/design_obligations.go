@@ -17,6 +17,7 @@ var obligationKinds = map[string]bool{
 // existing RA contract. It deliberately separates where behavior executes
 // from what data must exist to verify that behavior.
 func DeriveDesignObligations(atoms []RequirementAtomProposal) (DesignObligationsFile, DesignObligationQA) {
+	atoms = NormalizeRequirementReviewSemantics(atoms)
 	items := make([]DesignObligation, 0, len(atoms))
 	for _, atom := range atoms {
 		for _, classified := range classifyObligations(atom) {
@@ -34,7 +35,7 @@ func DeriveDesignObligations(atoms []RequirementAtomProposal) (DesignObligations
 		}
 	}
 	file := DesignObligationsFile{
-		Document:          map[string]any{"pipeline_version": "0.7", "policy_version": "design_obligations/v0.7.1", "derivation_strategy": "deterministic_from_requirement_atoms"},
+		Document:          map[string]any{"pipeline_version": "0.7.3", "policy_version": "design_obligations/v0.7.2", "derivation_strategy": "deterministic_from_requirement_atoms"},
 		DesignObligations: items,
 	}
 	return file, ValidateDesignObligations(file, atoms)
@@ -46,6 +47,11 @@ func classifyObligations(atom RequirementAtomProposal) []obligationClassificatio
 	kind, persistence, risk, target := classifyObligation(atom)
 	out := []obligationClassification{{kind, persistence, risk, target}}
 	if persistence == "not_required" || persistence == "unresolved" {
+		return out
+	}
+	// A typed atom already states what it is; keyword-derived extra obligations
+	// (e.g. "must" in "the application must allow") would only add false invariants.
+	if _, typed := typedAtomObligation(atom); typed {
 		return out
 	}
 	text := strings.ToLower(atom.Statement + " " + atom.AtomType + " " + atom.ModelingRelevance)
@@ -112,6 +118,48 @@ func ValidateDesignObligations(file DesignObligationsFile, atoms []RequirementAt
 	return qa
 }
 
+// RequirementAtomTypes is the closed atom_type vocabulary the extraction stage
+// must use; typed atoms map to obligations without keyword guessing.
+var RequirementAtomTypes = []string{"entity_identity", "persistent_data", "data_attribute", "relationship", "cardinality_constraint", "ownership_rule", "uniqueness_constraint", "validation_rule", "business_rule", "state_transition", "lifecycle_event", "history_requirement", "generated_value", "derived_value", "report_query", "authorization_rule", "actor_role", "operation", "file_import", "notification", "ui_behavior", "navigation", "technology_constraint", "example", "other"}
+
+// typedObligations maps an atom_type to its design obligation. Types absent
+// from the map (operation-free legacy values, "other") fall back to keywords.
+var typedObligations = map[string]obligationClassification{
+	"entity_identity":        {"identity", "required", "high", "Provide a stable identity for the concept."},
+	"persistent_data":        {"attribute", "required", "medium", "Map the requirement to a typed model element or justify exclusion."},
+	"data_attribute":         {"attribute", "required", "medium", "Map the stated value to a typed attribute."},
+	"actor_role":             {"attribute", "required", "medium", "Represent the actor or role that the system must distinguish."},
+	"operation":              {"attribute", "required", "medium", "Represent the persistent data that the operation creates or changes."},
+	"file_import":            {"attribute", "required", "medium", "Represent the imported data as typed model elements."},
+	"relationship":           {"relationship", "required", "high", "Represent the association between the concepts."},
+	"cardinality_constraint": {"cardinality", "required", "high", "Represent the stated multiplicity on a relationship or constraint."},
+	"ownership_rule":         {"ownership", "required", "high", "Represent which concept owns or contains the other."},
+	"uniqueness_constraint":  {"key", "required", "high", "Provide an enforceable key or uniqueness rule."},
+	"validation_rule":        {"invariant", "required", "medium", "Represent the rule and identify its enforcement strategy."},
+	"business_rule":          {"invariant", "required", "medium", "Represent the rule and identify its enforcement strategy."},
+	"state_transition":       {"lifecycle", "required", "high", "Represent the relevant state or transition and its temporal boundary."},
+	"lifecycle_event":        {"lifecycle", "required", "high", "Represent the relevant state or transition and its temporal boundary."},
+	"history_requirement":    {"event_history", "required", "high", "Retain enough typed facts to reconstruct the history."},
+	"generated_value":        {"generated_snapshot", "required", "high", "Persist the generated value so the result is reproducible."},
+	"derived_value":          {"derived_view", "derived", "medium", "Identify the persistent facts from which the value is derived."},
+	"report_query":           {"derived_view", "derived", "medium", "Identify the persistent facts from which the report is derived."},
+	"authorization_rule":     {"security", "required", "high", "Represent or explicitly assign enforcement of the security rule."},
+	"notification":           {"transient", "not_required", "low", "Confirm that no persistent state is needed."},
+	"ui_behavior":            {"transient", "not_required", "low", "Confirm that no persistent state is needed."},
+	"navigation":             {"transient", "not_required", "low", "Confirm that no persistent state is needed."},
+	"technology_constraint":  {"transient", "not_required", "low", "Technology choices have no durable-data consequence."},
+	"example":                {"transient", "not_required", "low", "Illustrative examples are not normative data."},
+}
+
+func typedAtomObligation(atom RequirementAtomProposal) (obligationClassification, bool) {
+	if atom.ModelingOutcome == "requires_app_logic" || atom.ModelingOutcome == "external_system" ||
+		atom.ModelingRelevance == "application_logic" || atom.ModelingRelevance == "external" {
+		return obligationClassification{}, false
+	}
+	classified, ok := typedObligations[atom.AtomType]
+	return classified, ok
+}
+
 func classifyObligation(atom RequirementAtomProposal) (kind, persistence, risk, target string) {
 	text := strings.ToLower(atom.Statement + " " + atom.AtomType + " " + atom.ModelingRelevance)
 	persistence, risk = "required", "medium"
@@ -127,6 +175,18 @@ func classifyObligation(atom RequirementAtomProposal) (kind, persistence, risk, 
 	case "unclear":
 		return "attribute", "unresolved", "high", "Resolve the durable-data consequence before modeling."
 	}
+	if atom.AtomType == "example" {
+		switch atom.ExampleRole {
+		case "schema_shape":
+			return "attribute", "required", "high", "Represent the normative structure demonstrated by the example."
+		case "seed_data":
+			return "completeness", "required", "medium", "Retain the target concept and verify its required initial data."
+		case "constraint_boundary":
+			return "invariant", "required", "high", "Represent the normative boundary demonstrated by the example."
+		case "illustrative_instance":
+			return "transient", "not_required", "low", "Illustrative instances do not define persistent model structure."
+		}
+	}
 	if atom.ModelingOutcome == "intentionally_not_in_db" || atom.ModelingOutcome == "unsupported" || atom.ExampleRole == "illustrative_instance" {
 		return "transient", "not_required", "low", "Confirm that no persistent state is needed."
 	}
@@ -136,9 +196,13 @@ func classifyObligation(atom RequirementAtomProposal) (kind, persistence, risk, 
 	if atom.ModelingOutcome == "deferred" && len(atom.ReviewDecisions) == 0 {
 		return "attribute", "unresolved", "high", "Resolve the deferred modeling outcome before conceptual generation."
 	}
-	switch {
-	case atom.ModelingRelevance == "non_model" || atom.ModelingRelevance == "ui_only":
+	if atom.ModelingRelevance == "non_model" || atom.ModelingRelevance == "ui_only" {
 		return "transient", "not_required", "low", "Confirm that no persistent state is needed."
+	}
+	if typed, ok := typedAtomObligation(atom); ok {
+		return typed.kind, typed.persistence, typed.risk, typed.target
+	}
+	switch {
 	case containsAny(text, "random", "generate", "combination", "nasumi", "generi", "kombinacij"):
 		return "generated_snapshot", "required", "high", "Persist the generated value that determines a played result."
 	case containsAny(text, "leaderboard", "ranking", "report", "display", "rang", "izveštaj", "izvještaj", "prikaz"):
@@ -172,6 +236,7 @@ func classifyObligation(atom RequirementAtomProposal) (kind, persistence, risk, 
 // identity or order of existing obligations. It is used by pre-conceptual
 // compatibility migration so failed historical jobs remain reproducible.
 func ReclassifyDesignObligations(file DesignObligationsFile, atoms []RequirementAtomProposal) (DesignObligationsFile, DesignObligationQA) {
+	atoms = NormalizeRequirementReviewSemantics(atoms)
 	copyFile := DesignObligationsFile{Document: map[string]any{}, DesignObligations: append([]DesignObligation(nil), file.DesignObligations...)}
 	for key, value := range file.Document {
 		copyFile.Document[key] = value
@@ -211,8 +276,8 @@ func ReclassifyDesignObligations(file DesignObligationsFile, atoms []Requirement
 	if file.Document == nil {
 		file.Document = map[string]any{}
 	}
-	file.Document["pipeline_version"] = "0.7"
-	file.Document["policy_version"] = "design_obligations/v0.7.1"
+	file.Document["pipeline_version"] = "0.7.3"
+	file.Document["policy_version"] = "design_obligations/v0.7.2"
 	file.Document["derivation_strategy"] = "compatibility_reclassification_preserving_ids"
 	return file, ValidateDesignObligations(file, atoms)
 }

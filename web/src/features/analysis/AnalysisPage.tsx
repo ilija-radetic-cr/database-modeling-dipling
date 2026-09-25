@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, FileCheck2, GitBranch, Languages, Play, ScanText, Sparkles } from "lucide-react";
+import { AlertCircle, CheckCircle2, Circle, GitBranch, Loader2, Play, XCircle } from "lucide-react";
 import { api } from "@/shared/api/client";
 import type {
+	ArtifactHealth,
   CrudOperation,
 	CombinedDocumentSentence,
   FunctionalArea,
@@ -13,16 +14,17 @@ import type {
   SourceUnit,
   StructuredExample,
 	ProjectStageName,
-	SourceFidelityReport,
 	SourceSegmentationProposal,
 	SourceUnitQA,
 } from "@/shared/api/types";
 import { Badge, Button, Drawer, Field, LoadingState, Metric, Panel, StatusBadge } from "@/shared/components/ui";
+import { humanizeStatus } from "@/shared/lib/status";
 import { useRouter } from "@/shared/lib/router";
-import { JobProgress } from "@/features/jobs/JobProgress";
+import { JobProgress, friendlyError } from "@/features/jobs/JobProgress";
 import { PipelineStepper } from "./PipelineStepper";
 import { SourceTraceGraph } from "./SourceTraceGraph";
 	import { isRunnableStage, nextStageLabel, shouldRecoverLatestJob, unresolvedReviewDependencies } from "@/shared/lib/pipeline";
+import { consumeAutoRun, gatePath } from "@/shared/lib/autopilot";
 
 const tabs = [
 	["overview", "Overview"],
@@ -33,6 +35,16 @@ const tabs = [
 	["activity", "Activity & LLM Runs"],
 ] as const;
 
+// Requirements, functional/CRUD analysis and review questions are not produced
+// by the segment-based flow; their tabs appear only for projects that have them.
+function tabVisible(id: string, health: ArtifactHealth | undefined) {
+	if (health?.segment_flow && (id === "requirements" || id === "functional-crud" || id === "review")) return false;
+	if (id === "requirements") return health?.requirement_atoms_status === "ready";
+	if (id === "functional-crud") return health?.functional_analysis_status === "ready";
+	if (id === "review") return health?.review_candidates_status === "ready";
+	return true;
+}
+
 export function AnalysisPage({ projectId, mode }: { projectId: string; mode: string }) {
   const { navigate } = useRouter();
 	const queryClient = useQueryClient();
@@ -42,10 +54,10 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 	const jobs = useQuery({ queryKey: ["jobs", projectId], queryFn: () => api.jobs(projectId), retry: false, refetchInterval: 2000 });
   const [job, setJob] = useState<Job | null>(null);
 	const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
+	const [autoRun, setAutoRun] = useState(() => consumeAutoRun(projectId));
 	const runNext = useMutation({
-		mutationFn: (stage: ProjectStageName) => {
-			const revision = project.data?.project.current_revision ?? 0;
-			return stage === "combined_document"
+		mutationFn: ({ stage, revision }: { stage: ProjectStageName; revision: number }) => {
+			return stage === "combined_document" || stage === "process_sources"
 				? api.processSources(projectId, revision)
 				: api.runStage(projectId, stage, revision);
 		},
@@ -57,25 +69,68 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 			});
 			setJob(started);
 		},
+		onError: () => setAutoRun(false),
   });
+	// Reads fresh stage status after a job instead of trusting cached queries,
+	// so the autopilot never restarts the stage that just finished.
+	const advance = async (completedStage?: string) => {
+		const [status, fresh] = await Promise.all([
+			queryClient.fetchQuery({ queryKey: ["project-stages", projectId], queryFn: () => api.stageStatus(projectId), staleTime: 0 }),
+			queryClient.fetchQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId), staleTime: 0 }),
+		]);
+		if (isRunnableStage(status.next_stage) && status.next_stage !== completedStage) {
+			runNext.mutate({ stage: status.next_stage, revision: fresh.project.current_revision });
+			return;
+		}
+		setAutoRun(false);
+		const path = gatePath(projectId, status.next_stage, fresh.project.lifecycle_status);
+		if (path) navigate(path);
+	};
+	// StrictMode runs mount effects twice in development; the ref keeps the
+	// hand-over from starting two jobs.
+	const handedOver = useRef(false);
+	useEffect(() => {
+		if (handedOver.current) return;
+		handedOver.current = true;
+		if (autoRun && !job && !runNext.isPending) void advance();
+		// Only the initial hand-over from another page starts here; later steps are driven by job completion.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 	const latestJob = jobs.data?.items[0];
 
 	useEffect(() => {
-		if (job || !latestJob || dismissedJobIds.has(latestJob.id) || !shouldRecoverLatestJob(latestJob.status)) return;
+		const currentRevision = project.data?.project.current_revision;
+		if (job && currentRevision !== undefined) {
+			if (!shouldRecoverLatestJob(job, currentRevision)) setJob(null);
+			return;
+		}
+		if (
+			!latestJob ||
+			currentRevision === undefined ||
+			dismissedJobIds.has(latestJob.id) ||
+			!shouldRecoverLatestJob(latestJob, currentRevision)
+		) return;
 		setJob(latestJob);
-	}, [dismissedJobIds, job, latestJob]);
+	}, [dismissedJobIds, job, latestJob, project.data?.project.current_revision]);
 
   const openReviews = project.data?.project.counts.open_review_questions ?? 0;
 	const health = stages.data?.artifact_health ?? project.data?.artifact_health;
 	const nextStage = stages.data?.next_stage;
 	const nextAction = nextStageLabel(nextStage, openReviews);
 	const handleNext = () => {
-		if (nextStage === "source_review") navigate(`/projects/${projectId}/analysis/sources`);
-		else if (nextStage === "review_decisions") navigate(`/projects/${projectId}/analysis/review`);
-		else if (nextStage === "conceptual_review") navigate(`/projects/${projectId}/model/conceptual`);
-		else if (nextStage === "model_review") navigate(`/projects/${projectId}/model/trace`);
-		else if (nextStage === "completed") navigate(`/projects/${projectId}/dbml`);
-		else if (isRunnableStage(nextStage)) runNext.mutate(nextStage);
+		if (isRunnableStage(nextStage)) {
+			setAutoRun(true);
+			runNext.mutate({ stage: nextStage, revision: project.data?.project.current_revision ?? 0 });
+			return;
+		}
+		const path = gatePath(projectId, nextStage, project.data?.project.lifecycle_status);
+		if (path) navigate(path);
+	};
+	const onStageDone = async (completedStage: string) => {
+		setJob(null);
+		await queryClient.invalidateQueries();
+		if (autoRun) await advance(completedStage);
+		else if (completedStage === "process_sources" || completedStage === "combined_document") navigate(`/projects/${projectId}/analysis/sources`);
 	};
 
   return (
@@ -84,8 +139,7 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
         <div>
           <h1 className="page-title">{project.data?.project.name ?? "Project"} | Analysis Workspace</h1>
           <p className="page-subtitle">
-            {project.data?.project.counts.source_units ?? 0} source units · {project.data?.project.counts.requirements ?? 0} requirements ·{" "}
-            {project.data?.project.counts.operations ?? 0} operations · {openReviews} reviews open
+            {project.data?.project.counts.source_units ?? 0} source units · conceptual model {humanizeStatus(health?.conceptual_model_status ?? "not_generated").toLowerCase()} · logical model {humanizeStatus(health?.model_status ?? "not_generated").toLowerCase()}
           </p>
         </div>
         <div className="toolbar">
@@ -103,17 +157,11 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 			<JobProgress
 				projectId={projectId}
 				job={job}
-				onDone={() => {
-					const completedStage = job.stage;
-					setJob(null);
-					void queryClient.invalidateQueries();
-					if (completedStage === "process_sources" || completedStage === "combined_document") {
-						navigate(`/projects/${projectId}/analysis/sources`);
-					}
-				}}
+				onDone={() => void onStageDone(job.stage)}
 				onDismiss={(dismissed) => {
 					setDismissedJobIds((current) => new Set(current).add(dismissed.id));
 					setJob(null);
+					setAutoRun(false);
 				}}
 			/>
         </Panel>
@@ -122,12 +170,12 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 
       <div className="grid-3">
         <Metric label="Source units" value={project.data?.project.counts.source_units ?? "-"} />
-        <Metric label="Requirements" value={project.data?.project.counts.requirements ?? "-"} />
-        <Metric label="Open reviews" value={openReviews} />
+        <Metric label="Conceptual model" value={humanizeStatus(health?.conceptual_model_status ?? "not_generated")} />
+        <Metric label="Logical model" value={humanizeStatus(health?.model_status ?? "not_generated")} />
       </div>
 
       <div className="tabs">
-        {tabs.map(([id, label]) => (
+        {tabs.filter(([id]) => tabVisible(id, health)).map(([id, label]) => (
           <button
             className={`tab ${mode === id ? "active" : ""}`}
             key={id}
@@ -154,6 +202,7 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 			revision={project.data?.project.current_revision ?? 0}
 			nextAction={nextAction}
 			onNext={handleNext}
+			onDecisionsApplied={() => { setAutoRun(true); void advance(); }}
 			nextDisabled={!nextStage || !!job || runNext.isPending}
 		/>
       ) : (
@@ -170,13 +219,13 @@ function ActivityView({ projectId }: { projectId: string }) {
 	if (jobs.isLoading || runs.isLoading || optimization.isLoading) return <LoadingState />;
 	const metrics = optimization.data?.report;
 	return (
-		<div className="grid-2">
+		<div className="activity-stack">
 			<Panel title="LLM optimization report">
 				<div className="grid-3">
 					<Metric label="Provider calls" value={metrics?.totals.provider_calls ?? 0} />
 					<Metric label="Cache hits" value={metrics?.totals.cache_hits ?? 0} />
 					<Metric label="Retries" value={metrics?.totals.retries ?? 0} />
-					<Metric label="Tokens" value={metrics?.totals.total_tokens ?? 0} />
+					<Metric label="Tokens" value={(metrics?.totals.total_tokens ?? 0).toLocaleString("en-US")} />
 					<Metric label="Context saved" value={`${((metrics?.totals.context_reduction_ratio ?? 0) * 100).toFixed(1)}%`} />
 					<Metric label="Review calls avoided" value={metrics?.avoided_review_resolution_calls ?? 0} />
 					<Metric label="Generation calls avoided" value={metrics?.avoided_generation_calls ?? 0} />
@@ -185,14 +234,14 @@ function ActivityView({ projectId }: { projectId: string }) {
 				<p className="muted">Policies: {metrics?.budget_policy ?? "-"} · {metrics?.context_policy ?? "-"} · {metrics?.call_gate_policy ?? "-"}</p>
 			</Panel>
 			<Panel title={`Jobs · ${jobs.data?.items.length ?? 0}`}>
-				<table className="data-table"><thead><tr><th>Stage</th><th>Status</th><th>Revision</th><th>Progress</th></tr></thead><tbody>
-					{(jobs.data?.items ?? []).map((job) => <tr key={job.id}><td><strong>{stageLabel(job.stage)}</strong><div className="muted">{job.id}</div></td><td><StatusBadge value={job.status} />{job.error && <div className="error-text">{job.error}</div>}</td><td>{job.input_revision || "-"} → {job.output_revision || "-"}</td><td>{job.progress}%</td></tr>)}
+				<table className="data-table"><thead><tr><th>Stage</th><th style={{ width: 110 }}>Status</th><th style={{ width: 90 }}>Revision</th><th style={{ width: 80 }}>Progress</th></tr></thead><tbody>
+					{(jobs.data?.items ?? []).map((job) => <tr key={job.id}><td><strong>{stageLabel(job.stage)}</strong><div className="muted">{job.id}</div></td><td><StatusBadge value={job.status} />{job.error && <div className="error-text small">{friendlyError(job.error)}</div>}</td><td>{job.input_revision || "-"} → {job.output_revision || "-"}</td><td>{job.progress}%</td></tr>)}
 				</tbody></table>
 				{!jobs.data?.items.length && <p className="muted">No jobs recorded.</p>}
 			</Panel>
 			<Panel title={`Sanitized LLM runs · ${runs.data?.items.length ?? 0}`}>
 				<table className="data-table"><thead><tr><th>Stage / model</th><th>Status</th><th>Duration</th><th>Tokens</th></tr></thead><tbody>
-					{(runs.data?.items ?? []).map((run) => <tr key={run.id}><td><strong>{stageLabel(run.stage)}</strong><div className="muted">{run.provider} · {run.model}</div></td><td><StatusBadge value={run.status} /></td><td>{run.duration_ms ?? 0} ms</td><td>{run.usage.total_tokens ?? "-"}</td></tr>)}
+					{(runs.data?.items ?? []).map((run) => <tr key={run.id}><td><strong>{stageLabel(run.stage)}</strong><div className="muted">{run.provider} · {run.model}</div><div className="muted">validation: {run.validation_scope ?? "structured schema"}</div></td><td><StatusBadge value={run.status} />{(run.errors?.length ?? 0) > 0 && <div className="error-text">{run.errors!.length} issue(s)</div>}</td><td>{formatDuration(run.duration_ms ?? 0)}</td><td>{run.usage.total_tokens ? run.usage.total_tokens.toLocaleString("en-US") : "-"}</td></tr>)}
 				</tbody></table>
 				{!runs.data?.items.length && <p className="muted">No LLM runs recorded.</p>}
 			</Panel>
@@ -210,67 +259,65 @@ function ProjectOverview({ projectId, nextAction, onNext, disabled }: { projectI
 			</Panel>
 			<Panel title="Recent activity">
 				{latest ? (
-					<div><div className="toolbar"><StatusBadge value={latest.status} /><strong>{stageLabel(latest.stage)}</strong><span className="muted">{latest.id} · revision {latest.input_revision || "-"} · {latest.progress}%</span></div>{(latest.error || latest.message) && <p className={latest.error ? "error-text" : "muted"}>{latest.error || latest.message}</p>}</div>
+					<div><div className="toolbar"><StatusBadge value={latest.status} /><strong>{stageLabel(latest.stage)}</strong><span className="muted">{latest.id} · revision {latest.input_revision || "-"} · {latest.progress}%</span></div>{(latest.error || latest.message) && <p className={latest.error ? "error-text" : "muted"}>{latest.error ? friendlyError(latest.error) : latest.message}</p>}</div>
 				) : <p className="muted">No pipeline jobs have been recorded yet.</p>}
 			</Panel>
 		</div>
 	);
 }
 
+function formatDuration(ms: number) {
+	if (ms < 1000) return `${ms} ms`;
+	const seconds = ms / 1000;
+	return seconds < 60 ? `${seconds.toFixed(1)} s` : `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+}
+
 function stageLabel(stage: string) {
 	return stage.replace(/_/g, " ").replace(/\b\w/g, (letter: string) => letter.toUpperCase());
 }
 
-function SourceProcessingFlow() {
-	const stages = [
-		{ icon: FileCheck2, title: "Input resources", detail: "Extracted text and physical lines", tone: "Deterministic" },
-		{ icon: Sparkles, title: "Sentence segmentation", detail: "LLM groups backend-owned exact spans", tone: "LLM-assisted" },
-		{ icon: ScanText, title: "Fidelity validation", detail: "Backend rebuilds text and verifies complete coverage", tone: "Deterministic" },
-		{ icon: Sparkles, title: "Source classification", detail: "Kind, relevance, confidence and warnings", tone: "LLM-assisted" },
-		{ icon: Languages, title: "Normalization & review", detail: "Backend-owned text and auditable decisions", tone: "Backend + human" },
-	];
-	return (
-		<section className="source-flow" aria-label="Source processing flow">
-			{stages.map((stage, index) => {
-				const Icon = stage.icon;
-				return (
-					<div className="source-flow-stage" key={stage.title}>
-						<div className="source-flow-heading"><Icon size={18} /><strong>{stage.title}</strong></div>
-						<span>{stage.detail}</span>
-						<Badge tone={stage.tone === "LLM-assisted" ? "warn" : "good"}>{stage.tone}</Badge>
-						{index < stages.length - 1 && <span className="source-flow-arrow" aria-hidden="true">→</span>}
-					</div>
-				);
-			})}
-		</section>
-	);
+type StripState = "done" | "warn" | "running" | "pending" | "failed";
+
+interface StripStep {
+	title: string;
+	actor: "code" | "LLM" | "you";
+	state: StripState;
+	value: string;
+	detail: string;
+	target?: string;
 }
 
-function SourceFidelityPanel({ report }: { report: SourceFidelityReport }) {
-	const coverage = Math.round(report.normative_coverage * 100);
+// SourceStatusStrip shows the live state of every source step in one row and
+// who performs it, so the division of work between LLM, code and person is visible.
+function SourceStatusStrip({ steps }: { steps: StripStep[] }) {
+	const icons: Record<StripState, typeof CheckCircle2> = { done: CheckCircle2, warn: AlertCircle, running: Loader2, pending: Circle, failed: XCircle };
 	return (
-		<Panel title="Source fidelity gate">
-			<div className="grid-3 compact-metrics">
-				<Metric label="Physical source segments" value={report.segments_total} />
-				<Metric label="Normative segments covered" value={`${report.normative_covered}/${report.normative_segments}`} />
-				<Metric label="Normative coverage" value={`${coverage}%`} />
-			</div>
-			<div className="fidelity-coverage" aria-label={`${coverage}% normative source coverage`}>
-				<div className="progress-track"><div className="progress-bar" style={{ width: `${coverage}%` }} /></div>
-				<div className="toolbar">
-					<Badge tone={report.ok ? "good" : "bad"}>{report.ok ? "Lossless coverage passed" : "Coverage blocked"}</Badge>
-					<Badge>pipeline {report.pipeline_version}</Badge>
-					{report.needs_attention.length > 0 && <Badge tone="warn">{report.needs_attention.length} need attention</Badge>}
-				</div>
-			</div>
-			<p className="muted">Physical lines remain the lossless fidelity layer. The backend creates exact candidate spans, the LLM only groups their IDs, and the backend verifies that no normative source span was lost.</p>
-			{report.errors.length > 0 && <div className="error-text">{report.errors.join(" ")}</div>}
-		</Panel>
+		<nav className="source-strip" aria-label="Source processing status">
+			{steps.map((step) => {
+				const Icon = icons[step.state];
+				return (
+					<button
+						key={step.title}
+						className={`source-strip-step ${step.state}`}
+						disabled={!step.target}
+						onClick={() => step.target && document.getElementById(step.target)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+					>
+						<span className="source-strip-top">
+							<Icon size={15} className={step.state === "running" ? "spin" : undefined} />
+							<strong>{step.title}</strong>
+							<span className={`actor-chip ${step.actor.toLowerCase()}`}>{step.actor}</span>
+						</span>
+						<span className="source-strip-value">{step.value}</span>
+						<span className="source-strip-detail">{step.detail}</span>
+					</button>
+				);
+			})}
+		</nav>
 	);
 }
 
 function CombinedSentenceList({ items }: { items: CombinedDocumentSentence[] }) {
-	if (!items.length) return <p className="muted">No OD units generated.</p>;
+	if (!items.length) return <p className="muted">No evidence segments generated.</p>;
 	return (
 		<div className="od-sentence-list">
 			{items.map((item) => (
@@ -279,39 +326,31 @@ function CombinedSentenceList({ items }: { items: CombinedDocumentSentence[] }) 
 						<strong>{item.id}</strong>
 						<Badge>{item.kind ?? "sentence"}</Badge>
 						{item.role && <Badge>{item.role}</Badge>}
-						<Badge tone={item.transformation === "merged" ? "warn" : "default"}>{item.transformation}</Badge>
-						<Badge tone={item.confidence === "low" ? "warn" : "good"}>{item.confidence}</Badge>
+						{item.transformation && <Badge tone={item.transformation === "merged" ? "warn" : "default"}>{item.transformation}</Badge>}
+						{item.confidence && <Badge tone={item.confidence === "low" ? "warn" : "good"}>{item.confidence}</Badge>}
 					</div>
 					<p>{item.text}</p>
-					<div className="muted">{item.derived_from.map((origin) => `${origin.resource_id} · lines ${origin.line_start}–${origin.line_end}${origin.source_segment_id ? ` · ${origin.source_segment_id} bytes ${origin.start_byte ?? 0}–${origin.end_byte ?? 0}` : ""}`).join(", ")}</div>
-					{item.warnings.length > 0 && <div className="error-text">{item.warnings.join(" ")}</div>}
+					{(item.derived_from?.length ?? 0) > 0 && <div className="muted">{item.derived_from?.map((origin) => `${origin.resource_id} · lines ${origin.line_start}–${origin.line_end}${origin.source_segment_id ? ` · ${origin.source_segment_id} bytes ${origin.start_byte ?? 0}–${origin.end_byte ?? 0}` : ""}`).join(", ")}</div>}
+					{(item.warnings?.length ?? 0) > 0 && <div className="error-text">{item.warnings?.join(" ")}</div>}
 				</article>
 			))}
 		</div>
 	);
 }
 
-function SegmentationGroupList({ proposal }: { proposal: SourceSegmentationProposal }) {
-	const candidates = new Map(proposal.candidates.map((candidate) => [candidate.id, candidate]));
-	if (!proposal.groups.length) return <p className="muted">No segmentation groups generated.</p>;
+function SegmentationList({ proposal }: { proposal: SourceSegmentationProposal }) {
+	if (!proposal.segments.length) return <p className="muted">No segments generated.</p>;
 	return (
 		<div className="od-sentence-list">
-			{proposal.groups.map((group) => {
-				const members = group.candidate_ids.map((id) => candidates.get(id)).filter((item) => item !== undefined);
-				return (
-					<article className="od-sentence-card" key={group.id}>
-						<div className="toolbar">
-							<strong>{group.id}</strong>
-							<Badge tone={group.role === "layout_noise" ? "warn" : "default"}>{group.role}</Badge>
-							<Badge tone={group.requires_review ? "warn" : "good"}>{group.confidence}</Badge>
-							{group.od_sentence_id && <Badge>{group.od_sentence_id}</Badge>}
-						</div>
-						<p>{members.map((member) => member?.exact_text).join(" ")}</p>
-						<div className="muted">{members.map((member) => `${member?.id} · ${member?.segment_id} · lines ${member?.line_start}–${member?.line_end} · bytes ${member?.start_byte}–${member?.end_byte}`).join(", ")}</div>
-						{group.warnings.length > 0 && <div className="error-text">{group.warnings.join(" ")}</div>}
-					</article>
-				);
-			})}
+			{proposal.segments.map((segment) => (
+				<article className="od-sentence-card" key={segment.id}>
+					<div className="toolbar">
+						<strong>{segment.id}</strong>
+						<Badge>{segment.type}</Badge>
+					</div>
+					<p>{segment.text}</p>
+				</article>
+			))}
 		</div>
 	);
 }
@@ -353,25 +392,14 @@ function SourcesTab({ projectId }: { projectId: string }) {
   const [selected, setSelected] = useState<SourceUnit | null>(null);
 	const [sourceView, setSourceView] = useState<"table" | "trace">("table");
 	const [combinedView, setCombinedView] = useState<"semantic" | "layout" | "raw">("semantic");
-	const [sourceJob, setSourceJob] = useState<Job | null>(null);
-	const [segmentationJob, setSegmentationJob] = useState<Job | null>(null);
 	const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
 	const sourceQA = useQuery({
 		queryKey: ["source-unit-qa", projectId],
 		queryFn: () => api.sourceUnitQA(projectId),
 		retry: false,
 	});
-	const generateSourceUnits = useMutation({
-		mutationFn: () => api.generateSourceUnits(projectId, project.data?.project.current_revision ?? 0),
-		onSuccess: ({ job }) => setSourceJob(job),
-	});
-	const retrySegmentation = useMutation({
-		mutationFn: () => api.processSources(projectId, project.data?.project.current_revision ?? 0),
-		onSuccess: ({ job }) => setSegmentationJob(job),
-	});
   const resources = useQuery({ queryKey: ["resources", projectId], queryFn: () => api.listResources(projectId) });
 	const sourceManifest = useQuery({ queryKey: ["source-manifest", projectId], queryFn: () => api.sourceManifest(projectId) });
-	const sourceFidelity = useQuery({ queryKey: ["source-fidelity", projectId], queryFn: () => api.sourceFidelity(projectId), retry: false });
 	const sourceSegmentation = useQuery({ queryKey: ["source-segmentation", projectId], queryFn: () => api.sourceSegmentation(projectId), retry: false });
   const combinedDocument = useQuery({
     queryKey: ["combined-document", projectId],
@@ -389,6 +417,38 @@ function SourcesTab({ projectId }: { projectId: string }) {
 		}
 	}, [needsAttention, reviewFilterSelected]);
 
+	const resourceItems = resources.data?.items ?? [];
+	const readyResources = resourceItems.filter((item) => item.extraction_status === "ready" || item.extraction_status === "needs_attention").length;
+	const sourceLines = resourceItems.reduce((sum, item) => sum + (item.line_count ?? 0), 0);
+	const documentSummary = combinedDocument.data?.combined_document.summary;
+	const unitCount = project.data?.project.counts.source_units ?? 0;
+	const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+	const stripSteps: StripStep[] = [
+		{
+			title: "Sources", actor: "code",
+			state: resourceItems.some((item) => item.extraction_status === "failed") ? "failed" : readyResources > 0 ? "done" : "pending",
+			value: plural(readyResources, "document"), detail: sourceLines ? `${sourceLines} lines extracted` : "text extraction", target: "src-resources",
+		},
+		{
+			title: "Segmentation", actor: "LLM",
+			state: !documentSummary ? "pending" : documentSummary.fallback_used ? "warn" : "done",
+			value: documentSummary ? plural(documentSummary.sentence_count, "sentence") : "—",
+			detail: !documentSummary ? "groups lines into sentences" : documentSummary.fallback_used ? "rule-based fallback used" : "grouped by the LLM",
+			target: "src-document",
+		},
+		{
+			title: "Segment IDs", actor: "code",
+			state: unitCount > 0 ? "done" : "pending",
+			value: unitCount > 0 ? plural(unitCount, "unit") : "—", detail: "one unit per segment · list items split", target: unitCount > 0 ? "src-units" : undefined,
+		},
+		{
+			title: "Your review", actor: "you",
+			state: unitCount === 0 ? "pending" : needsAttention > 0 ? "warn" : "done",
+			value: unitCount === 0 ? "—" : needsAttention > 0 ? `${needsAttention} waiting` : "nothing flagged",
+			detail: needsAttention > 0 ? "unclear units need a decision" : "flagged units only", target: sourceQA.data?.qa ? "src-review" : undefined,
+		},
+	];
+
 	const refreshAfterReview = () => {
 		setSelected(null);
 		void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -400,64 +460,17 @@ function SourcesTab({ projectId }: { projectId: string }) {
 
   return (
     <>
-		<SourceProcessingFlow />
-      <div className="grid-3">
-        <Metric label="Resources" value={sourceManifest.data?.manifest.summary.total ?? resources.data?.items.length ?? "-"} />
-        <Metric label="Ready resources" value={sourceManifest.data?.manifest.summary.ready ?? "-"} />
-        <Metric label="OD sentences" value={combinedDocument.data?.combined_document.summary.sentence_count ?? 0} />
-      </div>
-		{sourceFidelity.data?.source_fidelity && <SourceFidelityPanel report={sourceFidelity.data.source_fidelity} />}
-		{segmentationJob && (
-			<Panel title="Sentence segmentation">
-				<JobProgress
-					projectId={projectId}
-					job={segmentationJob}
-					onDone={() => {
-						setSegmentationJob(null);
-						void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-						void queryClient.invalidateQueries({ queryKey: ["source-segmentation", projectId] });
-						void queryClient.invalidateQueries({ queryKey: ["source-fidelity", projectId] });
-						void queryClient.invalidateQueries({ queryKey: ["combined-document", projectId] });
-						void queryClient.invalidateQueries({ queryKey: ["source-units", projectId] });
-					}}
-				/>
-			</Panel>
-		)}
-		{sourceJob && (
-			<Panel title="Source-unit classification">
-				<JobProgress
-					projectId={projectId}
-					job={sourceJob}
-					onDone={() => {
-						setSourceJob(null);
-						void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-						void queryClient.invalidateQueries({ queryKey: ["source-units", projectId] });
-						void queryClient.invalidateQueries({ queryKey: ["source-unit-qa", projectId] });
-					}}
-				/>
-			</Panel>
-		)}
-      <div className="grid-2">
-        <Panel title="Input Resources">
+		<SourceStatusStrip steps={stripSteps} />
+      <div className="sources-grid">
+        <Panel id="src-resources" title="Input Resources">
           {resources.isLoading ? <LoadingState /> : <ResourceSummaryTable items={resources.data?.items ?? []} />}
         </Panel>
-		<Panel
-			title="Validated Combined Document"
-			action={
-				<div className="toolbar">
-					<Button className={combinedView === "semantic" ? "active" : ""} onClick={() => setCombinedView("semantic")}>Sentences</Button>
-					<Button className={combinedView === "layout" ? "active" : ""} onClick={() => setCombinedView("layout")}>Segmentation audit</Button>
-					<Button className={combinedView === "raw" ? "active" : ""} onClick={() => setCombinedView("raw")}>Raw</Button>
-					<Button
-						variant="primary"
-						disabled={!combinedDocument.data?.combined_document || generateSourceUnits.isPending || !!sourceJob}
-						onClick={() => generateSourceUnits.mutate()}
-					>
-						Classify Source Units
-					</Button>
-				</div>
-			}
-		>
+		<Panel id="src-document" title="Validated Combined Document">
+			<div className="segmented">
+				<button className={combinedView === "semantic" ? "active" : ""} onClick={() => setCombinedView("semantic")}>Sentences</button>
+				<button className={combinedView === "layout" ? "active" : ""} onClick={() => setCombinedView("layout")}>Segmentation audit</button>
+				<button className={combinedView === "raw" ? "active" : ""} onClick={() => setCombinedView("raw")}>Raw text</button>
+			</div>
           {combinedDocument.isLoading ? (
             <LoadingState />
           ) : combinedDocument.data?.combined_document ? (
@@ -474,19 +487,10 @@ function SourcesTab({ projectId }: { projectId: string }) {
 					{combinedDocument.data.combined_document.summary.needs_attention_count} segmentation reviews
 				</Badge>
               </div>
-			{combinedDocument.data.combined_document.summary.fallback_used && (
-				<div className="review-banner">
-					<div>
-						<strong>LLM segmentation was not applied.</strong>
-						<p className="muted">Processing completed safely with deterministic sentence splitting. You can continue or retry when the LLM is available.</p>
-					</div>
-					<Button disabled={retrySegmentation.isPending || !!segmentationJob} onClick={() => retrySegmentation.mutate()}>Retry with LLM</Button>
-				</div>
-			)}
 				{combinedView === "raw" ? (
 					<pre>{combinedDocument.data.combined_document.markdown}</pre>
 				) : combinedView === "layout" ? (
-					sourceSegmentation.data?.proposal ? <SegmentationGroupList proposal={sourceSegmentation.data.proposal} /> : <p className="muted">Segmentation audit is unavailable for this legacy project. Reprocess sources to generate it.</p>
+					sourceSegmentation.data?.proposal ? <SegmentationList proposal={sourceSegmentation.data.proposal} /> : <p className="muted">Segmentation output is unavailable for this legacy project. Reprocess sources to generate it.</p>
 				) : (
 					<CombinedSentenceList items={combinedDocument.data.combined_document.lineage.sentences} />
 				)}
@@ -498,6 +502,7 @@ function SourcesTab({ projectId }: { projectId: string }) {
       </div>
 		{sourceQA.data?.qa && (
 			<Panel
+				id="src-review"
 				title="Source-unit QA"
 				action={needsAttention > 0 ? <Button onClick={() => setFilter("needs_attention")}>Review flagged units</Button> : undefined}
 			>
@@ -508,17 +513,18 @@ function SourcesTab({ projectId }: { projectId: string }) {
 						{sourceQA.data.qa.needs_attention.length} need attention
 					</Badge>
 					<Badge>
-						{sourceQA.data.qa.od_sentences_referenced}/{sourceQA.data.qa.od_sentences_total} OD sentences covered
+						{sourceQA.data.qa.segments_referenced ?? sourceQA.data.qa.od_sentences_referenced ?? 0}/{sourceQA.data.qa.segments_total ?? sourceQA.data.qa.od_sentences_total ?? 0} evidence segments covered
 					</Badge>
 				</div>
 				{needsAttention > 0 ? (
 					<p className="muted">Open a flagged unit, inspect the backend normalization audit, then accept the classification or exclude the unit from modeling.</p>
 				) : (
-					<p className="muted">All source-unit review gates are resolved. Requirement extraction is available as the next pipeline step.</p>
+					<p className="muted">All source-unit review gates are resolved. The conceptual model is the next pipeline step.</p>
 				)}
 			</Panel>
 		)}
         <Panel
+          id="src-units"
           title="Source Units"
           action={
             <div className="toolbar">
@@ -671,8 +677,15 @@ function SourceUnitReviewDrawer({
 			</div>
 			{(unit.warnings?.length ?? 0) > 0 && (
 				<div className="review-warning-list">
-					<strong>Why this needs attention</strong>
+					<strong>{unit.review_status === "needs_attention" ? "Why this needs attention" : "Source notes"}</strong>
 					<ul>{unit.warnings?.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+				</div>
+			)}
+			{(unit.requirement_notes?.length ?? 0) > 0 && (
+				<div className="requirement-notes">
+					<strong>Open modeling questions</strong>
+					<ul>{unit.requirement_notes?.map((note) => <li key={note}>{note}</li>)}</ul>
+					<p className="muted small">No action needed here: these become design questions in the Review Queue.</p>
 				</div>
 			)}
 			<div className="normalization-comparison">
@@ -803,22 +816,22 @@ function RequirementsTab({ projectId }: { projectId: string }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ width: 130 }}>Atom</th>
+              <th style={{ width: 90 }}>Atom</th>
               <th>Statement</th>
-              <th>Area</th>
-              <th>Outcome</th>
-              <th>Review</th>
+              <th style={{ width: 170 }}>Type</th>
+              <th style={{ width: 120 }}>Outcome</th>
+              <th style={{ width: 110 }}>Review</th>
             </tr>
           </thead>
           <tbody>
             {(requirements.data?.items ?? []).map((item) => (
-              <tr key={item.id} onClick={() => setSelected(item)}>
+              <tr key={item.id} className="clickable-row" onClick={() => setSelected(item)}>
                 <td>
                   <strong>{item.id}</strong>
                 </td>
                 <td>{item.statement}</td>
-                <td>{item.functional_area}</td>
-                <td>{item.modeling_outcome}</td>
+                <td className="muted">{humanizeStatus(item.atom_type)}</td>
+                <td><StatusBadge value={item.modeling_outcome} /></td>
                 <td>
                   <StatusBadge value={item.review_status} />
                 </td>
@@ -829,8 +842,8 @@ function RequirementsTab({ projectId }: { projectId: string }) {
       </Panel>
 		{obligations.data && (
 			<Panel title={`Design Obligations · ${obligations.data.design_obligations.length}`}>
-				<table className="data-table"><thead><tr><th>Obligation</th><th>Kind</th><th>Persistence</th><th>Risk</th></tr></thead><tbody>
-					{obligations.data.design_obligations.map((item) => <tr key={item.id}><td><strong>{item.id}</strong><div>{item.statement}</div></td><td>{item.kind}</td><td>{item.persistence}</td><td><StatusBadge value={item.risk} /></td></tr>)}
+				<table className="data-table"><thead><tr><th>Obligation</th><th style={{ width: 150 }}>Kind</th><th style={{ width: 130 }}>Persistence</th><th style={{ width: 90 }}>Risk</th></tr></thead><tbody>
+					{obligations.data.design_obligations.map((item) => <tr key={item.id}><td><strong>{item.id}</strong><div>{item.statement}</div></td><td><Badge>{humanizeStatus(item.kind)}</Badge></td><td className="muted">{humanizeStatus(item.persistence)}</td><td><Badge tone={item.risk === "high" ? "warn" : item.risk === "low" ? "good" : "default"}>{item.risk}</Badge></td></tr>)}
 				</tbody></table>
 			</Panel>
 		)}
@@ -841,7 +854,13 @@ function RequirementsTab({ projectId }: { projectId: string }) {
             <Badge>{selected.atom_type}</Badge>
             <Badge>{selected.modeling_relevance}</Badge>
             <StatusBadge value={selected.review_status} />
+			<Badge tone={(selected.review_class ?? "none").startsWith("blocking_") ? "warn" : "default"}>{humanizeStatus(selected.review_class ?? "none")}</Badge>
           </div>
+		  {(selected.review_class ?? "none") !== "none" && (
+			<Panel title={`Review signal · ${humanizeStatus(selected.review_topic ?? "other")}`}>
+			  {(selected.warnings ?? []).length > 0 ? selected.warnings.map((warning) => <p key={warning}>{warning}</p>) : <p className="muted">No additional warning was recorded.</p>}
+			</Panel>
+		  )}
           <Panel title="Source evidence">
             <div className="toolbar">
               {selected.source_units.map((id) => (
@@ -927,6 +946,7 @@ function FunctionalCrudTab({ projectId }: { projectId: string }) {
 				{requirements.isLoading ? <LoadingState /> : <FunctionalRequirementsTable items={mappedRequirements} areaByAtom={areaByAtom} showArea={area === "all"} />}
 			</Panel>
 		</div>
+		<div className="grid-span-full">
 		<Panel title="Actors">
 			{actors.isLoading ? <LoadingState /> : (
 				<div className="toolbar">
@@ -934,13 +954,16 @@ function FunctionalCrudTab({ projectId }: { projectId: string }) {
 				</div>
 			)}
 		</Panel>
+		</div>
+		<div className="grid-span-full">
 		<Panel title={`CRUD Operations · ${filteredOperations.length}`}>
 			{operations.isLoading ? <LoadingState /> : filteredOperations.length > 0 ? (
-				<CrudTable items={filteredOperations} />
+				<CrudTable items={filteredOperations} actorLabel={(id) => actorByID.get(id)?.label ?? id} />
 			) : (
 				<p className="muted">CRUD operations are generated by the next pipeline stage, Build CRUD Mapping. The functional-analysis items are shown above.</p>
 			)}
 		</Panel>
+		</div>
     </div>
   );
 }
@@ -959,12 +982,12 @@ function FunctionalRequirementsTable({
 		<table className="data-table">
 			<thead>
 				<tr>
-					<th style={{ width: 100 }}>Atom</th>
+					<th style={{ width: 90 }}>Atom</th>
 					<th>Requirement</th>
-					{showArea && <th>Area</th>}
-					<th>Type</th>
-					<th>Relevance</th>
-					<th>Source units</th>
+					{showArea && <th style={{ width: "20%" }}>Area</th>}
+					<th style={{ width: 150 }}>Type</th>
+					<th style={{ width: 120 }}>Relevance</th>
+					<th style={{ width: 110 }}>Sources</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -973,9 +996,9 @@ function FunctionalRequirementsTable({
 						<td><strong>{item.id}</strong></td>
 						<td>{item.statement}</td>
 						{showArea && <td>{areaByAtom.get(item.id)?.label ?? "Unmapped"}</td>}
-						<td>{item.atom_type.replace(/_/g, " ")}</td>
+						<td className="muted">{humanizeStatus(item.atom_type)}</td>
 						<td><StatusBadge value={item.modeling_relevance} /></td>
-						<td>{item.source_units.join(", ")}</td>
+						<td className="muted small">{item.source_units.join(", ")}</td>
 					</tr>
 				))}
 			</tbody>
@@ -983,18 +1006,16 @@ function FunctionalRequirementsTable({
 	);
 }
 
-function CrudTable({ items }: { items: CrudOperation[] }) {
+function CrudTable({ items, actorLabel }: { items: CrudOperation[]; actorLabel: (id: string) => string }) {
+  const effects = (label: string, tone: string, values: string[]) =>
+    values.map((value) => <span key={`${label}:${value}`} className={`crud-chip ${tone}`} title={label}>{label} {value}</span>);
   return (
     <table className="data-table">
       <thead>
         <tr>
-          <th>Operation</th>
-          <th>Actor</th>
-          <th>C</th>
-          <th>R</th>
-          <th>U</th>
-          <th>D</th>
-          <th>Outcome</th>
+          <th style={{ width: "30%" }}>Operation</th>
+          <th style={{ width: 150 }}>Actor</th>
+          <th>Data effects</th>
         </tr>
       </thead>
       <tbody>
@@ -1002,15 +1023,17 @@ function CrudTable({ items }: { items: CrudOperation[] }) {
           <tr key={item.id}>
             <td>
               <strong>{item.label}</strong>
-              <div className="muted">{item.id}</div>
+              <div className="muted small">{item.outcome}</div>
             </td>
-            <td>{item.actor_id}</td>
-            <td>{item.creates.length}</td>
-            <td>{item.reads.length}</td>
-            <td>{item.updates.length}</td>
-            <td>{item.deletes.length}</td>
+            <td>{actorLabel(item.actor_id)}</td>
             <td>
-              <StatusBadge value={item.outcome} />
+              <div className="crud-effects">
+                {effects("C", "create", item.creates)}
+                {effects("R", "read", item.reads)}
+                {effects("U", "update", item.updates)}
+                {effects("D", "delete", item.deletes)}
+                {item.creates.length + item.reads.length + item.updates.length + item.deletes.length === 0 && <span className="muted small">no persistent effect</span>}
+              </div>
             </td>
           </tr>
         ))}
@@ -1024,12 +1047,14 @@ function ReviewTab({
 	revision,
 	nextAction,
 	onNext,
+	onDecisionsApplied,
 	nextDisabled,
 }: {
 	projectId: string;
 	revision: number;
 	nextAction: string;
 	onNext: () => void;
+	onDecisionsApplied: () => void;
 	nextDisabled: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -1058,7 +1083,7 @@ function ReviewTab({
           job={job}
           onDone={() => {
             setJob(null);
-            void queryClient.invalidateQueries();
+            void queryClient.invalidateQueries().then(onDecisionsApplied);
           }}
 		  onDismiss={() => setJob(null)}
         />

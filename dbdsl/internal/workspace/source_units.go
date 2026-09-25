@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,20 +11,10 @@ import (
 	"time"
 
 	"dbdsl/internal/dsl"
-	"dbdsl/internal/jobs"
-	"dbdsl/internal/llm"
 	"dbdsl/internal/llmpipeline"
 
 	"gopkg.in/yaml.v3"
 )
-
-type GenerateSourceUnitsOptions struct {
-	BaseRevision    int
-	Model           string
-	ReasoningEffort string
-	MaxOutputTokens int
-	OnProgress      jobs.StepEmitter
-}
 
 type SourceUnitArtifacts struct {
 	Proposal llmpipeline.SourceUnitExtractionProposal `json:"proposal"`
@@ -41,119 +30,64 @@ type ReviewSourceUnitOptions struct {
 	ReviewedBy     string
 }
 
-func (s *Store) GenerateSourceUnits(ctx context.Context, client llm.Client, projectID string, opts GenerateSourceUnitsOptions) (int, []string, error) {
-	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "source_units", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
-	project, ok := s.Project(projectID)
-	if !ok {
-		return 0, nil, ErrNotFound
-	}
-	if opts.BaseRevision > 0 && opts.BaseRevision != project.CurrentRevision {
-		return 0, nil, ErrRevisionConflict
-	}
-	if !project.CombinedDocumentReady {
-		return 0, nil, errors.New("combined document is not ready")
-	}
-	combined, err := s.CombinedDocument(projectID)
-	if err != nil {
-		return 0, nil, err
-	}
-	emit := opts.OnProgress
-	if emit == nil {
-		emit = func(string, string, int, map[string]any) {}
-	}
-	document := llmpipeline.CombinedDocumentProposal{
-		Sentences:         combined.Lineage.Sentences,
-		Warnings:          combined.Lineage.Warnings,
-		ConfidenceSummary: combined.Lineage.ConfidenceSummary,
-	}
-	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "source_units", opts.MaxOutputTokens, stageBudgetInput{Sentences: len(document.Sentences)})
-	controls := s.resolveLLMExecutionControls(projectID)
-	chunkCount := (len(document.Sentences) + llmpipeline.SourceUnitChunkSize - 1) / llmpipeline.SourceUnitChunkSize
-	emit("extract_source_units", "Classifying source sentences in bounded chunks.", 24, map[string]any{
-		"sentence_count": len(document.Sentences), "chunk_size": llmpipeline.SourceUnitChunkSize, "chunk_count": chunkCount,
-	})
-	var proposal llmpipeline.SourceUnitExtractionProposal
-	var qa llmpipeline.SourceUnitQA
-	strategy := "llm_classification_backend_normalization"
-	if client == nil {
-		return 0, nil, errors.New("LLM client is required for source-unit classification; use explicit mock mode for offline tests")
-	}
-	proposal, qa, stageErr := llmpipeline.RunSourceUnitExtraction(ctx, client, llmpipeline.SourceUnitExtractionOptions{
-		OutDir:          s.projectWorkspaceDir(projectID),
-		Document:        document,
-		Model:           opts.Model,
-		ReasoningEffort: opts.ReasoningEffort,
-		MaxOutputTokens: opts.MaxOutputTokens,
-		MaxParallelism:  controls.MaxParallelism,
-		PromptVersion:   controls.PromptVersion,
-	})
-	if stageErr != nil {
-		return 0, nil, stageErr
-	}
+type sourceUnitArtifactPaths struct {
+	Proposal string
+	Accepted string
+	QA       string
+}
+
+// deriveSourceUnitArtifacts projects the canonical source segments into the
+// DB-DSL v0.5 source-unit compatibility contract. It is intentionally
+// deterministic and is used by source processing itself; it is not a separate
+// analysis stage.
+func deriveSourceUnitArtifacts(project *ProjectState, document llmpipeline.CombinedDocumentProposal) (SourceUnitArtifacts, error) {
+	proposal, qa := llmpipeline.BuildSourceUnitsFromSegments(document)
 	if !qa.OK {
-		return 0, nil, fmt.Errorf("source-unit QA failed: %s", strings.Join(qa.Errors, "; "))
+		return SourceUnitArtifacts{}, fmt.Errorf("source-unit QA failed: %s", strings.Join(qa.Errors, "; "))
 	}
-	emit("validate_source_units", "Validating coverage and origin chains.", 72, map[string]any{
-		"source_unit_count": len(proposal.SourceUnits),
-		"needs_attention":   len(qa.NeedsAttention),
-		"strategy":          strategy,
-	})
-	accepted := buildAcceptedSourceUnits(project, proposal)
-	nextRevision := project.CurrentRevision + 1
-	revisionRel := s.projectRevisionRel(projectID, nextRevision)
+	qa.DerivationStrategy = llmpipeline.SegmentUnitStrategy
+	return SourceUnitArtifacts{
+		Proposal: proposal,
+		Accepted: buildAcceptedSourceUnits(project, proposal),
+		QA:       qa,
+	}, nil
+}
+
+// writeSourceUnitArtifacts writes the compatibility files into the same
+// revision as the source-segmentation result that produced them.
+func (s *Store) writeSourceUnitArtifacts(projectID string, revision int, artifacts SourceUnitArtifacts) (sourceUnitArtifactPaths, error) {
+	revisionRel := s.projectRevisionRel(projectID, revision)
 	revisionDir := s.absoluteWorkspacePath(revisionRel)
 	if err := os.MkdirAll(revisionDir, 0o755); err != nil {
-		return 0, nil, fmt.Errorf("create source-unit revision directory: %w", err)
+		return sourceUnitArtifactPaths{}, fmt.Errorf("create source-unit revision directory: %w", err)
 	}
-	proposalRel := filepath.ToSlash(filepath.Join(revisionRel, "source_units.proposed.json"))
-	acceptedRel := filepath.ToSlash(filepath.Join(revisionRel, "source_units.yaml"))
-	qaRel := filepath.ToSlash(filepath.Join(revisionRel, "source_unit_qa.json"))
-	proposalBytes, err := json.MarshalIndent(proposal, "", "  ")
-	if err != nil {
-		return 0, nil, err
+	paths := sourceUnitArtifactPaths{
+		Proposal: filepath.ToSlash(filepath.Join(revisionRel, "source_units.proposed.json")),
+		Accepted: filepath.ToSlash(filepath.Join(revisionRel, "source_units.yaml")),
+		QA:       filepath.ToSlash(filepath.Join(revisionRel, "source_unit_qa.json")),
 	}
-	acceptedBytes, err := yaml.Marshal(accepted)
+	proposalBytes, err := json.MarshalIndent(artifacts.Proposal, "", "  ")
 	if err != nil {
-		return 0, nil, err
+		return sourceUnitArtifactPaths{}, err
 	}
-	qa.DerivationStrategy = strategy
-	qaBytes, err := json.MarshalIndent(qa, "", "  ")
+	acceptedBytes, err := yaml.Marshal(artifacts.Accepted)
 	if err != nil {
-		return 0, nil, err
+		return sourceUnitArtifactPaths{}, err
+	}
+	qaBytes, err := json.MarshalIndent(artifacts.QA, "", "  ")
+	if err != nil {
+		return sourceUnitArtifactPaths{}, err
 	}
 	for path, data := range map[string][]byte{
-		proposalRel: proposalBytes,
-		acceptedRel: acceptedBytes,
-		qaRel:       qaBytes,
+		paths.Proposal: proposalBytes,
+		paths.Accepted: acceptedBytes,
+		paths.QA:       qaBytes,
 	} {
 		if err := writeAtomic(s.absoluteWorkspacePath(path), data); err != nil {
-			return 0, nil, err
+			return sourceUnitArtifactPaths{}, err
 		}
 	}
-	err = s.withProject(projectID, project.CurrentRevision, func(current *ProjectState) error {
-		s.invalidateDerivedFromSourceUnits(current)
-		current.SourceUnitsProposalPath = proposalRel
-		current.SourceUnitsPath = acceptedRel
-		current.SourceUnitQAPath = qaRel
-		current.AnalysisReady = false
-		current.ModelGenerated = false
-		current.DBMLReady = false
-		current.Completed = false
-		if len(qa.NeedsAttention) > 0 {
-			current.LifecycleStatus = "source_review"
-			current.LastActivity = fmt.Sprintf("Source units generated; %d need attention.", len(qa.NeedsAttention))
-		} else {
-			current.LifecycleStatus = "sources_processed"
-			current.LastActivity = "Source units generated and validated."
-		}
-		return nil
-	})
-	if err != nil {
-		return 0, nil, err
-	}
-	updated := []string{"source_units", "source_unit_qa"}
-	project, _ = s.Project(projectID)
-	return project.CurrentRevision, updated, nil
+	return paths, nil
 }
 
 func buildAcceptedSourceUnits(project *ProjectState, proposal llmpipeline.SourceUnitExtractionProposal) dsl.V05SourceUnitsFile {
@@ -163,7 +97,7 @@ func buildAcceptedSourceUnits(project *ProjectState, proposal llmpipeline.Source
 			ID:        unit.ID,
 			Kind:      unit.Kind,
 			Section:   unit.Section,
-			Location:  "combined_document.md#" + strings.Join(unit.ODSentenceIDs, ","),
+			Location:  "combined_document.md#" + strings.Join(proposalSegmentIDs(unit), ","),
 			Relevance: unit.Relevance,
 			Tags:      append([]string(nil), unit.Tags...),
 			Text: dsl.SourceUnitText{
@@ -204,8 +138,12 @@ func (s *Store) SourceUnitArtifacts(projectID string) (SourceUnitArtifacts, erro
 	if err := readJSON(s.absoluteWorkspacePath(project.SourceUnitQAPath), &out.QA); err != nil {
 		return SourceUnitArtifacts{}, err
 	}
-	// Old artifacts may contain LLM-authored normalization. Treat exact text as
-	// authoritative and project every read through the current backend normalizer.
+	// Segment-based units keep the segment text verbatim and are returned as
+	// stored. Old artifacts may contain LLM-authored normalization; for them the
+	// exact text is authoritative and every read goes through the backend normalizer.
+	if out.QA.DerivationStrategy == llmpipeline.SegmentUnitStrategy {
+		return out, nil
+	}
 	for i := range out.Accepted.SourceUnits {
 		normalized, audit := llmpipeline.NormalizeSourceText(out.Accepted.SourceUnits[i].Text.Exact)
 		out.Accepted.SourceUnits[i].Text.Normalized = normalized
@@ -378,7 +316,8 @@ func (s *Store) projectSourceUnits(projectID string) ([]SourceUnit, bool, error)
 	for _, source := range artifacts.Accepted.SourceUnits {
 		proposal := proposalByID[source.ID]
 		originSet := map[string]OriginSpan{}
-		for _, sentenceID := range proposal.ODSentenceIDs {
+		segmentIDs := proposalSegmentIDs(proposal)
+		for _, sentenceID := range segmentIDs {
 			for _, origin := range sentenceByID[sentenceID].DerivedFrom {
 				key := fmt.Sprintf("%s:%s:%d:%d:%d:%d", origin.ResourceID, origin.SourceSegmentID, origin.LineStart, origin.LineEnd, origin.StartByte, origin.EndByte)
 				label := fmt.Sprintf("%s lines %d-%d", origin.ResourceID, origin.LineStart, origin.LineEnd)
@@ -418,11 +357,19 @@ func (s *Store) projectSourceUnits(projectID string) ([]SourceUnit, bool, error)
 			LinkedExamples:       []string{},
 			LinkedRequirements:   []string{},
 			OpenReviewCandidates: []string{},
-			ODSentenceIDs:        append([]string(nil), proposal.ODSentenceIDs...),
+			SegmentIDs:           append([]string(nil), segmentIDs...),
 			Warnings:             append([]string(nil), proposal.Warnings...),
+			RequirementNotes:     append([]string(nil), proposal.RequirementNotes...),
 		})
 	}
 	return units, true, nil
+}
+
+func proposalSegmentIDs(proposal llmpipeline.SourceUnitProposal) []string {
+	if len(proposal.SegmentIDs) > 0 {
+		return proposal.SegmentIDs
+	}
+	return proposal.ODSentenceIDs
 }
 
 func readJSON(path string, target any) error {

@@ -26,7 +26,7 @@ func TestProcessSourcesFreezesLLMExecutionProfileForLaterStages(t *testing.T) {
 		t.Fatalf("conceptual adaptive budget = %d, want 12000", budget)
 	}
 	controls := store.resolveLLMExecutionControls(project.ID)
-	if controls.MaxParallelism != 3 || controls.MaxRepairAttempts != 2 || controls.PromptVersion != llmpipeline.PromptTemplateVersion {
+	if controls.MaxParallelism != 6 || controls.MaxRepairAttempts != 2 || controls.PromptVersion != llmpipeline.PromptTemplateVersion {
 		t.Fatalf("execution controls did not inherit the frozen profile: %+v", controls)
 	}
 }

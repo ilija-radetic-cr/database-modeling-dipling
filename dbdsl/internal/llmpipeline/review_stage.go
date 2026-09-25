@@ -43,6 +43,7 @@ func RunProjectReview(ctx context.Context, client llm.Client, opts ProjectReview
 	if opts.OutDir == "" || len(opts.RequirementAtoms) == 0 || len(opts.FunctionalAreas) == 0 {
 		return ProjectReviewProposal{}, StageQA{}, errors.New("output directory and validated analysis are required")
 	}
+	opts.RequirementAtoms = NormalizeRequirementReviewSemantics(opts.RequirementAtoms)
 	atoms := reviewRelevantAtoms(opts.RequirementAtoms)
 	if len(atoms) == 0 {
 		proposal := ProjectReviewProposal{ReviewCandidates: []ProjectReviewCandidateProposal{}, Warnings: []string{}, ConfidenceSummary: map[string]string{"strategy": "deterministic_no_semantic_need"}}
@@ -73,7 +74,7 @@ func RunProjectReview(ctx context.Context, client llm.Client, opts ProjectReview
 	areas := filterReviewAreas(opts.FunctionalAreas, atomIDs)
 	operations := filterReviewOperations(opts.Operations, atomIDs)
 	input := mustJSON(map[string]any{
-		"source_units": sourceUnitInputs(units), "requirement_atoms": atoms,
+		"source_units": modelSourceUnitInputs(units), "requirement_atoms": atoms,
 		"functional_areas": areas, "actors": opts.Actors, "crud_operations": operations,
 		"output_contract": "review_candidate_proposal", "pipeline_version": "0.7", "template_version": promptTemplateVersion,
 	})
@@ -101,9 +102,10 @@ func RunProjectReview(ctx context.Context, client llm.Client, opts ProjectReview
 }
 
 func reviewRelevantAtoms(atoms []RequirementAtomProposal) []RequirementAtomProposal {
+	atoms = NormalizeRequirementReviewSemantics(atoms)
 	out := make([]RequirementAtomProposal, 0, len(atoms))
 	for _, atom := range atoms {
-		if atom.RequiresReview || atom.ModelingOutcome == "deferred" || atom.ModelingOutcome == "unsupported" || atom.PersistenceEffect == "unclear" || atom.SupportLevel == "assumption" || atom.Confidence == "low" {
+		if atom.RequiresReview || atom.ModelingOutcome == "deferred" || atom.ModelingOutcome == "unsupported" || atom.PersistenceEffect == "unclear" {
 			out = append(out, atom)
 		}
 	}
@@ -299,6 +301,7 @@ func normalizeReviewDecisionLinks(proposal *ReviewResolutionPatchProposal, decis
 }
 
 func ValidateProjectReviewProposal(proposal ProjectReviewProposal, units []dsl.SourceUnit, atoms []RequirementAtomProposal, areas []FunctionalAreaProposal, operations []CRUDOperationProposal) StageQA {
+	atoms = NormalizeRequirementReviewSemantics(atoms)
 	qa := newStageQA(proposal.Warnings)
 	sourceIDs, atomIDs, areaIDs, operationIDs := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, item := range units {
@@ -315,6 +318,13 @@ func ValidateProjectReviewProposal(proposal ProjectReviewProposal, units []dsl.S
 	}
 	candidates := map[string]ProjectReviewCandidateProposal{}
 	decisionKeys := map[string]string{}
+	blockingAtoms := map[string]string{}
+	coveredBlocking := map[string]int{}
+	for _, atom := range atoms {
+		if atom.RequiresReview {
+			blockingAtoms[atom.ID] = atom.ReviewGroup
+		}
+	}
 	for _, candidate := range proposal.ReviewCandidates {
 		if candidate.ID == "" || candidates[candidate.ID].ID != "" {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("empty or duplicate review candidate id %q", candidate.ID))
@@ -371,6 +381,18 @@ func ValidateProjectReviewProposal(proposal ProjectReviewProposal, units []dsl.S
 			if !atomIDs[id] {
 				qa.Errors = append(qa.Errors, fmt.Sprintf("%s references unknown atom %s", candidate.ID, id))
 			}
+			if _, blocking := blockingAtoms[id]; blocking {
+				coveredBlocking[id]++
+			}
+		}
+		groups := map[string]bool{}
+		for _, id := range candidate.AffectedAtoms {
+			if group := blockingAtoms[id]; group != "" {
+				groups[group] = true
+			}
+		}
+		if len(groups) > 1 {
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s combines more than one blocking review_group", candidate.ID))
 		}
 		for _, id := range candidate.AffectedFunctionalAreas {
 			if !areaIDs[id] {
@@ -407,6 +429,15 @@ func ValidateProjectReviewProposal(proposal ProjectReviewProposal, units []dsl.S
 	}
 	if cycle := reviewDependencyCycle(candidates); len(cycle) > 0 {
 		qa.Errors = append(qa.Errors, "review dependency cycle: "+strings.Join(cycle, " -> "))
+	}
+	for atomID := range blockingAtoms {
+		switch coveredBlocking[atomID] {
+		case 0:
+			qa.Errors = append(qa.Errors, fmt.Sprintf("blocking atom %s has no review candidate", atomID))
+		case 1:
+		default:
+			qa.Errors = append(qa.Errors, fmt.Sprintf("blocking atom %s is covered by multiple review candidates", atomID))
+		}
 	}
 	qa.Coverage["review_candidates"] = len(proposal.ReviewCandidates)
 	for _, candidate := range proposal.ReviewCandidates {

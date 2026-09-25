@@ -19,6 +19,61 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TestSegmentFlowRunsWithoutRequirementStages covers the segment-based flow:
+// segmentation with deterministic source-unit IDs, the conceptual description, the
+// deterministic logical model and final outputs, with no requirement,
+// functional, CRUD or review stage.
+func TestSegmentFlowRunsWithoutRequirementStages(t *testing.T) {
+	store := newIngestionTestStore(t)
+	project, err := store.CreateProject("Library", "", "sr", "library")
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	_, revision, err := store.AddPastedTextResource(project.ID, 0, "Task", "Član biblioteke pozajmljuje knjige. Svaka pozajmica ima datum vraćanja.")
+	if err != nil {
+		t.Fatalf("add resource: %v", err)
+	}
+	mock := llm.NewDefaultMockClient()
+	revision, _, err = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
+	if err != nil {
+		t.Fatalf("process sources: %v", err)
+	}
+	revision, _, err = store.GenerateConceptualModel(context.Background(), mock, project.ID, ModelStageOptions{BaseRevision: revision, Model: "mock-model"})
+	if err != nil {
+		t.Fatalf("conceptual model: %v", err)
+	}
+	conceptual, err := store.ConceptualModel(project.ID)
+	if err != nil || !conceptual.QA.OK || conceptual.Description == nil || len(conceptual.Proposed.EntityConcepts) != 2 {
+		t.Fatalf("unexpected conceptual model: %+v err=%v", conceptual, err)
+	}
+	state, _ := store.Project(project.ID)
+	if state.RequirementAtomsPath != "" || state.DesignObligationsPath != "" {
+		t.Fatalf("no requirement artifacts may be produced: %+v", state)
+	}
+	if revision, err = store.AcceptConceptualModel(project.ID, revision); err != nil {
+		t.Fatalf("accept conceptual model: %v", err)
+	}
+	if revision, _, err = store.GenerateLogicalModel(context.Background(), nil, project.ID, ModelStageOptions{BaseRevision: revision}); err != nil {
+		t.Fatalf("logical model: %v", err)
+	}
+	health, err := store.ArtifactHealth(project.ID)
+	if err != nil || health.ModelStatus != "ready" || health.SemanticVerificationStatus != "not_applicable" {
+		t.Fatalf("unexpected health after logical model: %+v err=%v", health, err)
+	}
+	if revision, err = store.AcceptFinalModel(project.ID, revision); err != nil {
+		t.Fatalf("accept final model: %v", err)
+	}
+	if _, _, err = store.GenerateFinalOutputs(project.ID, revision, nil); err != nil {
+		t.Fatalf("final outputs: %v", err)
+	}
+	if dbml, err := store.DBML(project.ID); err != nil || !strings.Contains(dbml, "Table") {
+		t.Fatalf("DBML missing: %q %v", dbml, err)
+	}
+	if health, _ := store.ArtifactHealth(project.ID); !health.CanCompleteProject {
+		t.Fatalf("project should be completable: %+v", health)
+	}
+}
+
 func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 	store := newIngestionTestStore(t)
 	project, err := store.CreateProject("Products", "", "en", "catalog")
@@ -36,10 +91,6 @@ func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 	revision, _, err = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
 	if err != nil {
 		t.Fatalf("combined document: %v", err)
-	}
-	revision, _, err = store.GenerateSourceUnits(context.Background(), mock, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision, Model: "mock-model"})
-	if err != nil {
-		t.Fatalf("source units: %v", err)
 	}
 	revision, _, err = store.GenerateRequirementAtoms(context.Background(), mock, project.ID, AnalysisStageOptions{BaseRevision: revision, Model: "mock-model"})
 	if err != nil {
@@ -114,9 +165,10 @@ func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 	if !state.ModelGenerated || state.DBMLReady {
 		t.Fatalf("logical model gate state is wrong: %+v", state)
 	}
-	revision, _, err = store.RunSemanticVerification(project.ID, revision, nil)
-	if err != nil {
-		t.Fatalf("semantic verification: %v", err)
+	// The segment-based conceptual stage has no design obligations, so semantic
+	// verification does not apply and the final review follows directly.
+	if health, err := store.ArtifactHealth(project.ID); err != nil || health.SemanticVerificationStatus != "not_applicable" {
+		t.Fatalf("semantic verification should not apply: health=%+v err=%v", health, err)
 	}
 	revision, err = store.AcceptFinalModel(project.ID, revision)
 	if err != nil {
@@ -160,7 +212,7 @@ func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("export bundle: %v", err)
 	}
-	assertExportFiles(t, bundle, []string{"TASK.md", "source_manifest.yaml", "source_segmentation.proposed.json", "source_segmentation_qa.json", "combined_document.md", "combined_document_lineage.json", "source_units.proposed.json", "source_units.yaml", "source_unit_qa.json", "requirement_atoms.proposed.json", "requirement_atoms.yaml", "functional_analysis.proposed.json", "functional_decomposition.yaml", "crud_mapping.proposed.json", "crud_matrix.yaml", "review_candidates.proposed.json", "review_candidates.yaml", "review_decisions.yaml", "conceptual_model.proposed.json", "conceptual_model.accepted.json", "dbdsl_patch.proposed.json", "db_model.dsl.yaml", "model.dbml", "traceability_report.md", "validation_report.json", "lint_report.json", "quality_report.json", "llm_optimization_report.json", "llm_optimization_report.md", "export_manifest.json"})
+	assertExportFiles(t, bundle, []string{"TASK.md", "source_manifest.yaml", "source_segmentation.proposed.json", "combined_document.md", "combined_document_lineage.json", "source_units.proposed.json", "source_units.yaml", "source_unit_qa.json", "requirement_atoms.proposed.json", "requirement_atoms.yaml", "functional_analysis.proposed.json", "functional_decomposition.yaml", "crud_mapping.proposed.json", "crud_matrix.yaml", "review_candidates.proposed.json", "review_candidates.yaml", "review_decisions.yaml", "conceptual_model.proposed.json", "conceptual_model.accepted.json", "dbdsl_patch.proposed.json", "db_model.dsl.yaml", "model.dbml", "traceability_report.md", "validation_report.json", "lint_report.json", "quality_report.json", "llm_optimization_report.json", "llm_optimization_report.md", "export_manifest.json"})
 	completedSummary, completedSnapshot, err := store.CompleteProject(project.ID, revision)
 	if err != nil || completedSummary.LifecycleStatus != "completed" || completedSnapshot.ID == "" {
 		t.Fatalf("complete project: summary=%+v snapshot=%+v err=%v", completedSummary, completedSnapshot, err)
@@ -192,13 +244,10 @@ func TestGranularAnalysisStagesPersistIndependentArtifacts(t *testing.T) {
 			t.Fatalf("reopened resource copy is missing: %s: %v", resource.ContentPath, err)
 		}
 	}
-	revision, candidateID, err := store.CreateModelCorrectionCandidate(reopenedSummary.ID, ModelCorrectionRequest{BaseRevision: reopenedState.CurrentRevision, ElementID: "table:DomainRecord", CorrectionType: "wrong_entity", Note: "Use the source terminology for this concept."})
-	if err != nil || candidateID == "" {
-		t.Fatalf("create model correction: id=%q err=%v", candidateID, err)
-	}
-	state, _ = store.Project(reopenedSummary.ID)
-	if !state.OpenReviewIDs[candidateID] || state.FinalModelAccepted || state.DBMLReady {
-		t.Fatalf("correction did not invalidate final acceptance: %+v", state)
+	// The segment-based conceptual stage produced this model, so corrections go
+	// through regeneration, not the atom-based review queue.
+	if _, _, err := store.CreateModelCorrectionCandidate(reopenedSummary.ID, ModelCorrectionRequest{BaseRevision: reopenedState.CurrentRevision, ElementID: "table:ENT-ZAPIS", CorrectionType: "wrong_entity", Note: "Use the source terminology for this concept."}); err != ErrModelCorrectionUnavailable {
+		t.Fatalf("model correction should be unavailable in the segment-based flow, got %v", err)
 	}
 }
 
@@ -308,7 +357,6 @@ func TestGranularAnalysisRejectsStaleRevision(t *testing.T) {
 	_, revision, _ := store.AddPastedTextResource(project.ID, 0, "Task", "Products have names.")
 	mock := llm.NewDefaultMockClient()
 	revision, _, _ = store.ProcessSources(project.ID, ProcessSourcesOptions{BaseRevision: revision, Model: "mock-model"})
-	revision, _, _ = store.GenerateSourceUnits(context.Background(), mock, project.ID, GenerateSourceUnitsOptions{BaseRevision: revision, Model: "mock-model"})
 	if _, _, err := store.GenerateRequirementAtoms(context.Background(), mock, project.ID, AnalysisStageOptions{BaseRevision: revision - 1}); err != ErrRevisionConflict {
 		t.Fatalf("expected revision conflict, got %v", err)
 	}

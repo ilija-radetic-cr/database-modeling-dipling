@@ -30,6 +30,25 @@ func validateV05(bundle *dsl.V05Bundle) Result {
 	return Result{Errors: validator.errors}
 }
 
+// ValidateV05Bundle validates an in-memory logical candidate before it is
+// written to a project revision.
+func ValidateV05Bundle(bundle *dsl.V05Bundle) Result {
+	if bundle == nil || bundle.Document == nil || bundle.SourceUnits == nil || bundle.RequirementAtoms == nil || bundle.FunctionalDecomposition == nil || bundle.CRUDMatrix == nil || bundle.ReviewDecisions == nil {
+		return Result{Errors: []string{"in-memory DB-DSL v0.5 bundle is incomplete"}}
+	}
+	// TopLevelKeys is populated by the YAML loader. In-memory candidates already
+	// have every typed section, so synthesize the same parser metadata without
+	// mutating the caller's document.
+	document := *bundle.Document
+	document.TopLevelKeys = map[string]bool{}
+	for _, key := range []string{"dsl", "model", "source", "entities", "relationships", "constraints", "import_specs", "state_machines", "derived_views", "file_specs"} {
+		document.TopLevelKeys[key] = true
+	}
+	candidate := *bundle
+	candidate.Document = &document
+	return validateV05(&candidate)
+}
+
 type validatorV05 struct {
 	bundle *dsl.V05Bundle
 	doc    *dsl.Document
@@ -336,24 +355,15 @@ func (v *validatorV05) buildGeneratedFKs() {
 		v.generatedFKs[entityID] = map[string]bool{}
 	}
 	for _, relationship := range v.doc.Relationships {
-		switch relationship.Cardinality {
-		case "many_to_one", "one_to_one":
-			if v.hasEntity(relationship.From) && v.hasEntity(relationship.To) {
-				v.generatedFKs[relationship.From][fkName(relationship.To)] = true
+		for _, fk := range dsl.RelationshipForeignKeys(relationship) {
+			if !v.hasEntity(fk.OwnerEntityID) {
+				continue
 			}
-		case "one_to_many":
-			if v.hasEntity(relationship.From) && v.hasEntity(relationship.To) {
-				v.generatedFKs[relationship.To][fkName(relationship.From)] = true
+			if _, err := dsl.ResolveConstraintReference(v.doc, fk.OwnerEntityID, fk.Field); err != nil {
+				v.add("relationship %s has invalid generated foreign key: %v", relationship.ID, err)
+				continue
 			}
-		case "many_to_many":
-			if relationship.Through != "" && v.hasEntity(relationship.Through) {
-				if v.hasEntity(relationship.From) {
-					v.generatedFKs[relationship.Through][fkName(relationship.From)] = true
-				}
-				if v.hasEntity(relationship.To) {
-					v.generatedFKs[relationship.Through][fkName(relationship.To)] = true
-				}
-			}
+			v.generatedFKs[fk.OwnerEntityID][fk.Field] = true
 		}
 	}
 }
@@ -387,7 +397,10 @@ func (v *validatorV05) validateConstraints() {
 			if constraint.Field == "" {
 				v.add("%s requires field", prefix)
 			} else {
-				v.validateConstraintField(prefix, constraint.Owner, constraint.Field)
+				resolved := v.validateSingleConstraintField(prefix, constraint.Owner, constraint.Field)
+				if resolved.Kind == "relationship" || resolved.Kind == "generated_fk" {
+					v.add("%s redundantly declares relationship requiredness; use relationship.required or relationship.fk_required", prefix)
+				}
 				if attribute := v.attribute(constraint.Owner, constraint.Field); attribute != nil && attribute.Required != nil && !*attribute.Required {
 					v.add("%s requires %s.%s but attribute.required is false", prefix, constraint.Owner, constraint.Field)
 				}
@@ -407,7 +420,7 @@ func (v *validatorV05) validateConstraints() {
 			if constraint.Field == "" {
 				v.add("%s requires field", prefix)
 			} else {
-				v.validateConstraintField(prefix, constraint.Owner, constraint.Field)
+				v.validateSingleConstraintField(prefix, constraint.Owner, constraint.Field)
 			}
 			if constraint.Value == nil && constraint.Min == nil && constraint.Max == nil {
 				v.add("%s requires value, min, or max", prefix)
@@ -416,7 +429,7 @@ func (v *validatorV05) validateConstraints() {
 			if constraint.Field == "" {
 				v.add("%s requires field", prefix)
 			} else {
-				v.validateConstraintField(prefix, constraint.Owner, constraint.Field)
+				v.validateSingleConstraintField(prefix, constraint.Owner, constraint.Field)
 			}
 			if constraint.Value == nil && constraint.Min == nil && constraint.Max == nil {
 				v.add("%s requires value, min, or max", prefix)
@@ -425,7 +438,7 @@ func (v *validatorV05) validateConstraints() {
 			if constraint.Field == "" {
 				v.add("%s requires field", prefix)
 			} else {
-				v.validateConstraintField(prefix, constraint.Owner, constraint.Field)
+				v.validateSingleConstraintField(prefix, constraint.Owner, constraint.Field)
 			}
 			if constraint.Pattern == "" {
 				v.add("%s requires pattern", prefix)
@@ -450,7 +463,7 @@ func (v *validatorV05) validateConditionalRequired(prefix string, constraint dsl
 		if constraint.Condition.Field == "" {
 			v.add("%s condition.field is required", prefix)
 		} else {
-			v.validateConstraintField(prefix, constraint.Owner, constraint.Condition.Field)
+			v.validateSingleConstraintField(prefix, constraint.Owner, constraint.Condition.Field)
 		}
 		if constraint.Condition.Operator == "" {
 			v.add("%s condition.operator is required", prefix)
@@ -477,7 +490,7 @@ func (v *validatorV05) validateConditionalRequired(prefix string, constraint dsl
 			if requirement.Field == "" {
 				v.add("%s.field is required", reqPrefix)
 			} else {
-				v.validateConstraintField(reqPrefix, constraint.Owner, requirement.Field)
+				v.validateSingleConstraintField(reqPrefix, constraint.Owner, requirement.Field)
 			}
 		case "related_entity":
 			if requirement.Entity == "" {
@@ -932,26 +945,32 @@ func (v *validatorV05) validateReferenceableTargets() {
 	}
 }
 
-func (v *validatorV05) validateConstraintField(prefix, owner, field string) {
+func (v *validatorV05) validateConstraintField(prefix, owner, field string) dsl.ConstraintReference {
 	if field == "" || owner == "" || owner == "model" {
-		return
+		return dsl.ConstraintReference{}
 	}
-	if v.attributeIDs[owner][field] {
-		return
+	resolved, err := dsl.ResolveConstraintReference(v.doc, owner, field)
+	if err != nil {
+		v.add("%s references invalid field %s.%s: %v", prefix, owner, field, err)
+		return dsl.ConstraintReference{}
 	}
-	if v.generatedFKs[owner][field] {
-		return
+	return resolved
+}
+
+func (v *validatorV05) validateSingleConstraintField(prefix, owner, field string) dsl.ConstraintReference {
+	resolved := v.validateConstraintField(prefix, owner, field)
+	if len(resolved.PhysicalFields) > 1 {
+		v.add("%s reference %s expands to multiple physical fields and is only valid in a fields list", prefix, field)
 	}
-	v.add("%s references unknown field %s.%s", prefix, owner, field)
+	return resolved
 }
 
 func (v *validatorV05) validateImportTarget(prefix, target string) {
-	parts := strings.Split(target, ".")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	entityID, attributeID, ok := splitAttributeReference(target)
+	if !ok {
 		v.add("%s target must be Entity.attribute, got %s", prefix, target)
 		return
 	}
-	entityID, attributeID := parts[0], parts[1]
 	if !v.hasEntity(entityID) {
 		v.add("%s target references unknown entity %s", prefix, entityID)
 		return
@@ -962,11 +981,11 @@ func (v *validatorV05) validateImportTarget(prefix, target string) {
 }
 
 func (v *validatorV05) hasAttributeRef(ref string) bool {
-	parts := strings.Split(ref, ".")
-	if len(parts) != 2 {
+	entityID, attributeID, ok := splitAttributeReference(ref)
+	if !ok {
 		return false
 	}
-	return v.attributeIDs[parts[0]][parts[1]]
+	return v.attributeIDs[entityID][attributeID]
 }
 
 func (v *validatorV05) requireSourceUnit(prefix, sourceUnit string) {

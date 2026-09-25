@@ -7,7 +7,6 @@ import type {
   ReviewCandidate,
   SourceManifest,
 	SourceSegmentationProposal,
-	SourceSegmentationQA,
   SourceUnit,
 } from "@/shared/api/types";
 
@@ -54,7 +53,7 @@ const sourceManifest: SourceManifest = {
 };
 
 const combinedDocument: CombinedDocument = {
-  markdown: "# Combined Document\n\n[OD-S-001] Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.\n",
+  markdown: "# Combined Document\n\n[SU-001] Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.\n",
   lineage: {
     document: {
       id: "project_phf_combined_document_lineage",
@@ -66,25 +65,10 @@ const combinedDocument: CombinedDocument = {
     },
     sentences: [
       {
-        id: "OD-S-001",
+        id: "SU-001",
         kind: "sentence",
         text: "Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.",
-        derived_from: [
-          {
-            resource_id: "R-001",
-			source_segment_id: "R-001-S-0009",
-            line_start: 9,
-            line_end: 9,
-			start_byte: 0,
-			end_byte: 81,
-            exact_text: "Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.",
-          },
-        ],
-        transformation: "copied",
-		role: "semantic",
-		segmentation_strategy: "llm_candidate_grouping_v1",
-        confidence: "high",
-        warnings: [],
+		role: "sentence",
       },
     ],
     warnings: [],
@@ -97,7 +81,7 @@ const combinedDocument: CombinedDocument = {
 	structural_unit_count: 0,
     resource_count: 1,
     warning_count: 0,
-	segmentation_strategy: "llm_candidate_grouping_v1",
+	segmentation_strategy: "llm_complete_resource",
 	llm_assisted: true,
 	fallback_used: false,
 	needs_attention_count: 0,
@@ -105,20 +89,12 @@ const combinedDocument: CombinedDocument = {
   },
 };
 
-const sourceSegmentation: { proposal: SourceSegmentationProposal; qa: SourceSegmentationQA } = {
+const sourceSegmentation: { proposal: SourceSegmentationProposal } = {
 	proposal: {
-		candidates: [{
-			id: "SC-000001", segment_id: "R-001-S-0009", resource_id: "R-001",
-			line_start: 9, line_end: 9, start_byte: 0, end_byte: 81,
-			exact_text: "Postoje  tri vrste korisnika : klijenti, stampari i administrator web sistema.", suggested_role: "semantic",
+		segments: [{
+			id: "SU-001", type: "sentence",
+			text: "Postoje tri vrste korisnika: klijenti, stampari i administrator web sistema.",
 		}],
-		groups: [{ id: "SG-000001", role: "semantic", candidate_ids: ["SC-000001"], confidence: "high", requires_review: false, warnings: [], od_sentence_id: "OD-S-001" }],
-		strategy: "llm_candidate_grouping_v1", llm_assisted: true, fallback_used: false, warnings: [], confidence_summary: { overall: "high" },
-	},
-	qa: {
-		ok: true, strategy: "llm_candidate_grouping_v1", candidates_total: 1, candidates_assigned: 1,
-		semantic_groups: 1, structural_groups: 0, layout_groups: 0, needs_attention: [], errors: [], warnings: [],
-		role_counts: { semantic: 1 }, fallback_used: false,
 	},
 };
 
@@ -183,7 +159,7 @@ const reviewCandidates: ReviewCandidate[] = [
 
 const sourceUnits: SourceUnit[] = [
   {
-    id: "PHF-GSU-005",
+    id: "SU-001",
     kind: "sentence",
     section: "document_title",
     normalized_text: "Postoje tri vrste korisnika: klijenti, stampari i administrator web sistema.",
@@ -214,7 +190,7 @@ const sourceUnits: SourceUnit[] = [
     linked_examples: [],
     linked_requirements: ["PHF-RA-001"],
     open_review_candidates: ["PHF-RC-DEMO-001"],
-    od_sentence_ids: ["OD-S-001"],
+    segment_ids: ["SU-001"],
     warnings: [],
   },
 ];
@@ -333,7 +309,7 @@ export const mockApi = {
           source_manifest_status: "ready",
           combined_document_status: "ready",
 			source_segmentation_status: "ready",
-			source_fidelity_status: "ready",
+			source_fidelity_status: "not_generated",
 			source_units_status: "ready",
 			requirement_atoms_status: "ready",
 			functional_analysis_status: "ready",
@@ -346,7 +322,6 @@ export const mockApi = {
           can_generate_model: false,
           can_continue_to_dbml: false,
           can_complete_project: false,
-			can_generate_source_units: true,
 			can_extract_requirements: true,
 			can_build_functional_analysis: true,
 			can_build_crud_mapping: true,
@@ -361,11 +336,11 @@ export const mockApi = {
 			return {
 				artifact_health: {
 					analysis_status: "needs_attention", source_manifest_status: "ready", combined_document_status: "ready",
-					source_segmentation_status: "ready", source_fidelity_status: "ready",
+					source_segmentation_status: "ready", source_fidelity_status: "not_generated",
 					source_units_status: "ready", requirement_atoms_status: "ready", functional_analysis_status: "ready", crud_mapping_status: "ready",
 					review_candidates_status: "ready", conceptual_model_status: "not_generated", model_status: "not_generated", dbml_status: "not_generated",
 					open_review_questions: 1, can_generate_model: false, can_continue_to_dbml: false, can_complete_project: false,
-					can_generate_source_units: true, can_extract_requirements: true, can_build_functional_analysis: true, can_build_crud_mapping: true,
+					can_extract_requirements: true, can_build_functional_analysis: true, can_build_crud_mapping: true,
 					can_propose_review_candidates: true, can_project_logical_model: false, can_generate_outputs: false, final_model_accepted: false,
 				},
 				next_stage: "review_decisions",
@@ -402,7 +377,7 @@ export const mockApi = {
 			return { conceptual_model: { entity_concepts: [], relationships: [], lifecycle_concepts: [], derived_concepts: [], file_concepts: [], import_concepts: [], unresolved_review_ids: [], warnings: [], confidence_summary: {} }, qa: { ok: true, errors: [], warnings: [], coverage: {} } } as T;
 		}
 		if (path === "/projects/project_phf/source-units/qa") {
-			return { qa: { ok: true, derivation_strategy: "llm_classification_backend_normalization", od_sentences_total: 1, od_sentences_referenced: 1, unreferenced_od_sentences: [], needs_attention: [], origin_chains: { "PHF-GSU-005": ["OD-S-001", "R-001"] }, errors: [], warnings: [], review_decisions: [] } } as T;
+			return { qa: { ok: true, derivation_strategy: "segments_v1", segments_total: 1, segments_referenced: 1, unreferenced_segments: [], needs_attention: [], origin_chains: { "SU-001": ["R-001"] }, errors: [], warnings: [], review_decisions: [] } } as T;
 		}
 		if (/\/projects\/[^/]+\/source-units\/[^/]+\/review$/.test(path) && method === "POST") {
 			return { project_revision: project.current_revision + 1, source_unit: { ...sourceUnits[0], review_status: "reviewed" }, remaining_needs_attention: 0 } as T;

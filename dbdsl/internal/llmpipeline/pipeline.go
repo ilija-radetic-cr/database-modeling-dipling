@@ -90,6 +90,7 @@ type RunSummary struct {
 	CompletedAt      time.Time    `json:"completed_at,omitempty"`
 	DurationMS       int64        `json:"duration_ms,omitempty"`
 	ValidationOK     bool         `json:"validation_ok"`
+	ValidationScope  string       `json:"validation_scope,omitempty"`
 	Errors           []string     `json:"errors"`
 	Cached           bool         `json:"cached,omitempty"`
 	CacheKey         string       `json:"cache_key,omitempty"`
@@ -135,11 +136,10 @@ type sourceUnitInput struct {
 	ID         string   `json:"id"`
 	Kind       string   `json:"kind"`
 	Section    string   `json:"section"`
-	Location   string   `json:"location"`
 	Relevance  string   `json:"relevance"`
-	Tags       []string `json:"tags"`
+	Tags       []string `json:"tags,omitempty"`
 	Exact      string   `json:"exact"`
-	Normalized string   `json:"normalized"`
+	Normalized string   `json:"normalized,omitempty"`
 }
 
 func RunPlan(ctx context.Context, client llm.Client, opts PlanOptions) (PlanResult, error) {
@@ -475,6 +475,7 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 	if key := strings.TrimSpace(req.Metadata["run_key"]); key != "" {
 		runName += "_" + strings.NewReplacer("/", "_", "\\", "_", "..", "_").Replace(key)
 	}
+	req.Input = compactLLMInput(req.Input)
 	runDir := stageRunDir(outDir, number, runName)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return err
@@ -495,32 +496,40 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 		ReasoningEffort: nonEmpty(req.ReasoningEffort, llm.DefaultReasoningEffort), MaxOutputTokens: req.MaxOutputTokens, StartedAt: started, Errors: []string{},
 		CacheKey: cacheKey, ContextBytes: len(req.Input), FullContextBytes: fullContextBytes, ContextReduction: contextReduction,
 		CallReason: callReason, IssueID: req.Metadata["issue_id"], BudgetPolicy: nonEmpty(req.Metadata["budget_policy"], "adaptive_v1"),
-		CallGatePolicy: nonEmpty(req.Metadata["call_gate_policy"], "semantic_need_v1"), Attempts: []RunAttempt{}}
+		ValidationScope: nonEmpty(req.Metadata["validation_scope"], "structured_schema"),
+		CallGatePolicy:  nonEmpty(req.Metadata["call_gate_policy"], "semantic_need_v1"), Attempts: []RunAttempt{}}
 	_ = writeJSONFile(filepath.Join(runDir, "run.json"), summary)
 	_ = writeJSONFile(filepath.Join(runDir, "context_manifest.json"), buildContextManifest(req, callReason, fullContextBytes))
 	cachePath := filepath.Join(outDir, "llm_cache", strings.TrimPrefix(cacheKey, "sha256:")+".json")
-	if cached, cacheErr := os.ReadFile(cachePath); cacheErr == nil && json.Valid(cached) {
-		if json.Unmarshal(cached, target) == nil {
-			errors := []string{}
-			if validateTarget != nil {
-				errors = validateTarget()
-			}
-			if len(errors) == 0 {
-				summary.Cached = true
-				_ = writeTextFile(filepath.Join(runDir, "response.raw.txt"), "cache_hit")
-				_ = writeTextFile(filepath.Join(runDir, "response.parsed.json"), string(cached))
-				_ = writeJSONFile(filepath.Join(runDir, "validation_report.json"), stageReport{OK: true, Stage: req.Stage})
-				finishRunSummary(runDir, &summary, "completed", true, llm.Usage{}, nil)
-				return nil
+	cacheEnabled := req.Metadata["cache_policy"] != "full_validation_only" || req.Metadata["validation_scope"] == "full_dbdsl_v05"
+	if cacheEnabled {
+		if cached, cacheErr := os.ReadFile(cachePath); cacheErr == nil && json.Valid(cached) {
+			if json.Unmarshal(cached, target) == nil {
+				errors := []string{}
+				if validateTarget != nil {
+					errors = validateTarget()
+				}
+				if len(errors) == 0 {
+					summary.Cached = true
+					_ = writeTextFile(filepath.Join(runDir, "response.raw.txt"), "cache_hit")
+					_ = writeTextFile(filepath.Join(runDir, "response.parsed.json"), string(cached))
+					_ = writeJSONFile(filepath.Join(runDir, "validation_report.json"), stageReport{OK: true, Stage: req.Stage})
+					finishRunSummary(runDir, &summary, "completed", true, llm.Usage{}, nil)
+					return nil
+				}
 			}
 		}
 	}
 	var zero T
 	*target = zero
 	attemptStarted := time.Now()
-	resp, err := generateStructuredAttempt(ctx, client, req, 2)
+	initialAttempts := 2
+	if req.Metadata["retry_policy"] == "none" {
+		initialAttempts = 1
+	}
+	resp, err := generateStructuredAttempt(ctx, client, req, initialAttempts)
 	summary.Attempts = append(summary.Attempts, runAttempt(1, "initial", req.MaxOutputTokens, resp.Usage, attemptStarted, err))
-	if err != nil && retryableStructuredError(err) && ctx.Err() == nil {
+	if initialAttempts > 1 && err != nil && retryableStructuredError(err) && ctx.Err() == nil {
 		summary.RetryCount = 1
 		if resp.Raw != "" {
 			_ = writeTextFile(filepath.Join(runDir, "response.attempt_001.raw.txt"), resp.Raw)
@@ -561,6 +570,31 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 		_ = writeJSONFile(filepath.Join(runDir, "validation_report.json"), stageReport{OK: false, Stage: req.Stage, Errors: []string{err.Error()}})
 		return fmt.Errorf("parse %s response: %w", req.Stage, err)
 	}
+	if validateTarget != nil && validationRetryStages[req.Stage] && ctx.Err() == nil {
+		// One feedback round: the model gets the exact backend errors instead of
+		// failing the whole job on a single missed reference or coverage gap.
+		if errors := validateTarget(); len(errors) > 0 {
+			_ = writeTextFile(filepath.Join(runDir, "response.attempt_invalid.raw.txt"), resp.Raw)
+			retryReq := req
+			retryReq.Instructions += "\nYour previous response failed backend validation with these errors:\n- " + strings.Join(errors, "\n- ") +
+				"\nReturn one complete corrected object that fixes every listed error and keeps all other content consistent."
+			firstUsage := resp.Usage
+			attemptStarted = time.Now()
+			retryResp, retryErr := generateStructuredAttempt(ctx, client, retryReq, 1)
+			summary.Attempts = append(summary.Attempts, runAttempt(len(summary.Attempts)+1, "validation_retry", retryReq.MaxOutputTokens, retryResp.Usage, attemptStarted, retryErr))
+			summary.RetryCount++
+			if retryErr == nil {
+				var retried T
+				if json.Unmarshal(retryResp.Parsed, &retried) == nil {
+					*target = retried
+					resp = retryResp
+					resp.Usage = addUsage(firstUsage, retryResp.Usage)
+					_ = writeTextFile(filepath.Join(runDir, "response.raw.txt"), resp.Raw)
+					_ = writeTextFile(filepath.Join(runDir, "response.parsed.json"), string(resp.Parsed))
+				}
+			}
+		}
+	}
 	if validateTarget != nil {
 		if errors := validateTarget(); len(errors) > 0 {
 			finishRunSummary(runDir, &summary, "failed", false, resp.Usage, errors)
@@ -573,10 +607,25 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 		return err
 	}
 	finishRunSummary(runDir, &summary, "completed", true, resp.Usage, nil)
-	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err == nil {
-		_ = writeTextFile(cachePath, string(resp.Parsed))
+	if cacheEnabled {
+		if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err == nil {
+			_ = writeTextFile(cachePath, string(resp.Parsed))
+		}
 	}
 	return nil
+}
+
+// validationRetryStages get one error-feedback retry inside runStructuredStage.
+// Conceptual and logical stages are excluded because they run their own
+// scoped repair loops over the full model.
+var validationRetryStages = map[string]bool{
+	"source_segmentation": true, "source_unit_extraction": true, "requirement_atom_extraction": true,
+	"functional_analysis": true, "crud_mapping": true, "review_candidate_proposal": true,
+	"conceptual_description": true,
+}
+
+func addUsage(a, b llm.Usage) llm.Usage {
+	return llm.Usage{InputTokens: a.InputTokens + b.InputTokens, OutputTokens: a.OutputTokens + b.OutputTokens, TotalTokens: a.TotalTokens + b.TotalTokens}
 }
 
 func retryableStructuredError(err error) bool {
@@ -584,6 +633,12 @@ func retryableStructuredError(err error) bool {
 		return false
 	}
 	message := strings.ToLower(err.Error())
+	// Billing and quota errors are permanent until the account changes; retrying only delays the failure.
+	for _, marker := range []string{"no credits", "insufficient_quota", "exceeded your current quota", "billing"} {
+		if strings.Contains(message, marker) {
+			return false
+		}
+	}
 	for _, marker := range []string{"timeout", "deadline exceeded", "temporarily", "connection reset", "eof", "429", "502", "503", "504", "not valid json", "incomplete"} {
 		if strings.Contains(message, marker) {
 			return true
@@ -956,6 +1011,9 @@ func convertRequirementAtoms(proposals []RequirementAtomProposal) []dsl.Requirem
 			SupportLevel:      nonEmpty(proposal.SupportLevel, "inferred"),
 			Confidence:        nonEmpty(proposal.Confidence, "medium"),
 			RequiresReview:    proposal.RequiresReview,
+			ReviewClass:       proposal.ReviewClass,
+			ReviewTopic:       proposal.ReviewTopic,
+			ReviewGroup:       proposal.ReviewGroup,
 			ReviewDecisions:   append([]string(nil), proposal.ReviewDecisions...),
 			ModelingOutcome:   dsl.RequirementOutcome{Status: outcome},
 		})
@@ -1188,6 +1246,8 @@ func applyPatch(model *dsl.Document, patch PatchProposal, atomByID map[string]ds
 				return errors.New("add_import_spec operation is missing import_spec")
 			}
 			model.ImportSpecs = append(model.ImportSpecs, convertImportSpec(*operation.ImportSpec, atomByID, diagnostics))
+		case "remove_operation":
+			return errors.New("remove_operation is repair-only and must be merged before artifact conversion")
 		default:
 			return fmt.Errorf("unsupported patch operation %s", operation.Operation)
 		}
@@ -1741,6 +1801,12 @@ func validatePatchProposal(proposal PatchProposal, sourceIDs, atomIDs map[string
 				continue
 			}
 			errors = append(errors, validateEvidenceRefs("import_spec "+op.ImportSpec.ID, op.ImportSpec.Evidence, sourceIDs, atomIDs)...)
+		case "remove_operation":
+			if op.TargetOperation == "" || op.TargetID == "" {
+				errors = append(errors, "remove_operation requires target_operation and target_id")
+			} else if !strings.HasPrefix(op.TargetOperation, "add_") {
+				errors = append(errors, "remove_operation target_operation must identify an add operation")
+			}
 		default:
 			errors = append(errors, "unsupported patch operation "+op.Operation)
 		}
@@ -1875,14 +1941,81 @@ func sourceUnitInputs(units []dsl.SourceUnit) []sourceUnitInput {
 			ID:         unit.ID,
 			Kind:       unit.Kind,
 			Section:    unit.Section,
-			Location:   unit.Location,
 			Relevance:  unit.Relevance,
 			Tags:       unit.Tags,
 			Exact:      unit.Text.Exact,
-			Normalized: unit.Text.Normalized,
+			Normalized: normalizedIfDifferent(unit.Text.Exact, unit.Text.Normalized),
 		})
 	}
 	return out
+}
+
+// normalizedIfDifferent avoids sending the same sentence twice; the backend
+// normalizer changes only whitespace/punctuation, so most units are identical.
+func normalizedIfDifferent(exact, normalized string) string {
+	if strings.TrimSpace(exact) == strings.TrimSpace(normalized) {
+		return ""
+	}
+	return normalized
+}
+
+// compactLLMInput removes indentation and empty values ("" / [] / {} / null)
+// from a JSON request payload. Empty fields carry no information for the model
+// but are paid for as input tokens on every call.
+func compactLLMInput(input string) string {
+	var value any
+	decoder := json.NewDecoder(strings.NewReader(input))
+	decoder.UseNumber()
+	if decoder.Decode(&value) != nil {
+		return input
+	}
+	pruned := pruneEmptyJSON(value)
+	if pruned == nil {
+		return input
+	}
+	var out strings.Builder
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(pruned) != nil {
+		return input
+	}
+	return strings.TrimSpace(out.String())
+}
+
+func pruneEmptyJSON(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for key, item := range typed {
+			if pruned := pruneEmptyJSON(item); pruned != nil {
+				out[key] = pruned
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			if pruned := pruneEmptyJSON(item); pruned != nil {
+				out = append(out, pruned)
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		return typed
+	case nil:
+		return nil
+	default:
+		return typed
+	}
 }
 
 func sourceUnitIDSet(units []dsl.SourceUnit) map[string]bool {

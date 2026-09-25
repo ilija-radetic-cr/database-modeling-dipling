@@ -62,6 +62,7 @@ func TestManagerMarksInflightJobInterruptedOnRestart(t *testing.T) {
 	reloaded := NewPersistentManager(nil, path)
 	got, ok := reloaded.Get(job.ID)
 	close(block)
+	waitForStatus(t, m, job.ID, StatusCompleted)
 	if !ok || got.Status != StatusInterrupted {
 		t.Fatalf("expected interrupted recovery state, got %#v", got)
 	}

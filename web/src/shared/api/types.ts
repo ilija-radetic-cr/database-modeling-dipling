@@ -107,7 +107,8 @@ export interface ArtifactHealth {
 	crud_mapping_status: "not_generated" | "ready";
 	review_candidates_status: "not_generated" | "ready";
 	conceptual_model_status: "not_generated" | "proposed" | "ready";
-	semantic_verification_status: "not_generated" | "passed" | "blocked" | "outdated" | "legacy_not_applicable";
+	segment_flow?: boolean;
+	semantic_verification_status: "not_generated" | "passed" | "blocked" | "outdated" | "legacy_not_applicable" | "not_applicable";
 	semantic_blocking_issues: number;
   model_status: "not_generated" | "generating" | "ready" | "outdated" | "failed";
   dbml_status: "not_generated" | "ready" | "outdated" | "blocked";
@@ -115,7 +116,6 @@ export interface ArtifactHealth {
   can_generate_model: boolean;
   can_continue_to_dbml: boolean;
   can_complete_project: boolean;
-	can_generate_source_units: boolean;
 	can_extract_requirements: boolean;
 	can_build_functional_analysis: boolean;
 	can_build_crud_mapping: boolean;
@@ -204,12 +204,17 @@ export interface CombinedDocumentSentence {
   id: string;
   kind?: "sentence" | "structural";
 	role?: "semantic" | "structural" | "layout_noise" | "example" | "metadata" | string;
+	section?: string;
+	relevance?: string;
+	tags?: string[];
   text: string;
-  derived_from: CombinedDocumentOrigin[];
-	transformation: "copied" | "cleaned" | "merged" | "summarized" | "llm_grouped";
+	normalized_text?: string;
+	derived_from?: CombinedDocumentOrigin[];
+	transformation?: "copied" | "cleaned" | "merged" | "summarized" | "llm_grouped";
 	segmentation_strategy?: string;
-  confidence: "high" | "medium" | "low";
-  warnings: string[];
+  confidence?: "high" | "medium" | "low";
+	requires_review?: boolean;
+  warnings?: string[];
 }
 
 export interface CombinedDocumentOrigin {
@@ -222,53 +227,14 @@ export interface CombinedDocumentOrigin {
   exact_text: string;
 }
 
-export interface SourceSegmentationCandidate {
+export interface SourceSegmentationSegment {
 	id: string;
-	segment_id: string;
-	resource_id: string;
-	line_start: number;
-	line_end: number;
-	start_byte: number;
-	end_byte: number;
-	exact_text: string;
-	suggested_role?: string;
-}
-
-export interface SourceSegmentationGroup {
-	id: string;
-	role: "semantic" | "structural" | "layout_noise" | "example" | "metadata" | string;
-	candidate_ids: string[];
-	confidence: "high" | "medium" | "low";
-	requires_review: boolean;
-	warnings: string[];
-	od_sentence_id?: string;
+	type: "heading" | "sentence" | "list" | "example" | "footnote" | "page_header" | "page_footer" | "page_number" | "other";
+	text: string;
 }
 
 export interface SourceSegmentationProposal {
-	candidates: SourceSegmentationCandidate[];
-	groups: SourceSegmentationGroup[];
-	strategy: string;
-	llm_assisted: boolean;
-	fallback_used: boolean;
-	fallback_reason?: string;
-	warnings: string[];
-	confidence_summary: Record<string, string>;
-}
-
-export interface SourceSegmentationQA {
-	ok: boolean;
-	strategy: string;
-	candidates_total: number;
-	candidates_assigned: number;
-	semantic_groups: number;
-	structural_groups: number;
-	layout_groups: number;
-	needs_attention: string[];
-	errors: string[];
-	warnings: string[];
-	role_counts: Record<string, number>;
-	fallback_used: boolean;
-	fallback_reason?: string;
+	segments: SourceSegmentationSegment[];
 }
 
 export interface OriginSpan {
@@ -332,16 +298,21 @@ export interface SourceUnit {
   linked_examples: string[];
   linked_requirements: string[];
   open_review_candidates: string[];
+	segment_ids?: string[];
 	od_sentence_ids?: string[];
 	warnings?: string[];
+	requirement_notes?: string[];
 }
 
 export interface SourceUnitQA {
 	ok: boolean;
-	derivation_strategy: "llm_classification_backend_normalization" | "llm" | "llm_chunked" | "deterministic_fallback";
-	od_sentences_total: number;
-	od_sentences_referenced: number;
-	unreferenced_od_sentences: string[];
+	derivation_strategy: "segments_v1" | "llm_classification_backend_normalization" | "llm" | "llm_chunked" | "deterministic_fallback";
+	segments_total?: number;
+	segments_referenced?: number;
+	unreferenced_segments?: string[];
+	od_sentences_total?: number;
+	od_sentences_referenced?: number;
+	unreferenced_od_sentences?: string[];
 	needs_attention: string[];
 	origin_chains: Record<string, string[]>;
 	errors: string[];
@@ -368,8 +339,8 @@ export interface SourceUnitReviewResult {
 }
 
 export type ProjectStageName =
+	| "process_sources"
 	| "combined_document"
-	| "source_units"
 	| "requirement_atoms"
 	| "functional_analysis"
 	| "crud_mapping"
@@ -419,6 +390,9 @@ export interface RequirementAtom {
   support_level: string;
   confidence: "high" | "medium" | "low";
   review_status: "reviewed" | "needs_review" | "open_review";
+  review_class: "none" | "non_blocking_gap" | "external_dependency" | "blocking_model_choice" | "blocking_source_defect" | string;
+  review_topic: "none" | "persistence" | "identity" | "cardinality" | "uniqueness" | "lifecycle" | "enforcement" | "example_structure" | "external_contract" | "other" | string;
+  warnings: string[];
   modeling_outcome: string;
   model_impact_preview: string[];
   open_review_candidates: string[];
@@ -537,6 +511,10 @@ export interface ConceptualAttribute {
 	id: string;
 	label: string;
 	description: string;
+	name?: string;
+	value_type?: string;
+	unique?: boolean;
+	enum_values?: string[];
 	required: boolean;
 	evidence: EvidenceRef;
 }
@@ -557,7 +535,22 @@ export interface ConceptualRelationship {
 	from: string;
 	to: string;
 	cardinality: string;
+	required?: boolean;
 	evidence: EvidenceRef;
+}
+
+export interface LogicalMappingReport {
+	strategy: string;
+	rule_version?: string;
+	entities?: number;
+	relationships?: number;
+	constraints?: number;
+	state_machines?: number;
+	derived_views?: number;
+	file_specs?: number;
+	inferred?: string[];
+	decisions?: string[];
+	warnings?: string[];
 }
 
 export interface ConceptualModel {
@@ -570,6 +563,35 @@ export interface ConceptualModel {
 	unresolved_review_ids: string[];
 	warnings: string[];
 	confidence_summary: Record<string, string>;
+}
+
+// ConceptualDescription is the rich LLM description of what the system must
+// remember; the conceptual model is derived from it deterministically.
+export interface DescriptionEvidence {
+	segments: string[];
+	mode: "direct" | "implied";
+}
+
+export interface ConceptualDescription {
+	actors: Array<{ id: string; name: string; description: string; represented_by: string; differs_by: string; evidence: DescriptionEvidence }>;
+	things: Array<{
+		id: string;
+		name: string;
+		kind: string;
+		description: string;
+		// A list since prompt v0.10.1; older descriptions hold free text.
+		identified_by: string[] | string;
+		properties: Array<{ name: string; meaning: string; value_type?: string; shape: string; presence: string; origin: string; source: string; evidence: DescriptionEvidence }>;
+		links: Array<{ to: string; meaning: string; per_this: string; per_other: string; evidence: DescriptionEvidence }>;
+		states: string[];
+		evidence: DescriptionEvidence;
+	}>;
+	rules: Array<{ id: string; kind: string; statement: string; applies_to: string[]; evidence: DescriptionEvidence }>;
+	queries: Array<{ id: string; description: string; needs: string[]; evidence: DescriptionEvidence }>;
+	imports: Array<{ id: string; description: string; fills: string[]; evidence: DescriptionEvidence }>;
+	boundaries: Array<{ kind: string; description: string; kept_outcome: string; evidence: DescriptionEvidence }>;
+	excluded: Array<{ segment: string; reason: string }>;
+	open_questions: Array<{ id: string; question: string; readings: string[]; affects: string[]; evidence: DescriptionEvidence }>;
 }
 
 export interface ModelGraph {
@@ -648,6 +670,28 @@ export interface QualityIssue {
   accepted: boolean;
 }
 
+export interface SemanticIssue {
+  id: string;
+  severity: "medium" | "high" | "critical";
+  code: string;
+  kind: string;
+  obligation_id?: string;
+  message: string;
+  model_elements?: string[];
+  blocking: boolean;
+}
+
+export interface SemanticVerificationReport {
+  version: string;
+  pipeline_version: string;
+  ok: boolean;
+  obligations_total: number;
+  obligations_required: number;
+  obligations_realized: number;
+  blocking_issues: number;
+  issues: SemanticIssue[];
+}
+
 export interface JobRef {
   job: Job;
 }
@@ -682,6 +726,13 @@ export interface JobEvent {
   progress: number;
   project_revision?: number;
   updated?: string[];
+	metadata?: {
+		repair_round?: number;
+		max_repair_attempts?: number;
+		validation_errors?: number;
+		stalled?: boolean;
+		[key: string]: unknown;
+	};
   created_at: string;
 }
 
@@ -702,6 +753,7 @@ export interface LLMRunSummary {
 	completed_at?: string;
 	duration_ms?: number;
 	validation_ok: boolean;
+	validation_scope?: "structured_schema" | "patch_preflight" | "full_dbdsl_v05" | string;
 	errors: string[];
 	cached?: boolean;
 	context_bytes?: number;
