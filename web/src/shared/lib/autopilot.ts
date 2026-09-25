@@ -42,7 +42,6 @@ export function finalizePath(projectId: string, lifecycle: string | undefined) {
 export function gatePath(projectId: string, stage: string | undefined, lifecycle?: string) {
 	switch (stage) {
 		case "source_review": return `/projects/${projectId}/analysis/sources`;
-		case "review_decisions": return `/projects/${projectId}/analysis/review`;
 		case "conceptual_review": return `/projects/${projectId}/model/conceptual`;
 		case "model_review": return `/projects/${projectId}/model/quality`;
 		case "completed": return finalizePath(projectId, lifecycle);

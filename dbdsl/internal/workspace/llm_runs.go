@@ -43,25 +43,16 @@ type LLMOptimizationStageMetrics struct {
 }
 
 type LLMOptimizationReport struct {
-	Version                   int                                    `json:"version"`
-	ProjectID                 string                                 `json:"project_id"`
-	PolicyVersion             string                                 `json:"policy_version"`
-	BudgetPolicy              string                                 `json:"budget_policy"`
-	ContextPolicy             string                                 `json:"context_policy"`
-	CallGatePolicy            string                                 `json:"call_gate_policy"`
-	RiskPolicy                string                                 `json:"risk_policy"`
-	Totals                    LLMOptimizationStageMetrics            `json:"totals"`
-	ByStage                   map[string]LLMOptimizationStageMetrics `json:"by_stage"`
-	CallsByReason             map[string]int                         `json:"calls_by_reason"`
-	AvoidedReviewCalls        int                                    `json:"avoided_review_resolution_calls"`
-	AvoidedGenerationCalls    int                                    `json:"avoided_generation_calls"`
-	AutoAppliedDecisions      int                                    `json:"auto_applied_decisions"`
-	BatchedManualDecisions    int                                    `json:"batched_manual_decisions"`
-	ActiveReviewMS            int64                                  `json:"active_review_ms"`
-	UnresolvedReviewQuestions int                                    `json:"unresolved_review_questions"`
-	RequirementWarnings       int                                    `json:"requirement_warnings"`
-	BlockingRequirementAtoms  int                                    `json:"blocking_requirement_atoms"`
-	ReviewGroups              int                                    `json:"review_groups"`
+	Version        int                                    `json:"version"`
+	ProjectID      string                                 `json:"project_id"`
+	PolicyVersion  string                                 `json:"policy_version"`
+	BudgetPolicy   string                                 `json:"budget_policy"`
+	ContextPolicy  string                                 `json:"context_policy"`
+	CallGatePolicy string                                 `json:"call_gate_policy"`
+	RiskPolicy     string                                 `json:"risk_policy"`
+	Totals         LLMOptimizationStageMetrics            `json:"totals"`
+	ByStage        map[string]LLMOptimizationStageMetrics `json:"by_stage"`
+	CallsByReason  map[string]int                         `json:"calls_by_reason"`
 }
 
 func (s *Store) LLMRuns(projectID string) ([]LLMRunSummary, error) {
@@ -138,7 +129,6 @@ func (s *Store) LLMOptimizationReport(projectID string) (LLMOptimizationReport, 
 		BudgetPolicy: profile.BudgetPolicy, ContextPolicy: profile.ContextPolicy,
 		CallGatePolicy: profile.CallGatePolicy, RiskPolicy: profile.RiskPolicy,
 		ByStage: map[string]LLMOptimizationStageMetrics{}, CallsByReason: map[string]int{},
-		UnresolvedReviewQuestions: len(project.OpenReviewIDs),
 	}
 	runs, err := s.LLMRuns(projectID)
 	if err != nil {
@@ -202,51 +192,14 @@ func (s *Store) LLMOptimizationReport(projectID string) (LLMOptimizationReport, 
 	if report.Totals.FullContextBytes > 0 {
 		report.Totals.ReductionRatio = float64(report.Totals.ContextBytesSaved) / float64(report.Totals.FullContextBytes)
 	}
-	if project.ReviewDecisionsPath != "" {
-		var artifact ReviewDecisionsArtifact
-		if err := readYAML(s.absoluteWorkspacePath(project.ReviewDecisionsPath), &artifact); err == nil {
-			for _, decision := range artifact.ReviewDecisions {
-				switch decision.DecisionMode {
-				case "auto_low_risk":
-					report.AutoAppliedDecisions++
-					report.AvoidedReviewCalls++
-				case "manual_batch":
-					report.BatchedManualDecisions++
-					report.AvoidedReviewCalls++
-				}
-				report.ActiveReviewMS += decision.ActiveReviewMS
-			}
-		}
-	}
-	if project.RequirementAtomsProposalPath != "" {
-		var atoms llmpipeline.RequirementAtomExtractionProposal
-		if err := readJSON(s.absoluteWorkspacePath(project.RequirementAtomsProposalPath), &atoms); err == nil {
-			groups := map[string]bool{}
-			for _, atom := range llmpipeline.NormalizeRequirementReviewSemantics(atoms.RequirementAtoms) {
-				if atom.ReviewClass != llmpipeline.ReviewClassNone {
-					report.RequirementWarnings++
-				}
-				if atom.RequiresReview {
-					report.BlockingRequirementAtoms++
-					groups[atom.ReviewGroup] = true
-				}
-			}
-			report.ReviewGroups = len(groups)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(s.projectWorkspaceDir(projectID), "llm_runs", "review_candidate_call_gate.json")); err == nil {
-		report.AvoidedGenerationCalls++
-	}
 	return report, nil
 }
 
 func (report LLMOptimizationReport) Markdown() string {
-	return fmt.Sprintf("# LLM optimization report\n\nProject: `%s`\n\n- Provider calls: %d\n- Provider calls avoided by semantic gates: %d\n- Cache hits: %d\n- Retries: %d\n- Tokens: %d total (%d input, %d output)\n- Wasted tokens: %d\n- Failed attempts with unavailable provider usage: %d\n- Context reduction: %.1f%% (%d bytes avoided)\n- Requirement warnings: %d\n- Blocking requirement atoms: %d\n- Review groups: %d\n- Review-resolution calls avoided: %d\n- Auto-applied low-risk decisions: %d\n- Manually batched decisions: %d\n- Active review time: %d ms\n- Open review questions: %d\n",
-		report.ProjectID, report.Totals.ProviderCalls, report.AvoidedGenerationCalls, report.Totals.CacheHits, report.Totals.Retries,
+	return fmt.Sprintf("# LLM optimization report\n\nProject: `%s`\n\n- Provider calls: %d\n- Cache hits: %d\n- Retries: %d\n- Tokens: %d total (%d input, %d output)\n- Wasted tokens: %d\n- Failed attempts with unavailable provider usage: %d\n- Context reduction: %.1f%% (%d bytes avoided)\n",
+		report.ProjectID, report.Totals.ProviderCalls, report.Totals.CacheHits, report.Totals.Retries,
 		report.Totals.TotalTokens, report.Totals.InputTokens, report.Totals.OutputTokens, report.Totals.WastedTokens,
-		report.Totals.UnknownUsageAttempts, report.Totals.ReductionRatio*100, report.Totals.ContextBytesSaved,
-		report.RequirementWarnings, report.BlockingRequirementAtoms, report.ReviewGroups, report.AvoidedReviewCalls,
-		report.AutoAppliedDecisions, report.BatchedManualDecisions, report.ActiveReviewMS, report.UnresolvedReviewQuestions)
+		report.Totals.UnknownUsageAttempts, report.Totals.ReductionRatio*100, report.Totals.ContextBytesSaved)
 }
 
 func readJSONValue(path string) any {

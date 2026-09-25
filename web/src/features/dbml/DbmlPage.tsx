@@ -49,7 +49,7 @@ export function DbmlPage({ projectId }: { projectId: string }) {
 
       <div className="grid-3">
         <Metric label="Validation errors" value={project.data?.project.quality.validation_errors ?? "-"} />
-        <Metric label="Open reviews" value={project.data?.project.counts.open_review_questions ?? "-"} />
+        <Metric label="Final model" value={<StatusBadge value={health?.final_model_accepted ? "accepted" : "not_accepted"} />} />
         <Metric label="DBML status" value={<StatusBadge value={health?.dbml_status ?? "not_generated"} />} />
       </div>
 
@@ -58,7 +58,7 @@ export function DbmlPage({ projectId }: { projectId: string }) {
         <Panel title="Completion Checklist">
           <div className="field" style={{ gap: 12 }}>
             <ChecklistItem done={(project.data?.project.quality.validation_errors ?? 1) === 0} label="Validation errors = 0" />
-            <ChecklistItem done={(project.data?.project.counts.open_review_questions ?? 1) === 0} label="Open review questions = 0" />
+            <ChecklistItem done={health?.final_model_accepted ?? false} label="Final model accepted" />
             <ChecklistItem done={health?.can_continue_to_dbml ?? false} label="Model generated from current analysis" />
             <ChecklistItem done={health?.dbml_status === "ready"} label="DBML ready" />
             <div className="toolbar">

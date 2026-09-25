@@ -3,7 +3,6 @@ package validate
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	"dbdsl/internal/dsl"
@@ -24,12 +23,12 @@ func ValidateFile(path string) Result {
 	if err != nil {
 		return Result{Errors: []string{err.Error()}}
 	}
-	if doc.DSL.Version == "0.5" {
-		bundle, err := dsl.LoadV05Bundle(path)
+	if doc.DSL.Version == "0.6" {
+		bundle, err := dsl.LoadV06Bundle(path)
 		if err != nil {
 			return Result{Errors: []string{err.Error()}}
 		}
-		return validateV05(bundle)
+		return validateV06(bundle)
 	}
 
 	sourcePath := dsl.ResolveReviewedSourcePath(path, doc.Source.ReviewedFragmentsFile)
@@ -829,19 +828,9 @@ func fkName(entityID string) string {
 
 var snakeBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
-func toSnake(value string) string {
-	return strings.ToLower(snakeBoundary.ReplaceAllString(value, `${1}_${2}`))
-}
-
 func displayID(id string) string {
 	if id == "" {
 		return "<empty>"
 	}
 	return id
-}
-
-func SortedErrors(errors []string) []string {
-	result := append([]string(nil), errors...)
-	sort.Strings(result)
-	return result
 }

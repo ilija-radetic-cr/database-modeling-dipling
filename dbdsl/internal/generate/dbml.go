@@ -30,7 +30,7 @@ func DBMLFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if doc.DSL.Version == "0.5" {
+	if doc.DSL.Version == "0.6" {
 		return DBML(doc), nil
 	}
 
@@ -50,6 +50,7 @@ func DBML(doc *dsl.Document) string {
 	fks, refs := buildFKColumns(doc, entityByID)
 	uniqueIndexes := buildUniqueIndexes(doc)
 	addOneToOneIndexes(doc, uniqueIndexes)
+	addSearchIndexes(doc, uniqueIndexes)
 	tableComments := buildTableComments(doc)
 	enumTypes := buildEnumTypes(doc)
 
@@ -266,6 +267,29 @@ func buildUniqueIndexes(doc *dsl.Document) map[string][]dbmlIndex {
 		})
 	}
 	return indexes
+}
+
+// addSearchIndexes adds the non-unique indexes of the model after its keys.
+func addSearchIndexes(doc *dsl.Document, indexes map[string][]dbmlIndex) {
+	for _, index := range doc.Indexes {
+		indexes[index.Owner] = append(indexes[index.Owner], dbmlIndex{
+			Fields:   indexPhysicalFields(doc, index),
+			Settings: fmt.Sprintf("[name: '%s']", dbmlQuote(index.ID)),
+		})
+	}
+}
+
+func indexPhysicalFields(doc *dsl.Document, index dsl.Index) []string {
+	fields := make([]string, 0, len(index.Fields))
+	for _, field := range index.Fields {
+		resolved, err := dsl.ResolveConstraintReference(doc, index.Owner, field)
+		if err != nil {
+			fields = append(fields, field)
+			continue
+		}
+		fields = append(fields, resolved.PhysicalFields...)
+	}
+	return fields
 }
 
 func addOneToOneIndexes(doc *dsl.Document, indexes map[string][]dbmlIndex) {

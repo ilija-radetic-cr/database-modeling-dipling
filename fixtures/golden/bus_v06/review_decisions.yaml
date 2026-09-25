@@ -1,0 +1,14 @@
+document:
+    generation_strategy: segment_description_v1
+    id: bus_review_decisions
+    pipeline_version: 0.9.0
+    title: bus LLM Draft review decisions
+review_state:
+    all_required_reviews_resolved: true
+    status: resolved
+    unresolved_requires_review_flags: 0
+review_decisions: []
+coverage_checks:
+    - id: no_resolved_decisions_claimed
+      note: The pipeline does not fabricate resolved human review decisions.
+      status: passed

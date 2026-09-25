@@ -18,10 +18,18 @@ func TestProcessSourcesFreezesLLMExecutionProfileForLaterStages(t *testing.T) {
 		t.Fatalf("execution profile was not frozen: %+v", state.LLMExecutionProfile)
 	}
 	model, effort, tokens := store.resolveLLMOptions(project.ID, "conceptual_model", "", "", 0)
-	if model != "mock-model" || effort != "low" || tokens != 0 {
-		t.Fatalf("later stage did not inherit adaptive profile: model=%s effort=%s tokens=%d", model, effort, tokens)
+	if model != "mock-model" || effort != "medium" || tokens != 0 {
+		t.Fatalf("conceptual stage did not use its reasoning default: model=%s effort=%s tokens=%d", model, effort, tokens)
 	}
-	budget := store.resolveStageBudget(project.ID, "conceptual_model", tokens, stageBudgetInput{RequiredObligations: 20})
+	_, explicitEffort, _ := store.resolveLLMOptions(project.ID, "conceptual_model", "", "high", 0)
+	if explicitEffort != "high" {
+		t.Fatalf("explicit conceptual reasoning effort was not preserved: %s", explicitEffort)
+	}
+	_, sourceEffort, _ := store.resolveLLMOptions(project.ID, "source_segmentation", "", "", 0)
+	if sourceEffort != "low" {
+		t.Fatalf("source segmentation reasoning effort changed: %s", sourceEffort)
+	}
+	budget := store.resolveStageBudget(project.ID, "conceptual_model", tokens, stageBudgetInput{})
 	if budget != 12000 {
 		t.Fatalf("conceptual adaptive budget = %d, want 12000", budget)
 	}

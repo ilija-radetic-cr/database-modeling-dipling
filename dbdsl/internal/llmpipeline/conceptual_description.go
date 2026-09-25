@@ -124,6 +124,7 @@ type DescriptionQuery struct {
 	ID          string              `json:"id"`
 	Description string              `json:"description"`
 	Needs       []string            `json:"needs"`
+	Criteria    []string            `json:"criteria"`
 	Evidence    DescriptionEvidence `json:"evidence"`
 }
 
@@ -187,7 +188,7 @@ func conceptualDescriptionSchema() map[string]any {
 			"id": str(), "kind": enum("uniqueness", "access", "visibility", "eligibility", "precondition", "approval", "priority", "quantity", "time", "mutability", "retention", "parameter", "context", "other"),
 			"statement": str(), "applies_to": array(str()), "parameters": array(str()), "evidence": evidence,
 		})),
-		"queries":    array(object(map[string]any{"id": str(), "description": str(), "needs": array(str()), "evidence": evidence})),
+		"queries":    array(object(map[string]any{"id": str(), "description": str(), "needs": array(str()), "criteria": array(str()), "evidence": evidence})),
 		"imports":    array(object(map[string]any{"id": str(), "description": str(), "fills": array(str()), "evidence": evidence})),
 		"boundaries": array(object(map[string]any{"kind": enum("external_process", "delegated_decision"), "description": str(), "kept_outcome": str(), "evidence": evidence})),
 		"excluded": array(object(map[string]any{

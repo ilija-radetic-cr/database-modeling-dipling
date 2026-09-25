@@ -7,11 +7,10 @@ import (
 )
 
 type EvidenceRef struct {
-	SourceUnits      []string `json:"source_units"`
-	RequirementAtoms []string `json:"requirement_atoms"`
-	ReviewDecisions  []string `json:"review_decisions"`
-	SupportLevel     string   `json:"support_level,omitempty"`
-	Confidence       string   `json:"confidence,omitempty"`
+	SourceUnits     []string `json:"source_units"`
+	ReviewDecisions []string `json:"review_decisions"`
+	SupportLevel    string   `json:"support_level,omitempty"`
+	Confidence      string   `json:"confidence,omitempty"`
 }
 
 type ModelGraph struct {
@@ -51,10 +50,9 @@ type ModelEdge struct {
 }
 
 type TraceIndex struct {
-	SourceToElements      map[string][]string `json:"source_to_elements"`
-	ElementToSources      map[string][]string `json:"element_to_sources"`
-	RequirementToElements map[string][]string `json:"requirement_to_elements"`
-	ReviewToElements      map[string][]string `json:"review_to_elements"`
+	SourceToElements map[string][]string `json:"source_to_elements"`
+	ElementToSources map[string][]string `json:"element_to_sources"`
+	ReviewToElements map[string][]string `json:"review_to_elements"`
 }
 
 type ElementDetails struct {
@@ -126,18 +124,14 @@ func BuildModelGraph(doc *dsl.Document) ModelGraph {
 
 func BuildTraceIndex(doc *dsl.Document) TraceIndex {
 	idx := TraceIndex{
-		SourceToElements:      map[string][]string{},
-		ElementToSources:      map[string][]string{},
-		RequirementToElements: map[string][]string{},
-		ReviewToElements:      map[string][]string{},
+		SourceToElements: map[string][]string{},
+		ElementToSources: map[string][]string{},
+		ReviewToElements: map[string][]string{},
 	}
 	record := func(elementID string, evidence dsl.Evidence) {
 		for _, sourceID := range evidence.SourceUnits {
 			addUnique(idx.SourceToElements, sourceID, elementID)
 			addUnique(idx.ElementToSources, elementID, sourceID)
-		}
-		for _, atomID := range evidence.RequirementAtoms {
-			addUnique(idx.RequirementToElements, atomID, elementID)
 		}
 		for _, reviewID := range evidence.ReviewDecisions {
 			addUnique(idx.ReviewToElements, reviewID, elementID)
@@ -169,7 +163,6 @@ func BuildTraceIndex(doc *dsl.Document) TraceIndex {
 	}
 	sortIndex(idx.SourceToElements)
 	sortIndex(idx.ElementToSources)
-	sortIndex(idx.RequirementToElements)
 	sortIndex(idx.ReviewToElements)
 	return idx
 }
@@ -232,11 +225,10 @@ func BuildElementDetails(doc *dsl.Document, elementID string) (ElementDetails, b
 
 func evidenceRef(e dsl.Evidence) EvidenceRef {
 	return EvidenceRef{
-		SourceUnits:      append([]string(nil), e.SourceUnits...),
-		RequirementAtoms: append([]string(nil), e.RequirementAtoms...),
-		ReviewDecisions:  append([]string(nil), e.ReviewDecisions...),
-		SupportLevel:     e.SupportLevel,
-		Confidence:       e.Confidence,
+		SourceUnits:     append([]string(nil), e.SourceUnits...),
+		ReviewDecisions: append([]string(nil), e.ReviewDecisions...),
+		SupportLevel:    e.SupportLevel,
+		Confidence:      e.Confidence,
 	}
 }
 

@@ -15,7 +15,7 @@ func PostgreSQLFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if doc.DSL.Version != "0.5" {
+	if doc.DSL.Version != "0.6" {
 		if doc, _, _, err = dsl.LoadBundle(path); err != nil {
 			return "", err
 		}
@@ -115,6 +115,22 @@ func PostgreSQL(doc *dsl.Document) string {
 				}
 				fmt.Fprintf(&out, "CREATE INDEX %s ON %s (%s);\n", sqlIdentifier(sqlConstraintName("idx", entity.TableName, fk.Name)), sqlIdentifier(entity.TableName), sqlIdentifier(fk.Name))
 			}
+		}
+		fmt.Fprintln(&out)
+	}
+	if len(doc.Indexes) > 0 {
+		fmt.Fprintln(&out, "-- Search indexes")
+		for _, index := range doc.Indexes {
+			owner, ok := entityByID[index.Owner]
+			if !ok {
+				continue
+			}
+			columns := make([]string, 0, len(index.Fields))
+			for _, field := range indexPhysicalFields(doc, index) {
+				columns = append(columns, sqlIdentifier(field))
+			}
+			fmt.Fprintf(&out, "CREATE INDEX %s ON %s (%s); -- %s\n", sqlIdentifier(sqlConstraintName("idx", owner.TableName, strings.Join(indexPhysicalFields(doc, index), "_"))),
+				sqlIdentifier(owner.TableName), strings.Join(columns, ", "), index.ID)
 		}
 		fmt.Fprintln(&out)
 	}

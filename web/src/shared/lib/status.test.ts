@@ -3,13 +3,17 @@ import { humanizeStatus, statusTone } from "./status";
 
 describe("status helpers", () => {
   it("humanizes API statuses", () => {
-    expect(humanizeStatus("analysis_review")).toBe("Needs decisions");
+    expect(humanizeStatus("source_review")).toBe("Source review");
+    expect(humanizeStatus("conceptual_review")).toBe("Conceptual review");
+    expect(humanizeStatus("non_model")).toBe("Non-model");
     expect(humanizeStatus("some_new_value")).toBe("Some new value");
   });
 
   it("maps blocking statuses to bad tone", () => {
     expect(statusTone("error")).toBe("bad");
+    expect(statusTone("failed")).toBe("bad");
     expect(statusTone("completed")).toBe("good");
-    expect(statusTone("open_review")).toBe("warn");
+    expect(statusTone("needs_attention")).toBe("warn");
+    expect(statusTone("proposed")).toBe("warn");
   });
 });

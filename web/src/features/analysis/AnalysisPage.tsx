@@ -1,21 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, Circle, GitBranch, Loader2, Play, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Circle, Loader2, Play, XCircle } from "lucide-react";
 import { api } from "@/shared/api/client";
 import type {
-	ArtifactHealth,
-  CrudOperation,
 	CombinedDocumentSentence,
-  FunctionalArea,
   InputResource,
   Job,
-  RequirementAtom,
-  ReviewCandidate,
   SourceUnit,
-  StructuredExample,
 	ProjectStageName,
 	SourceSegmentationProposal,
-	SourceUnitQA,
 } from "@/shared/api/types";
 import { Badge, Button, Drawer, Field, LoadingState, Metric, Panel, StatusBadge } from "@/shared/components/ui";
 import { humanizeStatus } from "@/shared/lib/status";
@@ -23,41 +16,29 @@ import { useRouter } from "@/shared/lib/router";
 import { JobProgress, friendlyError } from "@/features/jobs/JobProgress";
 import { PipelineStepper } from "./PipelineStepper";
 import { SourceTraceGraph } from "./SourceTraceGraph";
-	import { isRunnableStage, nextStageLabel, shouldRecoverLatestJob, unresolvedReviewDependencies } from "@/shared/lib/pipeline";
+import { isRunnableStage, isTerminalJobStatus, nextStageLabel, shouldRecoverLatestJob } from "@/shared/lib/pipeline";
 import { consumeAutoRun, gatePath } from "@/shared/lib/autopilot";
 
 const tabs = [
 	["overview", "Overview"],
-  ["sources", "Sources & Examples"],
-  ["requirements", "Requirements"],
-  ["functional-crud", "Functional / CRUD"],
-	["review", "Review Queue"],
+  ["sources", "Sources"],
 	["activity", "Activity & LLM Runs"],
 ] as const;
-
-// Requirements, functional/CRUD analysis and review questions are not produced
-// by the segment-based flow; their tabs appear only for projects that have them.
-function tabVisible(id: string, health: ArtifactHealth | undefined) {
-	if (health?.segment_flow && (id === "requirements" || id === "functional-crud" || id === "review")) return false;
-	if (id === "requirements") return health?.requirement_atoms_status === "ready";
-	if (id === "functional-crud") return health?.functional_analysis_status === "ready";
-	if (id === "review") return health?.review_candidates_status === "ready";
-	return true;
-}
 
 export function AnalysisPage({ projectId, mode }: { projectId: string; mode: string }) {
   const { navigate } = useRouter();
 	const queryClient = useQueryClient();
   const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
-  const summary = useQuery({ queryKey: ["analysis-summary", projectId], queryFn: () => api.analysisSummary(projectId) });
 	const stages = useQuery({ queryKey: ["project-stages", projectId], queryFn: () => api.stageStatus(projectId) });
 	const jobs = useQuery({ queryKey: ["jobs", projectId], queryFn: () => api.jobs(projectId), retry: false, refetchInterval: 2000 });
-  const [job, setJob] = useState<Job | null>(null);
+	const [job, setJob] = useState<Job | null>(null);
 	const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
+	const completedJobIds = useRef<Set<string>>(new Set());
 	const [autoRun, setAutoRun] = useState(() => consumeAutoRun(projectId));
 	const runNext = useMutation({
 		mutationFn: ({ stage, revision }: { stage: ProjectStageName; revision: number }) => {
-			return stage === "combined_document" || stage === "process_sources"
+			// Source processing has its own route that also carries the LLM options.
+			return stage === "process_sources"
 				? api.processSources(projectId, revision)
 				: api.runStage(projectId, stage, revision);
 		},
@@ -113,10 +94,9 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 		setJob(latestJob);
 	}, [dismissedJobIds, job, latestJob, project.data?.project.current_revision]);
 
-  const openReviews = project.data?.project.counts.open_review_questions ?? 0;
 	const health = stages.data?.artifact_health ?? project.data?.artifact_health;
 	const nextStage = stages.data?.next_stage;
-	const nextAction = nextStageLabel(nextStage, openReviews);
+	const nextAction = nextStageLabel(nextStage);
 	const handleNext = () => {
 		if (isRunnableStage(nextStage)) {
 			setAutoRun(true);
@@ -126,11 +106,13 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 		const path = gatePath(projectId, nextStage, project.data?.project.lifecycle_status);
 		if (path) navigate(path);
 	};
-	const onStageDone = async (completedStage: string) => {
-		setJob(null);
+	const onStageDone = async (completedJob: Job) => {
+		if (completedJobIds.current.has(completedJob.id)) return;
+		completedJobIds.current.add(completedJob.id);
+		setJob((current) => current?.id === completedJob.id ? null : current);
 		await queryClient.invalidateQueries();
-		if (autoRun) await advance(completedStage);
-		else if (completedStage === "process_sources" || completedStage === "combined_document") navigate(`/projects/${projectId}/analysis/sources`);
+		if (autoRun) await advance(completedJob.stage);
+		else if (completedJob.stage === "process_sources" && mode === "overview") navigate(`/projects/${projectId}/analysis/sources`);
 	};
 
   return (
@@ -144,7 +126,7 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
         </div>
         <div className="toolbar">
 			<Button variant="primary" disabled={!nextStage || runNext.isPending || !!job} onClick={handleNext}>
-				{openReviews > 0 ? <AlertCircle size={18} /> : <Play size={18} />}
+				<Play size={18} />
 				{nextAction}
 			</Button>
         </div>
@@ -157,7 +139,7 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 			<JobProgress
 				projectId={projectId}
 				job={job}
-				onDone={() => void onStageDone(job.stage)}
+				onDone={(completedJob) => void onStageDone(completedJob)}
 				onDismiss={(dismissed) => {
 					setDismissedJobIds((current) => new Set(current).add(dismissed.id));
 					setJob(null);
@@ -175,7 +157,7 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
       </div>
 
       <div className="tabs">
-        {tabs.filter(([id]) => tabVisible(id, health)).map(([id, label]) => (
+        {tabs.map(([id, label]) => (
           <button
             className={`tab ${mode === id ? "active" : ""}`}
             key={id}
@@ -186,25 +168,12 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
         ))}
       </div>
 
-		{project.isLoading || summary.isLoading || stages.isLoading ? (
+		{project.isLoading || stages.isLoading ? (
         <LoadingState />
 		) : mode === "overview" ? (
 			<ProjectOverview projectId={projectId} nextAction={nextAction} onNext={handleNext} disabled={!nextStage || !!job || runNext.isPending} />
 		) : mode === "activity" ? (
 			<ActivityView projectId={projectId} />
-		) : mode === "requirements" ? (
-        <RequirementsTab projectId={projectId} />
-      ) : mode === "functional-crud" ? (
-        <FunctionalCrudTab projectId={projectId} />
-      ) : mode === "review" ? (
-		<ReviewTab
-			projectId={projectId}
-			revision={project.data?.project.current_revision ?? 0}
-			nextAction={nextAction}
-			onNext={handleNext}
-			onDecisionsApplied={() => { setAutoRun(true); void advance(); }}
-			nextDisabled={!nextStage || !!job || runNext.isPending}
-		/>
       ) : (
         <SourcesTab projectId={projectId} />
       )}
@@ -213,37 +182,52 @@ export function AnalysisPage({ projectId, mode }: { projectId: string; mode: str
 }
 
 function ActivityView({ projectId }: { projectId: string }) {
-	const jobs = useQuery({ queryKey: ["jobs", projectId], queryFn: () => api.jobs(projectId), retry: false });
-	const runs = useQuery({ queryKey: ["llm-runs", projectId], queryFn: () => api.llmRuns(projectId), retry: false });
-	const optimization = useQuery({ queryKey: ["optimization-report", projectId], queryFn: () => api.optimizationReport(projectId), retry: false });
-	if (jobs.isLoading || runs.isLoading || optimization.isLoading) return <LoadingState />;
+	const jobs = useQuery({
+		queryKey: ["jobs", projectId], queryFn: () => api.jobs(projectId), retry: false,
+		refetchInterval: (query) => query.state.data?.items.some((job) => !isTerminalJobStatus(job.status)) ? 2000 : false,
+	});
+	const hasActiveJob = jobs.data?.items.some((job) => !isTerminalJobStatus(job.status)) ?? false;
+	const runs = useQuery({
+		queryKey: ["llm-runs", projectId], queryFn: () => api.llmRuns(projectId), retry: false,
+		refetchInterval: hasActiveJob ? 2000 : false,
+	});
+	const optimization = useQuery({
+		queryKey: ["optimization-report", projectId], queryFn: () => api.optimizationReport(projectId), retry: false,
+		refetchInterval: hasActiveJob ? 2000 : false,
+	});
 	const metrics = optimization.data?.report;
 	return (
 		<div className="activity-stack">
 			<Panel title="LLM optimization report">
-				<div className="grid-3">
-					<Metric label="Provider calls" value={metrics?.totals.provider_calls ?? 0} />
-					<Metric label="Cache hits" value={metrics?.totals.cache_hits ?? 0} />
-					<Metric label="Retries" value={metrics?.totals.retries ?? 0} />
-					<Metric label="Tokens" value={(metrics?.totals.total_tokens ?? 0).toLocaleString("en-US")} />
-					<Metric label="Context saved" value={`${((metrics?.totals.context_reduction_ratio ?? 0) * 100).toFixed(1)}%`} />
-					<Metric label="Review calls avoided" value={metrics?.avoided_review_resolution_calls ?? 0} />
-					<Metric label="Generation calls avoided" value={metrics?.avoided_generation_calls ?? 0} />
-					<Metric label="Usage unknown" value={metrics?.totals.unknown_usage_attempts ?? 0} />
-				</div>
-				<p className="muted">Policies: {metrics?.budget_policy ?? "-"} · {metrics?.context_policy ?? "-"} · {metrics?.call_gate_policy ?? "-"}</p>
+				{optimization.isLoading ? <LoadingState /> : optimization.isError ? (
+					<p className="error-text">{(optimization.error as Error).message}</p>
+				) : <>
+					<div className="grid-3">
+						<Metric label="Provider calls" value={metrics?.totals.provider_calls ?? 0} />
+						<Metric label="Cache hits" value={metrics?.totals.cache_hits ?? 0} />
+						<Metric label="Retries" value={metrics?.totals.retries ?? 0} />
+						<Metric label="Tokens" value={(metrics?.totals.total_tokens ?? 0).toLocaleString("en-US")} />
+						<Metric label="Context saved" value={`${((metrics?.totals.context_reduction_ratio ?? 0) * 100).toFixed(1)}%`} />
+						<Metric label="Usage unknown" value={metrics?.totals.unknown_usage_attempts ?? 0} />
+					</div>
+					<p className="muted">Policies: {metrics?.budget_policy ?? "-"} · {metrics?.context_policy ?? "-"} · {metrics?.call_gate_policy ?? "-"}</p>
+				</>}
 			</Panel>
 			<Panel title={`Jobs · ${jobs.data?.items.length ?? 0}`}>
+				{jobs.isLoading ? <LoadingState /> : jobs.isError ? <p className="error-text">{(jobs.error as Error).message}</p> : <>
 				<table className="data-table"><thead><tr><th>Stage</th><th style={{ width: 110 }}>Status</th><th style={{ width: 90 }}>Revision</th><th style={{ width: 80 }}>Progress</th></tr></thead><tbody>
 					{(jobs.data?.items ?? []).map((job) => <tr key={job.id}><td><strong>{stageLabel(job.stage)}</strong><div className="muted">{job.id}</div></td><td><StatusBadge value={job.status} />{job.error && <div className="error-text small">{friendlyError(job.error)}</div>}</td><td>{job.input_revision || "-"} → {job.output_revision || "-"}</td><td>{job.progress}%</td></tr>)}
 				</tbody></table>
 				{!jobs.data?.items.length && <p className="muted">No jobs recorded.</p>}
+				</>}
 			</Panel>
 			<Panel title={`Sanitized LLM runs · ${runs.data?.items.length ?? 0}`}>
+				{runs.isLoading ? <LoadingState /> : runs.isError ? <p className="error-text">{(runs.error as Error).message}</p> : <>
 				<table className="data-table"><thead><tr><th>Stage / model</th><th>Status</th><th>Duration</th><th>Tokens</th></tr></thead><tbody>
 					{(runs.data?.items ?? []).map((run) => <tr key={run.id}><td><strong>{stageLabel(run.stage)}</strong><div className="muted">{run.provider} · {run.model}</div><div className="muted">validation: {run.validation_scope ?? "structured schema"}</div></td><td><StatusBadge value={run.status} />{(run.errors?.length ?? 0) > 0 && <div className="error-text">{run.errors!.length} issue(s)</div>}</td><td>{formatDuration(run.duration_ms ?? 0)}</td><td>{run.usage.total_tokens ? run.usage.total_tokens.toLocaleString("en-US") : "-"}</td></tr>)}
 				</tbody></table>
 				{!runs.data?.items.length && <p className="muted">No LLM runs recorded.</p>}
+				</>}
 			</Panel>
 		</div>
 	);
@@ -355,35 +339,6 @@ function SegmentationList({ proposal }: { proposal: SourceSegmentationProposal }
 	);
 }
 
-function ReviewAuditSummary({ decisions }: { decisions: NonNullable<SourceUnitQA["review_decisions"]> }) {
-	if (!decisions.length) return <p className="muted">No source-unit review decisions have been recorded.</p>;
-	return (
-		<div className="review-audit-list">
-			{decisions.slice().reverse().map((decision) => (
-				<article className="review-audit-item" key={`${decision.source_unit_id}-${decision.project_revision}`}>
-					<div className="toolbar">
-						<strong>{decision.source_unit_id}</strong>
-						<StatusBadge value={decision.decision} />
-						<Badge>rev {decision.project_revision}</Badge>
-					</div>
-					<div className="muted">{decision.reviewed_by} · {new Date(decision.reviewed_at).toLocaleString()}</div>
-					{decision.note && <p>{decision.note}</p>}
-					{decision.normalization ? (
-						<>
-							<div className="toolbar">
-								<Badge>{decision.normalization.version || "legacy"}</Badge>
-								<Badge tone={decision.normalization.changed ? "warn" : "good"}>{decision.normalization.changed ? "Changed" : "Unchanged"}</Badge>
-								<span className="muted">{decision.normalization.operations.length} operations</span>
-							</div>
-							<div className="muted">{shortAuditHash(decision.normalization.exact_hash)} → {shortAuditHash(decision.normalization.normalized_hash)}</div>
-						</>
-					) : <div className="muted">Normalization audit unavailable for this legacy decision.</div>}
-				</article>
-			))}
-		</div>
-	);
-}
-
 function SourcesTab({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
   const [filter, setFilter] = useState("all");
@@ -393,21 +348,28 @@ function SourcesTab({ projectId }: { projectId: string }) {
 	const [sourceView, setSourceView] = useState<"table" | "trace">("table");
 	const [combinedView, setCombinedView] = useState<"semantic" | "layout" | "raw">("semantic");
 	const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
+	const sourceUnitsReady = project.data?.artifact_health.source_units_status !== undefined
+		&& project.data.artifact_health.source_units_status !== "not_generated";
+	const combinedDocumentReady = project.data?.artifact_health.combined_document_status === "ready";
 	const sourceQA = useQuery({
 		queryKey: ["source-unit-qa", projectId],
 		queryFn: () => api.sourceUnitQA(projectId),
 		retry: false,
+		enabled: sourceUnitsReady,
 	});
   const resources = useQuery({ queryKey: ["resources", projectId], queryFn: () => api.listResources(projectId) });
-	const sourceManifest = useQuery({ queryKey: ["source-manifest", projectId], queryFn: () => api.sourceManifest(projectId) });
-	const sourceSegmentation = useQuery({ queryKey: ["source-segmentation", projectId], queryFn: () => api.sourceSegmentation(projectId), retry: false });
+	const sourceSegmentation = useQuery({ queryKey: ["source-segmentation", projectId], queryFn: () => api.sourceSegmentation(projectId), retry: false, enabled: combinedDocumentReady });
   const combinedDocument = useQuery({
     queryKey: ["combined-document", projectId],
     queryFn: () => api.combinedDocument(projectId),
     retry: false,
+		enabled: combinedDocumentReady,
   });
-  const sources = useQuery({ queryKey: ["source-units", projectId, filter, search], queryFn: () => api.sourceUnits(projectId, filter, search) });
-  const examples = useQuery({ queryKey: ["examples", projectId], queryFn: () => api.examples(projectId) });
+  const sources = useQuery({
+		queryKey: ["source-units", projectId, filter, search],
+		queryFn: () => api.sourceUnits(projectId, filter, search),
+		enabled: sourceUnitsReady,
+	});
 	const needsAttention = sourceQA.data?.qa.needs_attention.length ?? 0;
 
 	useEffect(() => {
@@ -453,7 +415,6 @@ function SourcesTab({ projectId }: { projectId: string }) {
 		setSelected(null);
 		void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
 		void queryClient.invalidateQueries({ queryKey: ["project-stages", projectId] });
-		void queryClient.invalidateQueries({ queryKey: ["analysis-summary", projectId] });
 		void queryClient.invalidateQueries({ queryKey: ["source-units", projectId] });
 		void queryClient.invalidateQueries({ queryKey: ["source-unit-qa", projectId] });
 	};
@@ -471,8 +432,12 @@ function SourcesTab({ projectId }: { projectId: string }) {
 				<button className={combinedView === "layout" ? "active" : ""} onClick={() => setCombinedView("layout")}>Segmentation audit</button>
 				<button className={combinedView === "raw" ? "active" : ""} onClick={() => setCombinedView("raw")}>Raw text</button>
 			</div>
-          {combinedDocument.isLoading ? (
+	          {!combinedDocumentReady ? (
+			<p className="muted">The combined document will appear when source segmentation completes.</p>
+		  ) : combinedDocument.isLoading ? (
             <LoadingState />
+		  ) : combinedDocument.isError ? (
+			<p className="error-text">{(combinedDocument.error as Error).message}</p>
           ) : combinedDocument.data?.combined_document ? (
             <div className="artifact-preview">
               <div className="toolbar">
@@ -523,6 +488,7 @@ function SourcesTab({ projectId }: { projectId: string }) {
 				)}
 			</Panel>
 		)}
+		{sourceQA.isError && <p className="error-text">Source-unit QA could not be loaded: {(sourceQA.error as Error).message}</p>}
         <Panel
           id="src-units"
           title="Source Units"
@@ -534,14 +500,17 @@ function SourcesTab({ projectId }: { projectId: string }) {
                 <option value="all">All</option>
                 <option value="needs_attention">Needs attention</option>
                 <option value="model_relevant">Model relevant</option>
-                <option value="examples">Examples</option>
                 <option value="non_model">Non-model</option>
               </select>
               <input className="input" placeholder="Search" value={search} onChange={(event) => setSearch(event.target.value)} />
             </div>
           }
         >
-			{sources.isLoading ? <LoadingState /> : sourceView === "trace" ? (
+			{!sourceUnitsReady ? (
+				<p className="muted">Source units are not ready yet. They will appear automatically when segmentation completes.</p>
+			) : sources.isLoading ? <LoadingState /> : sources.isError ? (
+				<p className="error-text">Source units could not be loaded: {(sources.error as Error).message}</p>
+			) : sourceView === "trace" ? (
 				<SourceTraceGraph
 					sentences={combinedDocument.data?.combined_document.lineage.sentences ?? []}
 					units={sources.data?.items ?? []}
@@ -551,14 +520,6 @@ function SourcesTab({ projectId }: { projectId: string }) {
 				<SourceUnitsTable items={sources.data?.items ?? []} filter={filter} onSelect={setSelected} />
 			)}
         </Panel>
-		<div className="grid-2">
-        <Panel title="Structured Examples">
-          {examples.isLoading ? <LoadingState /> : <ExamplesTable items={examples.data?.items ?? []} />}
-        </Panel>
-		<Panel title="Review audit">
-			<ReviewAuditSummary decisions={sourceQA.data?.qa.review_decisions ?? []} />
-		</Panel>
-      </div>
       {selected && (
 		<SourceUnitReviewDrawer
 			key={selected.id}
@@ -631,7 +592,7 @@ function SourceUnitsTable({ items, filter, onSelect }: { items: SourceUnit[]; fi
             </td>
             <td>{unit.normalized_text}</td>
             <td>{unit.kind}</td>
-			<td>{unit.relevance}</td>
+			<td>{unit.relevance ? humanizeStatus(unit.relevance) : "—"}</td>
 			<td><Badge tone={unit.normalization?.changed ? "warn" : "good"}>{unit.normalization?.changed ? "Changed" : "Unchanged"}</Badge></td>
             <td>
               <StatusBadge value={unit.review_status} />
@@ -673,7 +634,7 @@ function SourceUnitReviewDrawer({
 			<div className="toolbar">
 				<StatusBadge value={unit.review_status} />
 				<Badge>{unit.confidence} confidence</Badge>
-				<Badge>{unit.relevance}</Badge>
+				{unit.relevance && <Badge>{humanizeStatus(unit.relevance)}</Badge>}
 			</div>
 			{(unit.warnings?.length ?? 0) > 0 && (
 				<div className="review-warning-list">
@@ -683,9 +644,8 @@ function SourceUnitReviewDrawer({
 			)}
 			{(unit.requirement_notes?.length ?? 0) > 0 && (
 				<div className="requirement-notes">
-					<strong>Open modeling questions</strong>
+					<strong>Modeling notes from segmentation</strong>
 					<ul>{unit.requirement_notes?.map((note) => <li key={note}>{note}</li>)}</ul>
-					<p className="muted small">No action needed here: these become design questions in the Review Queue.</p>
 				</div>
 			)}
 			<div className="normalization-comparison">
@@ -735,10 +695,6 @@ function SourceUnitReviewDrawer({
 			) : (
 				<p className="muted">This unit has already passed source review.</p>
 			)}
-			<div className="toolbar">
-				{unit.linked_requirements.map((id) => <Badge key={id}>{id}</Badge>)}
-				{unit.open_review_candidates.map((id) => <Badge tone="warn" key={id}>{id}</Badge>)}
-			</div>
 		</Drawer>
 	);
 }
@@ -751,417 +707,4 @@ function shortAuditHash(value: string) {
 
 function humanizeOperation(value: string) {
 	return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function ExamplesTable({ items }: { items: StructuredExample[] }) {
-  if (!items.length) return <p className="muted">No structured examples detected.</p>;
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>Example</th>
-          <th>Authority</th>
-          <th>Fields</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((item) => (
-          <tr key={item.id}>
-            <td>
-              <strong>{item.title}</strong>
-              <div className="muted">{item.type}</div>
-            </td>
-            <td>
-              <StatusBadge value={item.authority} />
-            </td>
-            <td>{item.parsed_fields.map((field) => field.path).join(", ")}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function RequirementsTab({ projectId }: { projectId: string }) {
-  const [filter, setFilter] = useState("all");
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<RequirementAtom | null>(null);
-  const requirements = useQuery({
-    queryKey: ["requirements", projectId, filter, search],
-    queryFn: () => api.requirements(projectId, filter, search),
-  });
-	const obligations = useQuery({ queryKey: ["design-obligations", projectId], queryFn: () => api.designObligations(projectId), retry: false });
-  const coverage = requirements.data?.coverage;
-  return (
-    <>
-      <div className="grid-3">
-        <Metric label="Source units covered" value={coverage?.source_units_covered ?? "-"} />
-        <Metric label="Direct DB requirements" value={coverage?.direct_db_requirements ?? "-"} />
-        <Metric label="Need review" value={coverage?.requirements_needing_review ?? "-"} />
-      </div>
-      <Panel
-        title="Requirement Atoms"
-        action={
-          <div className="toolbar">
-            <select className="select" value={filter} onChange={(event) => setFilter(event.target.value)}>
-              <option value="all">All</option>
-              <option value="needs_review">Needs review</option>
-              <option value="direct_db">Direct DB</option>
-              <option value="non_model">Non-model</option>
-            </select>
-            <input className="input" placeholder="Search" value={search} onChange={(event) => setSearch(event.target.value)} />
-          </div>
-        }
-      >
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th style={{ width: 90 }}>Atom</th>
-              <th>Statement</th>
-              <th style={{ width: 170 }}>Type</th>
-              <th style={{ width: 120 }}>Outcome</th>
-              <th style={{ width: 110 }}>Review</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(requirements.data?.items ?? []).map((item) => (
-              <tr key={item.id} className="clickable-row" onClick={() => setSelected(item)}>
-                <td>
-                  <strong>{item.id}</strong>
-                </td>
-                <td>{item.statement}</td>
-                <td className="muted">{humanizeStatus(item.atom_type)}</td>
-                <td><StatusBadge value={item.modeling_outcome} /></td>
-                <td>
-                  <StatusBadge value={item.review_status} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
-		{obligations.data && (
-			<Panel title={`Design Obligations · ${obligations.data.design_obligations.length}`}>
-				<table className="data-table"><thead><tr><th>Obligation</th><th style={{ width: 150 }}>Kind</th><th style={{ width: 130 }}>Persistence</th><th style={{ width: 90 }}>Risk</th></tr></thead><tbody>
-					{obligations.data.design_obligations.map((item) => <tr key={item.id}><td><strong>{item.id}</strong><div>{item.statement}</div></td><td><Badge>{humanizeStatus(item.kind)}</Badge></td><td className="muted">{humanizeStatus(item.persistence)}</td><td><Badge tone={item.risk === "high" ? "warn" : item.risk === "low" ? "good" : "default"}>{item.risk}</Badge></td></tr>)}
-				</tbody></table>
-			</Panel>
-		)}
-      {selected && (
-        <Drawer title={selected.id} onClose={() => setSelected(null)}>
-          <p>{selected.statement}</p>
-          <div className="toolbar">
-            <Badge>{selected.atom_type}</Badge>
-            <Badge>{selected.modeling_relevance}</Badge>
-            <StatusBadge value={selected.review_status} />
-			<Badge tone={(selected.review_class ?? "none").startsWith("blocking_") ? "warn" : "default"}>{humanizeStatus(selected.review_class ?? "none")}</Badge>
-          </div>
-		  {(selected.review_class ?? "none") !== "none" && (
-			<Panel title={`Review signal · ${humanizeStatus(selected.review_topic ?? "other")}`}>
-			  {(selected.warnings ?? []).length > 0 ? selected.warnings.map((warning) => <p key={warning}>{warning}</p>) : <p className="muted">No additional warning was recorded.</p>}
-			</Panel>
-		  )}
-          <Panel title="Source evidence">
-            <div className="toolbar">
-              {selected.source_units.map((id) => (
-                <Badge key={id}>{id}</Badge>
-              ))}
-            </div>
-          </Panel>
-          <Panel title="Model impact">
-            <div className="toolbar">
-              {selected.model_impact_preview.map((id) => (
-                <Badge key={id}>{id}</Badge>
-              ))}
-            </div>
-          </Panel>
-		  <Panel title="Atomic semantics">
-			<p><strong>{selected.subject || "—"}</strong> · {selected.predicate || "—"} · {selected.object || "—"}</p>
-			<p className="muted">Quantifier: {selected.quantifier || "not stated"} · Condition: {selected.condition || "not stated"} · Time: {selected.temporal_semantics || "not stated"} · Owner: {selected.ownership || "not stated"}</p>
-		  </Panel>
-        </Drawer>
-      )}
-    </>
-  );
-}
-
-function FunctionalCrudTab({ projectId }: { projectId: string }) {
-  const [area, setArea] = useState<string>("all");
-  const areas = useQuery({ queryKey: ["functional-areas", projectId], queryFn: () => api.functionalAreas(projectId) });
-  const actors = useQuery({ queryKey: ["actors", projectId], queryFn: () => api.actors(projectId) });
-  const operations = useQuery({ queryKey: ["crud-operations", projectId], queryFn: () => api.crudOperations(projectId) });
-	const requirements = useQuery({ queryKey: ["requirements", projectId, "all", ""], queryFn: () => api.requirements(projectId) });
-	const areaItems = areas.data?.items ?? [];
-	const selectedArea = areaItems.find((item) => item.id === area);
-	const selectedAtomIDs = new Set(selectedArea?.requirement_atoms ?? []);
-	const mappedRequirements = (requirements.data?.items ?? []).filter((requirement) => area === "all" || selectedAtomIDs.has(requirement.id));
-	const areaByAtom = new Map<string, FunctionalArea>();
-	for (const functionalArea of areaItems) {
-		for (const atomID of functionalArea.requirement_atoms) areaByAtom.set(atomID, functionalArea);
-	}
-	const actorByID = new Map((actors.data?.items ?? []).map((actor) => [actor.id, actor]));
-  const filteredOperations = (operations.data?.items ?? []).filter((operation) => area === "all" || operation.functional_area_id === area);
-  return (
-    <div className="grid-2">
-      <Panel title="Functional Areas">
-        <div className="field" style={{ gap: 8 }}>
-          <button className={`nav-item ${area === "all" ? "active" : ""}`} onClick={() => setArea("all")}>
-			<span>All areas</span>
-			<Badge>{areaItems.length}</Badge>
-          </button>
-			{areas.isLoading && <LoadingState />}
-          {areaItems.map((item: FunctionalArea) => (
-            <button className={`nav-item ${area === item.id ? "active" : ""}`} key={item.id} onClick={() => setArea(item.id)}>
-              <span>{item.label}</span>
-			  <Badge tone={item.open_review_candidates.length > 0 ? "warn" : "default"}>{item.requirement_atoms.length} items</Badge>
-            </button>
-          ))}
-        </div>
-      </Panel>
-		<Panel title={selectedArea?.label ?? "Functional Analysis"}>
-			{selectedArea ? (
-				<div className="field" style={{ gap: 14 }}>
-					<p>{selectedArea.purpose}</p>
-					<div>
-						<strong>Modeling focus</strong>
-						<ul>{selectedArea.modeling_focus.map((focus) => <li key={focus}>{focus}</li>)}</ul>
-					</div>
-					<div>
-						<strong>Main actors</strong>
-						<div className="toolbar" style={{ marginTop: 8 }}>
-							{selectedArea.main_actors.map((actorID) => <Badge key={actorID}>{actorByID.get(actorID)?.label ?? actorID}</Badge>)}
-						</div>
-					</div>
-					<p className="muted">{selectedArea.requirement_atoms.length} requirement atoms are mapped to this area.</p>
-				</div>
-			) : (
-				<div>
-					<p>Functional analysis produced {areaItems.length} areas and mapped {requirements.data?.items.length ?? 0} requirement atoms.</p>
-					<p className="muted">Select an area to inspect its purpose, modeling focus, actors, and contained requirements.</p>
-				</div>
-			)}
-      </Panel>
-		<div className="grid-span-full">
-			<Panel title={`Mapped Requirement Atoms · ${mappedRequirements.length}`}>
-				{requirements.isLoading ? <LoadingState /> : <FunctionalRequirementsTable items={mappedRequirements} areaByAtom={areaByAtom} showArea={area === "all"} />}
-			</Panel>
-		</div>
-		<div className="grid-span-full">
-		<Panel title="Actors">
-			{actors.isLoading ? <LoadingState /> : (
-				<div className="toolbar">
-					{(actors.data?.items ?? []).map((actor) => <Badge key={actor.id}>{actor.label} · {actor.kind}</Badge>)}
-				</div>
-			)}
-		</Panel>
-		</div>
-		<div className="grid-span-full">
-		<Panel title={`CRUD Operations · ${filteredOperations.length}`}>
-			{operations.isLoading ? <LoadingState /> : filteredOperations.length > 0 ? (
-				<CrudTable items={filteredOperations} actorLabel={(id) => actorByID.get(id)?.label ?? id} />
-			) : (
-				<p className="muted">CRUD operations are generated by the next pipeline stage, Build CRUD Mapping. The functional-analysis items are shown above.</p>
-			)}
-		</Panel>
-		</div>
-    </div>
-  );
-}
-
-function FunctionalRequirementsTable({
-	items,
-	areaByAtom,
-	showArea,
-}: {
-	items: RequirementAtom[];
-	areaByAtom: Map<string, FunctionalArea>;
-	showArea: boolean;
-}) {
-	if (!items.length) return <p className="muted">No requirement atoms are mapped to this area.</p>;
-	return (
-		<table className="data-table">
-			<thead>
-				<tr>
-					<th style={{ width: 90 }}>Atom</th>
-					<th>Requirement</th>
-					{showArea && <th style={{ width: "20%" }}>Area</th>}
-					<th style={{ width: 150 }}>Type</th>
-					<th style={{ width: 120 }}>Relevance</th>
-					<th style={{ width: 110 }}>Sources</th>
-				</tr>
-			</thead>
-			<tbody>
-				{items.map((item) => (
-					<tr key={item.id}>
-						<td><strong>{item.id}</strong></td>
-						<td>{item.statement}</td>
-						{showArea && <td>{areaByAtom.get(item.id)?.label ?? "Unmapped"}</td>}
-						<td className="muted">{humanizeStatus(item.atom_type)}</td>
-						<td><StatusBadge value={item.modeling_relevance} /></td>
-						<td className="muted small">{item.source_units.join(", ")}</td>
-					</tr>
-				))}
-			</tbody>
-		</table>
-	);
-}
-
-function CrudTable({ items, actorLabel }: { items: CrudOperation[]; actorLabel: (id: string) => string }) {
-  const effects = (label: string, tone: string, values: string[]) =>
-    values.map((value) => <span key={`${label}:${value}`} className={`crud-chip ${tone}`} title={label}>{label} {value}</span>);
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th style={{ width: "30%" }}>Operation</th>
-          <th style={{ width: 150 }}>Actor</th>
-          <th>Data effects</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((item) => (
-          <tr key={item.id}>
-            <td>
-              <strong>{item.label}</strong>
-              <div className="muted small">{item.outcome}</div>
-            </td>
-            <td>{actorLabel(item.actor_id)}</td>
-            <td>
-              <div className="crud-effects">
-                {effects("C", "create", item.creates)}
-                {effects("R", "read", item.reads)}
-                {effects("U", "update", item.updates)}
-                {effects("D", "delete", item.deletes)}
-                {item.creates.length + item.reads.length + item.updates.length + item.deletes.length === 0 && <span className="muted small">no persistent effect</span>}
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function ReviewTab({
-	projectId,
-	revision,
-	nextAction,
-	onNext,
-	onDecisionsApplied,
-	nextDisabled,
-}: {
-	projectId: string;
-	revision: number;
-	nextAction: string;
-	onNext: () => void;
-	onDecisionsApplied: () => void;
-	nextDisabled: boolean;
-}) {
-  const queryClient = useQueryClient();
-  const [job, setJob] = useState<Job | null>(null);
-	const [selected, setSelected] = useState<Record<string, string>>({});
-	const [reviewStartedAt] = useState(() => Date.now());
-  const candidates = useQuery({ queryKey: ["review-candidates", projectId], queryFn: () => api.reviewCandidates(projectId) });
-	const answer = useMutation({
-		mutationFn: () => api.answerReviewBatch(
-			projectId,
-			revision,
-			Object.entries(selected).map(([candidate_id, selected_option_id]) => ({ candidate_id, selected_option_id })),
-			Date.now() - reviewStartedAt,
-		),
-    onSuccess: ({ job }) => setJob(job),
-  });
-	const all = candidates.data?.items ?? [];
-	const open = all.filter((item) => item.status === "open");
-	const selectionCount = Object.keys(selected).length;
-
-  if (job) {
-    return (
-      <Panel title="Refreshing analysis">
-        <JobProgress
-          projectId={projectId}
-          job={job}
-          onDone={() => {
-            setJob(null);
-            void queryClient.invalidateQueries().then(onDecisionsApplied);
-          }}
-		  onDismiss={() => setJob(null)}
-        />
-      </Panel>
-    );
-  }
-
-  if (!open.length) {
-    return (
-      <Panel title="No more to review">
-        <div className="toolbar">
-          <CheckCircle2 size={20} color="#0f766e" />
-          <span>All blocking review questions are resolved.</span>
-			<Button variant="primary" onClick={onNext} disabled={nextDisabled}>
-				<Play size={18} />
-				{nextAction}
-          </Button>
-        </div>
-      </Panel>
-    );
-  }
-
-  return (
-    <div className="page">
-		<Panel title={`Review Queue · ${open.length} open`}>
-		<div className="toolbar" style={{ marginBottom: 16 }}>
-			<span>{selectionCount} selected for one deterministic batch.</span>
-			<Button variant="primary" onClick={() => answer.mutate()} disabled={answer.isPending || selectionCount === 0}>
-				Apply selected decisions
-			</Button>
-			{answer.error && <span className="error-text">{answer.error.message}</span>}
-		</div>
-        <div className="field" style={{ gap: 14 }}>
-			{open.map((candidate: ReviewCandidate) => {
-				const unresolvedDependencies = unresolvedReviewDependencies(candidate, all).filter((id) => !selected[id]);
-				const locked = unresolvedDependencies.length > 0;
-				return (
-            <div className="panel" key={candidate.id}>
-              <div className="panel-body">
-                <div className="toolbar">
-                  <GitBranch size={18} />
-                  <strong>{candidate.id}</strong>
-					<Badge tone={candidate.blocking ? "bad" : "warn"}>{candidate.blocking ? "blocking" : "non-blocking"}</Badge>
-					{candidate.severity && <StatusBadge value={candidate.severity} />}
-					{candidate.recommendation_confidence && <Badge>{candidate.recommendation_confidence} recommendation confidence</Badge>}
-                </div>
-                <h3 className="panel-title" style={{ marginTop: 12 }}>
-                  {candidate.question}
-                </h3>
-                <p className="muted">{candidate.description}</p>
-				<p><strong>Why this matters:</strong> {candidate.description}</p>
-				<p className="muted">Impact: {candidate.may_affect.join(", ") || "No downstream impact declared."}</p>
-				<div className="toolbar">
-					{(candidate.affected_source_units ?? []).map((id) => <Badge key={id}>{id}</Badge>)}
-					{candidate.affected_atoms.map((id) => <Badge key={id}>{id}</Badge>)}
-				</div>
-				{locked && <p className="error-text">Resolve {unresolvedDependencies.join(", ")} before answering this question.</p>}
-				<div className="review-option-grid">
-                  {candidate.options.map((option) => (
-					<div className={`review-option-card ${option.recommended ? "recommended" : ""}`} key={option.id} aria-selected={selected[candidate.id] === option.id}>
-						<div className="toolbar"><strong>{option.label}</strong>{option.recommended && <Badge tone="good">Recommended</Badge>}</div>
-						<p>{option.rationale}</p>
-						{option.effect_summary && <p className="muted"><strong>Effect:</strong> {option.effect_summary}</p>}
-						{(option.benefits?.length ?? 0) > 0 && <p className="muted"><strong>Benefits:</strong> {option.benefits?.join("; ")}</p>}
-						{(option.risks?.length ?? 0) > 0 && <p className="muted"><strong>Risks:</strong> {option.risks?.join("; ")}</p>}
-						{option.effects?.impact_dimensions?.length ? <p className="muted"><strong>Risk dimensions:</strong> {option.effects.impact_dimensions.join(", ")}</p> : null}
-						<Button variant={selected[candidate.id] === option.id || option.recommended ? "primary" : "default"} onClick={() => setSelected((current) => ({ ...current, [candidate.id]: option.id }))} disabled={answer.isPending || locked}>
-							{selected[candidate.id] === option.id ? "Selected" : "Choose option"}
-						</Button>
-					</div>
-                  ))}
-                </div>
-              </div>
-            </div>
-			);
-			})}
-        </div>
-      </Panel>
-    </div>
-  );
 }

@@ -1,13 +1,10 @@
-import type { LogicalMappingReport,
-  ActorSummary,
+import type {
   ApiError,
   ArtifactHealth,
   BundleCandidate,
 	CombinedDocument,
 	ConceptualModel,
 	ConceptualDescription,
-  CrudOperation,
-  FunctionalArea,
   InputResource,
 	Job,
   JobEvent,
@@ -15,25 +12,21 @@ import type { LogicalMappingReport,
   LlmStatus,
 	LLMRunSummary,
 	LLMOptimizationReport,
+	LogicalMappingReport,
   ModelElementDetails,
   ModelGraph,
   MutationResult,
   Page,
+	ProjectNextStage,
   ProjectResponse,
 	ProjectStageName,
   ProjectSummary,
   QualityReport,
-  RequirementAtom,
-  ReviewCandidate,
-  ReviewDecision,
-	SemanticVerificationReport,
   SourceManifest,
 	SourceUnit,
 	SourceUnitQA,
 	SourceUnitReviewResult,
-	SourceFidelityReport,
 	SourceSegmentationProposal,
-  StructuredExample,
   TraceIndex,
 } from "./types";
 import { mockApi } from "@/mocks/mockApi";
@@ -76,16 +69,6 @@ export const api = {
   listBundles: () => request<{ items: BundleCandidate[] }>("/bundles"),
   scaffoldBundleFromTask: (body: { name?: string; content: string }) =>
     request<{ bundle: BundleCandidate }>("/bundles/scaffold-from-task", { method: "POST", body: JSON.stringify(body) }),
-  llmPlanBundleFromTask: (body: {
-    name?: string;
-    content: string;
-    model?: string;
-    reasoning_effort?: string;
-    max_output_tokens?: number;
-    max_repair_attempts?: number;
-    mock?: boolean;
-  }) =>
-    request<{ bundle: BundleCandidate }>("/bundles/llm-plan-from-task", { method: "POST", body: JSON.stringify(body) }),
   importBundle: (path: string) =>
     request<{ project: ProjectSummary }>("/projects/import-bundle", { method: "POST", body: JSON.stringify({ path }) }),
 
@@ -94,8 +77,6 @@ export const api = {
   createProject: (body: { name: string; description?: string; language?: string; domain?: string }) =>
     request<{ project: ProjectSummary }>("/projects", { method: "POST", body: JSON.stringify(body) }),
   getProject: (projectId: string) => request<ProjectResponse>(`/projects/${projectId}`),
-  updateProject: (projectId: string, body: { base_revision: number; name?: string; description?: string }) =>
-    request<MutationResult>(`/projects/${projectId}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteProject: (projectId: string) =>
     request<{ deleted_project_id: string; message: string }>(`/projects/${projectId}`, { method: "DELETE" }),
   completeProject: (projectId: string, baseRevision: number) =>
@@ -110,8 +91,6 @@ export const api = {
     }),
 
   listResources: (projectId: string) => request<{ items: InputResource[] }>(`/projects/${projectId}/resources`),
-  resource: (projectId: string, resourceId: string) =>
-    request<{ resource: InputResource }>(`/projects/${projectId}/resources/${encodeURIComponent(resourceId)}`),
   resourceText: (projectId: string, resourceId: string) =>
     request<{ resource: InputResource; text: string }>(`/projects/${projectId}/resources/${encodeURIComponent(resourceId)}/text`),
   addPastedText: (projectId: string, body: { title: string; content: string }) =>
@@ -130,7 +109,6 @@ export const api = {
   combinedDocument: (projectId: string) => request<{ combined_document: CombinedDocument }>(`/projects/${projectId}/combined-document`),
 	sourceSegmentation: (projectId: string) =>
 		request<{ proposal: SourceSegmentationProposal }>(`/projects/${projectId}/source-segmentation`),
-  sourceFidelity: (projectId: string) => request<{ source_fidelity: SourceFidelityReport }>(`/projects/${projectId}/source-fidelity`),
   processSources: (
     projectId: string,
     baseRevision: number,
@@ -146,21 +124,13 @@ export const api = {
 			body: JSON.stringify({ base_revision: baseRevision, mock }),
 		}),
 	stageStatus: (projectId: string) =>
-		request<{ artifact_health: ArtifactHealth; next_stage: ProjectStageName | "source_review" | "review_decisions" | "conceptual_review" | "model_review" | "completed" }>(`/projects/${projectId}/stages`),
+		request<{ artifact_health: ArtifactHealth; next_stage: ProjectNextStage }>(`/projects/${projectId}/stages`),
 
-  analysisSummary: (projectId: string) =>
-    request<{ project_revision: number; summary: Record<string, Record<string, number> | boolean> }>(
-      `/projects/${projectId}/analysis/summary`,
-    ),
   sourceUnits: (projectId: string, filter = "all", search = "") =>
     request<Page<SourceUnit> & { project_revision: number }>(
       `/projects/${projectId}/source-units?filter=${encodeURIComponent(filter)}&search=${encodeURIComponent(search)}`,
     ),
 	sourceUnitQA: (projectId: string) => request<{ qa: SourceUnitQA }>(`/projects/${projectId}/source-units/qa`),
-	sourceUnit: (projectId: string, sourceUnitId: string) =>
-    request<{ source_unit: SourceUnit; original_excerpt: { text: string } }>(
-      `/projects/${projectId}/source-units/${sourceUnitId}`,
-    ),
 	reviewSourceUnit: (
 		projectId: string,
 		sourceUnitId: string,
@@ -170,52 +140,6 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ ...body, reviewed_by: "web_user" }),
 		}),
-  examples: (projectId: string) => request<{ project_revision: number; items: StructuredExample[] }>(`/projects/${projectId}/examples`),
-  requirements: (projectId: string, filter = "all", search = "") =>
-    request<Page<RequirementAtom> & { project_revision: number; coverage: Record<string, number> }>(
-      `/projects/${projectId}/requirements?filter=${encodeURIComponent(filter)}&search=${encodeURIComponent(search)}`,
-    ),
-  designObligations: (projectId: string) => request<{ design_obligations: Array<{ id: string; statement: string; kind: string; persistence: string; risk: string; status: string }>; qa: { ok: boolean; errors: string[]; warnings: string[] } }>(`/projects/${projectId}/design-obligations`),
-  functionalAreas: (projectId: string) =>
-    request<{ project_revision: number; items: FunctionalArea[] }>(`/projects/${projectId}/functional-areas`),
-  actors: (projectId: string) => request<{ project_revision: number; items: ActorSummary[] }>(`/projects/${projectId}/actors`),
-  crudOperations: (projectId: string) =>
-    request<{ project_revision: number; items: CrudOperation[] }>(`/projects/${projectId}/crud-operations`),
-
-  reviewCandidates: (projectId: string) =>
-    request<Page<ReviewCandidate> & { project_revision: number }>(`/projects/${projectId}/review-candidates`),
-	answerReview: (projectId: string, reviewId: string, baseRevision: number, selectedOption: string, mock = false) =>
-    request<JobRef & { project_revision: number }>(`/projects/${projectId}/review-candidates/${reviewId}/answer`, {
-      method: "POST",
-		body: JSON.stringify({ base_revision: baseRevision, selected_option: selectedOption, mock }),
-    }),
-	answerReviewBatch: (
-		projectId: string,
-		baseRevision: number,
-		selections: Array<{ candidate_id: string; selected_option_id: string }>,
-		activeReviewMs: number,
-	) =>
-		request<JobRef>(`/projects/${projectId}/review-decisions/batch`, {
-			method: "POST",
-			body: JSON.stringify({ base_revision: baseRevision, selections, reviewed_by: "web_user", active_review_ms: activeReviewMs }),
-		}),
-  applyRecommended: (projectId: string, baseRevision: number) =>
-    request<JobRef & { project_revision: number }>(`/projects/${projectId}/review-candidates/apply-recommended`, {
-      method: "POST",
-      body: JSON.stringify({ base_revision: baseRevision }),
-    }),
-  reviewDecisions: (projectId: string) =>
-    request<{ project_revision: number; items: ReviewDecision[] }>(`/projects/${projectId}/review-decisions`),
-
-  modelReadiness: (projectId: string) =>
-    request<{ project_revision: number; readiness: { can_generate_model: boolean; open_review_questions: number; blocking_reasons: string[] } }>(
-      `/projects/${projectId}/model-generation/readiness`,
-    ),
-  generateModel: (projectId: string, baseRevision: number) =>
-    request<JobRef>(`/projects/${projectId}/generate-model`, {
-      method: "POST",
-      body: JSON.stringify({ base_revision: baseRevision }),
-    }),
 	conceptualModel: (projectId: string) =>
 		request<{ conceptual_model: ConceptualModel; accepted: boolean; diff: Record<string, unknown>; qa: { ok: boolean; errors: string[]; warnings: string[]; coverage: Record<string, number> }; description?: ConceptualDescription | null }>(`/projects/${projectId}/conceptual-model`),
 	acceptConceptualModel: (projectId: string, baseRevision: number) =>
@@ -224,18 +148,9 @@ export const api = {
 		}),
 	logicalMappingReport: (projectId: string) =>
 		request<{ logical_mapping_report: LogicalMappingReport }>(`/projects/${projectId}/logical-mapping-report`),
-	semanticVerification: (projectId: string) => request<{ semantic_verification: SemanticVerificationReport }>(`/projects/${projectId}/semantic-verification`),
-	createSemanticRepairCandidates: (projectId: string, baseRevision: number) =>
-		request<{ project_revision: number; review_candidate_ids: string[]; message: string }>(`/projects/${projectId}/semantic-verification/repair-candidates`, {
-			method: "POST", body: JSON.stringify({ base_revision: baseRevision }),
-		}),
 	acceptModel: (projectId: string, baseRevision: number) =>
 		request<{ project_revision: number; message: string }>(`/projects/${projectId}/model-acceptance`, {
 			method: "POST", body: JSON.stringify({ base_revision: baseRevision }),
-		}),
-	requestModelCorrection: (projectId: string, body: { base_revision: number; element_id: string; correction_type: string; note: string }) =>
-		request<{ project_revision: number; review_candidate_id: string; message: string }>(`/projects/${projectId}/model-corrections`, {
-			method: "POST", body: JSON.stringify(body),
 		}),
   modelGraph: (projectId: string) =>
     request<{ project_revision: number; model_graph: ModelGraph }>(`/projects/${projectId}/model-graph`),
@@ -244,7 +159,6 @@ export const api = {
   modelElement: (projectId: string, elementId: string) =>
     request<{ model_element: ModelElementDetails }>(`/projects/${projectId}/model-elements/${encodeURIComponent(elementId)}`),
   quality: (projectId: string) => request<{ project_revision: number; quality: QualityReport }>(`/projects/${projectId}/quality`),
-  runQuality: (projectId: string) => request<JobRef>(`/projects/${projectId}/quality/run`, { method: "POST", body: "{}" }),
   acceptQuality: (projectId: string, issueId: string) =>
     request<MutationResult>(`/projects/${projectId}/quality/issues/${issueId}/accept`, { method: "POST", body: "{}" }),
 

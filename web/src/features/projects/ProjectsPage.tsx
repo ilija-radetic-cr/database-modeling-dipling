@@ -34,13 +34,15 @@ export function ProjectsPage() {
   const everything = allProjects.data?.items ?? [];
   const active = activeProjects.data?.items.length ?? 0;
   const completed = everything.filter((project) => project.lifecycle_status === "completed").length;
+  // Projects stopped at a human gate: source review, conceptual review or final-model review.
+  const awaitingReview = everything.filter((project) => ["source_review", "conceptual_review", "model_generated"].includes(project.lifecycle_status)).length;
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
           <h1 className="page-title">Projects</h1>
-          <p className="page-subtitle">Database modeling projects from task sources, review decisions and DSL artifacts.</p>
+          <p className="page-subtitle">Database modeling projects from task sources, conceptual models and DSL artifacts.</p>
         </div>
         <Button variant="primary" onClick={() => navigate("/projects/new")}>
           <Plus size={18} />
@@ -51,7 +53,7 @@ export function ProjectsPage() {
       <div className="grid-3">
         <Metric label="Active projects" value={active} />
         <Metric label="Completed" value={completed} />
-        <Metric label="Open reviews" value={everything.reduce((sum, item) => sum + item.counts.open_review_questions, 0)} />
+        <Metric label="Awaiting your review" value={awaitingReview} />
       </div>
 
       <Panel
@@ -128,10 +130,8 @@ function ProjectsTable({
               <StatusBadge value={project.lifecycle_status} />
             </td>
             <td className="muted">
-              {project.counts.source_units} sources · {project.counts.requirements} requirements
-              {project.counts.open_review_questions > 0 && (
-                <div><Badge tone="warn">{project.counts.open_review_questions} open decisions</Badge></div>
-              )}
+              {project.counts.source_units} source units
+              {project.counts.entities !== undefined && ` · ${project.counts.entities} entities`}
             </td>
             <td>
               {project.quality.validation_errors > 0 ? (

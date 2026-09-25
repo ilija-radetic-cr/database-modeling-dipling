@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"dbdsl/internal/dsl"
+	"dbdsl/internal/generate"
 	"dbdsl/internal/llm"
 	"dbdsl/internal/validate"
 )
@@ -135,8 +136,7 @@ func TestConceptualDescriptionTransformsIntoValidDBDSL(t *testing.T) {
 		t.Fatalf("description rejected: %v", qa.Errors)
 	}
 	model := ConceptualDescriptionToModel(description, units)
-	atoms, functional, crud := SegmentEvidenceArtifacts(units, description, model)
-	if qa := ValidateConceptualModelWithObligations(model, units, atoms.RequirementAtoms, nil, nil); !qa.OK {
+	if qa := ValidateConceptualModel(model, units, nil); !qa.OK {
 		t.Fatalf("transformed conceptual model fails the conceptual validator: %v", qa.Errors)
 	}
 	user := model.EntityConcepts[0]
@@ -167,15 +167,14 @@ func TestConceptualDescriptionTransformsIntoValidDBDSL(t *testing.T) {
 	if len(model.LifecycleConcepts) != 1 || len(model.LifecycleConcepts[0].Terminal) != 2 {
 		t.Fatalf("states should become a lifecycle with two terminal states: %+v", model.LifecycleConcepts)
 	}
-	patch, _, err := MapConceptualToLogical(model, atoms.RequirementAtoms, LogicalMappingOptions{Language: LanguageSerbianCyrillic})
+	patch, _, err := MapConceptualToLogical(model, LogicalMappingOptions{Language: LanguageSerbianCyrillic})
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifacts, err := BuildLogicalArtifacts("test", units, atoms, functional, crud, patch, []dsl.V05ReviewDecision{})
+	artifacts, err := BuildLogicalArtifacts("test", units, patch, []dsl.ReviewDecision{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ReconcileSegmentAtomOutcomes(&artifacts)
 	uniqueFields := map[string]bool{}
 	for _, constraint := range artifacts.Model.Constraints {
 		if constraint.Type == "unique" {
@@ -185,15 +184,14 @@ func TestConceptualDescriptionTransformsIntoValidDBDSL(t *testing.T) {
 	if len(uniqueFields) != 3 {
 		t.Fatalf("expected three unique constraints in DB-DSL, got %v", uniqueFields)
 	}
-	sourceFile := dsl.V05SourceUnitsFile{SourceUnits: units}
-	bundle := &dsl.V05Bundle{Document: &artifacts.Model, SourceUnits: &sourceFile, RequirementAtoms: &artifacts.RequirementAtoms,
-		FunctionalDecomposition: &artifacts.FunctionalDecomposition, CRUDMatrix: &artifacts.CRUDMatrix, ReviewDecisions: &artifacts.ReviewDecisions}
-	if result := validate.ValidateV05Bundle(bundle); len(result.Errors) > 0 {
+	sourceFile := dsl.SourceUnitsFile{SourceUnits: units}
+	bundle := &dsl.Bundle{Document: &artifacts.Model, SourceUnits: &sourceFile, ReviewDecisions: &artifacts.ReviewDecisions}
+	if result := validate.ValidateV06Bundle(bundle); len(result.Errors) > 0 {
 		t.Fatalf("DB-DSL bundle is invalid:\n%s", strings.Join(result.Errors, "\n"))
 	}
 }
 
-func TestConceptualTransformKeepsQueriesNumericValuesAndLinkKeys(t *testing.T) {
+func TestConceptualTransformIndexesCriteriaNumericValuesAndLinkKeys(t *testing.T) {
 	units := acceptedUnits(t)
 	description := testDescription()
 	ev := DescriptionEvidence{Segments: []string{"SU-009"}, Mode: "direct"}
@@ -208,20 +206,24 @@ func TestConceptualTransformKeepsQueriesNumericValuesAndLinkKeys(t *testing.T) {
 			{To: "korisnik", Meaning: "даје", PerThis: "1", PerOther: "0..N", Evidence: ev},
 		},
 	})
-	description.Queries = append(description.Queries, DescriptionQuery{ID: "igre_po_danu", Description: "Игре изабраног дана.", Needs: []string{"igra.datum", "ocena.vrednost"}, Evidence: ev})
+	description.Queries = append(description.Queries, DescriptionQuery{ID: "igre_po_danu", Description: "Игре изабраног дана.",
+		Needs: []string{"igra.datum", "ocena.vrednost"}, Criteria: []string{"igra.datum", "ocena.vrednost"}, Evidence: ev})
 	if qa := ValidateConceptualDescription(&description, units); !qa.OK {
 		t.Fatalf("description rejected: %v", qa.Errors)
 	}
 	model := ConceptualDescriptionToModel(description, units)
 
-	var query *PlanElementProposal
-	for i := range model.DerivedConcepts {
-		if model.DerivedConcepts[i].ID == "DER-IGRE-PO-DANU" {
-			query = &model.DerivedConcepts[i]
+	for _, derived := range model.DerivedConcepts {
+		if derived.ID == "DER-IGRE-PO-DANU" {
+			t.Fatalf("a query must not become a derived concept: %+v", derived)
 		}
 	}
-	if query == nil || strings.Join(query.Sources, ",") != "ENT-IGRA,ENT-OCENA" {
-		t.Fatalf("a query that needs only properties must keep their entities: %+v", query)
+	indexes := map[string]ConceptualIndexProposal{}
+	for _, index := range model.IndexConcepts {
+		indexes[index.Targets[0]] = index
+	}
+	if indexes["ATTR-IGRA-DATUM"].Owner != "ENT-IGRA" || indexes["ATTR-OCENA-VREDNOST"].Owner != "ENT-OCENA" || len(indexes) != 2 {
+		t.Fatalf("each criterion must become an index on its attribute: %+v", model.IndexConcepts)
 	}
 	checks := map[string]ConceptualConstraintProposal{}
 	for _, constraint := range model.ConstraintConcepts {
@@ -243,14 +245,32 @@ func TestConceptualTransformKeepsQueriesNumericValuesAndLinkKeys(t *testing.T) {
 		t.Fatalf("other numeric values must become a list check, got %q", got)
 	}
 
-	atoms, functional, crud := SegmentEvidenceArtifacts(units, description, model)
-	patch, _, err := MapConceptualToLogical(model, atoms.RequirementAtoms, LogicalMappingOptions{Language: LanguageSerbianCyrillic})
+	patch, _, err := MapConceptualToLogical(model, LogicalMappingOptions{Language: LanguageSerbianCyrillic})
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifacts, err := BuildLogicalArtifacts("test", units, atoms, functional, crud, patch, []dsl.V05ReviewDecision{})
+	artifacts, err := BuildLogicalArtifacts("test", units, patch, []dsl.ReviewDecision{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	var searchIndexes []string
+	for _, index := range artifacts.Model.Indexes {
+		searchIndexes = append(searchIndexes, index.Owner+":"+strings.Join(index.Fields, ","))
+	}
+	// igra.datum leads the unique key (datum, korisnik) and needs no second index.
+	if strings.Join(searchIndexes, ";") != "ENT-OCENA:vrednost" {
+		t.Fatalf("unexpected search indexes: %v", searchIndexes)
+	}
+	if dbml := generate.DBML(&artifacts.Model); !strings.Contains(dbml, "vrednost [name: 'IDX-OCENA-VREDNOST']") {
+		t.Fatalf("DBML misses the search index:\n%s", dbml)
+	}
+	if sql := generate.PostgreSQL(&artifacts.Model); !strings.Contains(sql, "CREATE INDEX idx_ocena_vrednost ON ocena (vrednost); -- IDX-OCENA-VREDNOST") {
+		t.Fatalf("SQL misses the search index:\n%s", sql)
+	}
+	sourceFile := dsl.SourceUnitsFile{SourceUnits: units}
+	bundle := &dsl.Bundle{Document: &artifacts.Model, SourceUnits: &sourceFile, ReviewDecisions: &artifacts.ReviewDecisions}
+	if result := validate.ValidateV06Bundle(bundle); len(result.Errors) > 0 {
+		t.Fatalf("DB-DSL bundle with indexes is invalid:\n%s", strings.Join(result.Errors, "\n"))
 	}
 	var linkKey, rangeCheck bool
 	for _, constraint := range artifacts.Model.Constraints {
@@ -296,5 +316,63 @@ func TestDescriptionRefsReadLegacyText(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`{"identified_by": ["sifra", "preduzece"]}`), &thing); err != nil || len(thing.IdentifiedBy) != 2 {
 		t.Fatalf("list identified_by not read: %v %v", thing.IdentifiedBy, err)
+	}
+}
+
+func TestConceptualTransformResolvesLinksAndLifecycles(t *testing.T) {
+	units := acceptedUnits(t)
+	ev := DescriptionEvidence{Segments: []string{"SU-004"}, Mode: "direct"}
+	text := func(name string) DescriptionProperty {
+		return DescriptionProperty{Name: name, ValueType: "text", Shape: "single", Presence: "required", Origin: "entered", Evidence: ev}
+	}
+	description := ConceptualDescription{
+		Actors: []DescriptionActor{{ID: "nastavnik", Name: "Наставник", RepresentedBy: "nalog", Evidence: ev}},
+		Things: []DescriptionThing{
+			{ID: "nalog", Name: "Налог", Kind: "object", Evidence: ev, Properties: []DescriptionProperty{text("ime")}},
+			// The subject states the teacher link from its own side first, with counts
+			// that contradict the assignment record.
+			{ID: "predmet", Name: "Предмет", Kind: "object", Evidence: ev, Properties: []DescriptionProperty{text("naziv")},
+				Links:  []DescriptionLink{{To: "angazovanje", Meaning: "наставници", PerThis: "1..N", PerOther: "0..N", Evidence: ev}},
+				States: []string{"активан"}},
+			{ID: "angazovanje", Name: "Ангажовање", Kind: "record", IdentifiedBy: DescriptionRefs{"nastavnik", "predmet"}, Evidence: ev,
+				Links: []DescriptionLink{
+					{To: "nalog", Meaning: "наставник", PerThis: "1", PerOther: "0..N", Evidence: ev},
+					{To: "predmet", Meaning: "предмет", PerThis: "1", PerOther: "1..N", Evidence: ev},
+				}},
+			{ID: "stavka", Name: "Ставка", Kind: "record", Evidence: ev, Properties: []DescriptionProperty{text("opis")},
+				Links: []DescriptionLink{{To: "rad", Meaning: "обухваћени рад", PerThis: "1..N", PerOther: "0..1", Evidence: ev}}},
+			{ID: "rad", Name: "Рад", Kind: "record", Evidence: ev, Properties: []DescriptionProperty{text("opis")}},
+		},
+	}
+	model := ConceptualDescriptionToModel(description, units)
+
+	byPair := map[string]ConceptualRelationshipProposal{}
+	for _, rel := range model.Relationships {
+		byPair[rel.From+">"+rel.To] = rel
+	}
+	if _, ok := byPair["ENT-PREDMET>ENT-ANGAZOVANJE"]; ok {
+		t.Fatalf("the contradicting many-to-many statement must be dropped: %+v", model.Relationships)
+	}
+	kept := byPair["ENT-ANGAZOVANJE>ENT-PREDMET"]
+	if kept.ID != "REL-ANGAZOVANJE-PREDMET" || kept.Cardinality != "many_to_one" || kept.Required == nil || !*kept.Required {
+		t.Fatalf("the link holding the foreign key must be kept: %+v", kept)
+	}
+	keyed := false
+	for _, constraint := range model.ConstraintConcepts {
+		if constraint.ID == "CON-ID-ANGAZOVANJE" && strings.Join(sortedCopy(constraint.Targets), ",") == "REL-ANGAZOVANJE-NALOG,REL-ANGAZOVANJE-PREDMET" {
+			keyed = true
+		}
+	}
+	if !keyed {
+		t.Fatalf("the assignment identity must become a key over both links: %+v", model.ConstraintConcepts)
+	}
+	covers := byPair["ENT-STAVKA>ENT-RAD"]
+	if covers.Cardinality != "one_to_many" || covers.Required == nil || *covers.Required {
+		t.Fatalf("work recorded before any settlement item needs an optional foreign key: %+v", covers)
+	}
+	for _, lifecycle := range model.LifecycleConcepts {
+		if lifecycle.Owner == "ENT-PREDMET" {
+			t.Fatalf("a single state is not a lifecycle: %+v", lifecycle)
+		}
 	}
 }

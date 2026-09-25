@@ -56,17 +56,17 @@ func LintFile(path string) Result {
 			Message:  err.Error(),
 		}}}
 	}
-	if doc.DSL.Version == "0.5" {
-		bundle, err := dsl.LoadV05Bundle(path)
+	if doc.DSL.Version == "0.6" {
+		bundle, err := dsl.LoadV06Bundle(path)
 		if err != nil {
-			return Result{Version: "v0.5", Issues: []Issue{{
+			return Result{Version: VersionV06, Issues: []Issue{{
 				Severity: SeverityError,
-				Code:     "DBDSL_V05_LOAD",
+				Code:     "DBDSL_V06_LOAD",
 				Element:  path,
 				Message:  err.Error(),
 			}}}
 		}
-		return LintV05(bundle)
+		return LintV06(bundle)
 	}
 
 	doc, source, _, err := dsl.LoadBundle(path)

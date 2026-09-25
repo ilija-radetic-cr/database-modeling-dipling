@@ -18,7 +18,7 @@ import (
 
 type SourceUnitArtifacts struct {
 	Proposal llmpipeline.SourceUnitExtractionProposal `json:"proposal"`
-	Accepted dsl.V05SourceUnitsFile                   `json:"accepted"`
+	Accepted dsl.SourceUnitsFile                      `json:"accepted"`
 	QA       llmpipeline.SourceUnitQA                 `json:"qa"`
 }
 
@@ -90,7 +90,7 @@ func (s *Store) writeSourceUnitArtifacts(projectID string, revision int, artifac
 	return paths, nil
 }
 
-func buildAcceptedSourceUnits(project *ProjectState, proposal llmpipeline.SourceUnitExtractionProposal) dsl.V05SourceUnitsFile {
+func buildAcceptedSourceUnits(project *ProjectState, proposal llmpipeline.SourceUnitExtractionProposal) dsl.SourceUnitsFile {
 	units := make([]dsl.SourceUnit, 0, len(proposal.SourceUnits))
 	for _, unit := range proposal.SourceUnits {
 		units = append(units, dsl.SourceUnit{
@@ -107,8 +107,8 @@ func buildAcceptedSourceUnits(project *ProjectState, proposal llmpipeline.Source
 			},
 		})
 	}
-	return dsl.V05SourceUnitsFile{
-		Document: dsl.V05SourceUnitsDocument{
+	return dsl.SourceUnitsFile{
+		Document: dsl.SourceUnitsDocument{
 			ID:              project.ID + "_source_units",
 			Title:           project.Name + " source units",
 			PipelineVersion: llmpipeline.PipelineVersion,
@@ -238,7 +238,6 @@ func (s *Store) ReviewSourceUnit(projectID, sourceUnitID string, opts ReviewSour
 		current.SourceUnitsProposalPath = paths["source_units.proposed.json"]
 		current.SourceUnitsPath = paths["source_units.yaml"]
 		current.SourceUnitQAPath = paths["source_unit_qa.json"]
-		current.AnalysisReady = false
 		current.ModelGenerated = false
 		current.FinalModelAccepted = false
 		current.DBMLReady = false
@@ -344,22 +343,19 @@ func (s *Store) projectSourceUnits(projectID string) ([]SourceUnit, bool, error)
 			status = "needs_attention"
 		}
 		units = append(units, SourceUnit{
-			ID:                   source.ID,
-			Kind:                 source.Kind,
-			Section:              source.Section,
-			NormalizedText:       source.Text.Normalized,
-			Normalization:        source.Text.Normalization,
-			ExactText:            source.Text.Exact,
-			Relevance:            source.Relevance,
-			Confidence:           proposal.Confidence,
-			ReviewStatus:         status,
-			OriginSpans:          origins,
-			LinkedExamples:       []string{},
-			LinkedRequirements:   []string{},
-			OpenReviewCandidates: []string{},
-			SegmentIDs:           append([]string(nil), segmentIDs...),
-			Warnings:             append([]string(nil), proposal.Warnings...),
-			RequirementNotes:     append([]string(nil), proposal.RequirementNotes...),
+			ID:               source.ID,
+			Kind:             source.Kind,
+			Section:          source.Section,
+			NormalizedText:   source.Text.Normalized,
+			Normalization:    source.Text.Normalization,
+			ExactText:        source.Text.Exact,
+			Relevance:        source.Relevance,
+			Confidence:       proposal.Confidence,
+			ReviewStatus:     status,
+			OriginSpans:      origins,
+			SegmentIDs:       append([]string(nil), segmentIDs...),
+			Warnings:         append([]string(nil), proposal.Warnings...),
+			RequirementNotes: append([]string(nil), proposal.RequirementNotes...),
 		})
 	}
 	return units, true, nil

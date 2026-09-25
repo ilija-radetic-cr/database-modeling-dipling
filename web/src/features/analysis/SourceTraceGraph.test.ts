@@ -42,9 +42,6 @@ function unit(id: string, segmentIDs: string[]): SourceUnit {
     confidence: "high",
     review_status: "reviewed",
     origin_spans: [],
-    linked_examples: [],
-    linked_requirements: [],
-    open_review_candidates: [],
 	segment_ids: segmentIDs,
   };
 }

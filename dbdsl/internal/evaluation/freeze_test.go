@@ -13,7 +13,7 @@ import (
 
 func TestCheckFreezePackage(t *testing.T) {
 	manifestPath, taskPath := writeFreezeFixture(t)
-	result, err := CheckFreezePackage(manifestPath)
+	result, err := CheckFreezePackageWithStage(manifestPath, FreezeStagePreparation)
 	if err != nil {
 		t.Fatalf("CheckFreezePackage failed: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestCheckFreezePackage(t *testing.T) {
 	if err := os.WriteFile(taskPath, []byte("tampered\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CheckFreezePackage(manifestPath); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
+	if _, err := CheckFreezePackageWithStage(manifestPath, FreezeStagePreparation); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
 		t.Fatalf("expected hash mismatch, got %v", err)
 	}
 }

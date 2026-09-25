@@ -34,11 +34,8 @@ type Report struct {
 	Relationship          Metric              `json:"relationship"`
 	Attribute             Metric              `json:"attribute"`
 	Constraint            Metric              `json:"constraint"`
-	RequirementAtom       Metric              `json:"requirement_atom"`
 	SourceTraceCoverage   float64             `json:"source_trace_coverage"`
-	AtomTraceCoverage     float64             `json:"atom_trace_coverage"`
 	UnsupportedElements   int                 `json:"unsupported_elements"`
-	UnresolvedReviewCount int                 `json:"unresolved_review_count"`
 	ValidationSuccess     bool                `json:"validation_success"`
 	LintErrors            int                 `json:"lint_errors"`
 	LintWarnings          int                 `json:"lint_warnings"`
@@ -48,11 +45,11 @@ type Report struct {
 }
 
 func Compare(referencePath, candidatePath string) (Report, error) {
-	reference, err := dsl.LoadV05Bundle(referencePath)
+	reference, err := dsl.LoadV06Bundle(referencePath)
 	if err != nil {
 		return Report{}, fmt.Errorf("load reference bundle: %w", err)
 	}
-	candidate, err := dsl.LoadV05Bundle(candidatePath)
+	candidate, err := dsl.LoadV06Bundle(candidatePath)
 	if err != nil {
 		return Report{}, fmt.Errorf("load candidate bundle: %w", err)
 	}
@@ -62,19 +59,14 @@ func Compare(referencePath, candidatePath string) (Report, error) {
 		Version: 1, GeneratedAt: time.Now(), ReferenceModel: referencePath, CandidateModel: candidatePath,
 		Entity: compareSets(refSets.entities, candidateSets.entities), Relationship: compareSets(refSets.relationships, candidateSets.relationships),
 		Attribute: compareSets(refSets.attributes, candidateSets.attributes), Constraint: compareSets(refSets.constraints, candidateSets.constraints),
-		RequirementAtom: compareSets(refSets.atoms, candidateSets.atoms), Missed: map[string][]string{}, Unsupported: map[string][]string{},
+		Missed: map[string][]string{}, Unsupported: map[string][]string{},
 	}
 	report.Missed["entities"], report.Unsupported["entities"] = difference(refSets.entities, candidateSets.entities), difference(candidateSets.entities, refSets.entities)
 	report.Missed["relationships"], report.Unsupported["relationships"] = difference(refSets.relationships, candidateSets.relationships), difference(candidateSets.relationships, refSets.relationships)
 	report.Missed["attributes"], report.Unsupported["attributes"] = difference(refSets.attributes, candidateSets.attributes), difference(candidateSets.attributes, refSets.attributes)
 	report.Missed["constraints"], report.Unsupported["constraints"] = difference(refSets.constraints, candidateSets.constraints), difference(candidateSets.constraints, refSets.constraints)
 	report.UnsupportedElements = len(report.Unsupported["entities"]) + len(report.Unsupported["relationships"]) + len(report.Unsupported["attributes"]) + len(report.Unsupported["constraints"])
-	report.SourceTraceCoverage, report.AtomTraceCoverage = traceCoverage(candidate.Document)
-	for _, atom := range candidate.RequirementAtoms.RequirementAtoms {
-		if atom.RequiresReview && len(atom.ReviewDecisions) == 0 {
-			report.UnresolvedReviewCount++
-		}
-	}
+	report.SourceTraceCoverage = traceCoverage(candidate.Document)
 	validation := validate.ValidateFile(candidatePath)
 	report.ValidationSuccess = validation.OK()
 	lintResult := lint.LintFile(candidatePath)
@@ -105,10 +97,10 @@ func Write(report Report, outDir string) error {
 	return atomicWrite(filepath.Join(outDir, "evaluation_report.md"), []byte(markdown(report)))
 }
 
-type sets struct{ entities, relationships, attributes, constraints, atoms map[string]bool }
+type sets struct{ entities, relationships, attributes, constraints map[string]bool }
 
-func bundleSets(bundle *dsl.V05Bundle) sets {
-	out := sets{map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}}
+func bundleSets(bundle *dsl.Bundle) sets {
+	out := sets{map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}}
 	entityNames := map[string]string{}
 	for _, entity := range bundle.Document.Entities {
 		name := normalize(nonEmpty(entity.TableName, entity.ID))
@@ -134,9 +126,6 @@ func bundleSets(bundle *dsl.V05Bundle) sets {
 		sort.Strings(fields)
 		out.constraints[owner+"|"+normalize(constraint.Type)+"|"+normalize(strings.Join(fields, ","))] = true
 	}
-	for _, atom := range bundle.RequirementAtoms.RequirementAtoms {
-		out.atoms[normalize(atom.Statement)] = true
-	}
 	return out
 }
 
@@ -156,15 +145,12 @@ func compareSets(reference, candidate map[string]bool) Metric {
 	return metric
 }
 
-func traceCoverage(document *dsl.Document) (float64, float64) {
-	total, sourceBacked, atomBacked := 0, 0, 0
+func traceCoverage(document *dsl.Document) float64 {
+	total, sourceBacked := 0, 0
 	record := func(evidence dsl.Evidence) {
 		total++
 		if len(evidence.SourceUnits) > 0 {
 			sourceBacked++
-		}
-		if len(evidence.RequirementAtoms) > 0 {
-			atomBacked++
 		}
 	}
 	for _, entity := range document.Entities {
@@ -191,7 +177,7 @@ func traceCoverage(document *dsl.Document) (float64, float64) {
 	for _, item := range document.FileSpecs {
 		record(item.Evidence)
 	}
-	return ratio(sourceBacked, total), ratio(atomBacked, total)
+	return ratio(sourceBacked, total)
 }
 
 func difference(left, right map[string]bool) []string {
@@ -234,5 +220,5 @@ func atomicWrite(path string, data []byte) error {
 }
 
 func markdown(report Report) string {
-	return fmt.Sprintf("# Evaluation report\n\nGenerated: %s\n\n| Metric | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: |\n| Entities | %.4f | %.4f | %.4f |\n| Relationships | %.4f | %.4f | %.4f |\n| Attributes | %.4f | %.4f | %.4f |\n| Constraints | %.4f | %.4f | %.4f |\n| Requirement atoms | %.4f | %.4f | %.4f |\n\n- Source trace coverage: %.4f\n- Requirement-atom trace coverage: %.4f\n- Unsupported elements: %d\n- Unresolved reviews: %d\n- Validation success: %t\n- Lint errors: %d\n- Lint warnings: %d\n- DBML generation success: %t\n", report.GeneratedAt.Format(time.RFC3339), report.Entity.Precision, report.Entity.Recall, report.Entity.F1, report.Relationship.Precision, report.Relationship.Recall, report.Relationship.F1, report.Attribute.Precision, report.Attribute.Recall, report.Attribute.F1, report.Constraint.Precision, report.Constraint.Recall, report.Constraint.F1, report.RequirementAtom.Precision, report.RequirementAtom.Recall, report.RequirementAtom.F1, report.SourceTraceCoverage, report.AtomTraceCoverage, report.UnsupportedElements, report.UnresolvedReviewCount, report.ValidationSuccess, report.LintErrors, report.LintWarnings, report.DBMLGenerationSuccess)
+	return fmt.Sprintf("# Evaluation report\n\nGenerated: %s\n\n| Metric | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: |\n| Entities | %.4f | %.4f | %.4f |\n| Relationships | %.4f | %.4f | %.4f |\n| Attributes | %.4f | %.4f | %.4f |\n| Constraints | %.4f | %.4f | %.4f |\n\n- Source trace coverage: %.4f\n- Unsupported elements: %d\n- Validation success: %t\n- Lint errors: %d\n- Lint warnings: %d\n- DBML generation success: %t\n", report.GeneratedAt.Format(time.RFC3339), report.Entity.Precision, report.Entity.Recall, report.Entity.F1, report.Relationship.Precision, report.Relationship.Recall, report.Relationship.F1, report.Attribute.Precision, report.Attribute.Recall, report.Attribute.F1, report.Constraint.Precision, report.Constraint.Recall, report.Constraint.F1, report.SourceTraceCoverage, report.UnsupportedElements, report.ValidationSuccess, report.LintErrors, report.LintWarnings, report.DBMLGenerationSuccess)
 }

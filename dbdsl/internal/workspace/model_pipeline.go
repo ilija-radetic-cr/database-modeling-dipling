@@ -38,26 +38,6 @@ type ConceptualModelArtifacts struct {
 	Description *llmpipeline.ConceptualDescription `json:"description,omitempty"`
 }
 
-func (s *Store) ConceptualOptimizationPreview(projectID string) (map[string]int, error) {
-	project, units, atoms, functional, crud, decisions, err := s.modelStageInputs(projectID, 0)
-	if err != nil {
-		return nil, err
-	}
-	obligations, err := s.DesignObligations(project.ID)
-	if err != nil {
-		return nil, err
-	}
-	refreshed, qa := llmpipeline.ReclassifyDesignObligations(obligations.Accepted, atoms.RequirementAtoms)
-	if !qa.OK {
-		return nil, fmt.Errorf("design-obligation preview failed: %s", strings.Join(qa.Errors, "; "))
-	}
-	return llmpipeline.ConceptualInputMetrics(llmpipeline.ConceptualModelOptions{
-		SourceUnits: units, RequirementAtoms: atoms.RequirementAtoms, FunctionalAreas: functional.FunctionalAreas,
-		Actors: functional.Actors, Operations: crud.Operations, ReviewDecisions: reviewDecisionIDs(decisions),
-		ReviewDecisionContext: conceptualReviewDecisionInputs(decisions), DesignObligations: refreshed.DesignObligations,
-	}), nil
-}
-
 // GenerateConceptualModel is the second LLM interaction of the segment-based
 // flow: the numbered source units go to the conceptual prompt, and the returned
 // description is transformed deterministically into the conceptual model.
@@ -100,9 +80,9 @@ func (s *Store) GenerateConceptualModel(ctx context.Context, client llm.Client, 
 	}
 	emit("validate_conceptual_model", "Transforming the description into the conceptual model and validating it.", 72, coverageMetadata(descriptionQA.Coverage))
 	proposal := llmpipeline.ConceptualDescriptionToModel(description, units)
-	atoms, _, _ := llmpipeline.SegmentEvidenceArtifacts(units, description, proposal)
-	qa := llmpipeline.ValidateConceptualModelWithObligations(proposal, units, atoms.RequirementAtoms, nil, nil)
-	qa.Warnings = append(append(append([]string{}, descriptionQA.Warnings...), proposal.Warnings...), qa.Warnings...)
+	qa := llmpipeline.ValidateConceptualModel(proposal, units, nil)
+	// The conceptual validator repeats the proposal's own warnings; each is shown once.
+	qa.Warnings = distinctStrings(descriptionQA.Warnings, proposal.Warnings, qa.Warnings)
 	for key, value := range descriptionQA.Coverage {
 		qa.Coverage["description_"+key] = value
 	}
@@ -126,11 +106,6 @@ func (s *Store) GenerateConceptualModel(ctx context.Context, client llm.Client, 
 		current.ConceptualModelAcceptedPath = ""
 		current.ConceptualModelQAPath = paths["conceptual_model_qa.json"]
 		current.ConceptualModelDiffPath = paths["conceptual_model_diff.json"]
-		// Design obligations came from requirement atoms; the segment-based flow
-		// has none, so semantic verification does not apply.
-		current.DesignObligationsProposalPath = ""
-		current.DesignObligationsPath = ""
-		current.DesignObligationQAPath = ""
 		if current.LLMExecutionProfile == nil {
 			profile := resolvedProfile
 			current.LLMExecutionProfile = &profile
@@ -147,254 +122,6 @@ func (s *Store) GenerateConceptualModel(ctx context.Context, client llm.Client, 
 	}
 	current, _ := s.Project(projectID)
 	return current.CurrentRevision, []string{"conceptual_model"}, nil
-}
-
-// generateConceptualModelFromAnalysis is the former conceptual stage built on
-// requirement atoms, design obligations, functional analysis, CRUD mapping and
-// review decisions. It is kept for reference but no longer called.
-func (s *Store) generateConceptualModelFromAnalysis(ctx context.Context, client llm.Client, projectID string, opts ModelStageOptions) (int, []string, error) {
-	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "conceptual_model", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
-	project, units, atoms, functional, crud, decisions, err := s.modelStageInputs(projectID, opts.BaseRevision)
-	if err != nil {
-		return 0, nil, err
-	}
-	resolvedProfile := defaultLLMExecutionProfile(opts.Model)
-	if project.LLMExecutionProfile != nil {
-		resolvedProfile = *project.LLMExecutionProfile
-	}
-	if client == nil {
-		return 0, nil, errors.New("LLM client is required for conceptual modeling")
-	}
-	obligationArtifacts, err := s.DesignObligations(projectID)
-	if err != nil {
-		return 0, nil, errors.New("design obligations are not ready; rerun the v0.7 requirement stage")
-	}
-	previousObligations := obligationArtifacts.Accepted
-	refreshedObligations, refreshedObligationQA := llmpipeline.ReclassifyDesignObligations(previousObligations, atoms.RequirementAtoms)
-	if !refreshedObligationQA.OK {
-		return 0, nil, fmt.Errorf("design-obligation compatibility migration failed: %s", strings.Join(refreshedObligationQA.Errors, "; "))
-	}
-	readiness := llmpipeline.EvaluateRequirementReadiness(atoms.RequirementAtoms, refreshedObligations.DesignObligations)
-	if !readiness.OK {
-		return 0, nil, fmt.Errorf("%w: %s", ErrRequirementDecisionsNeeded, strings.Join(readiness.Errors(), "; "))
-	}
-	requiredObligations := 0
-	for _, obligation := range refreshedObligations.DesignObligations {
-		if obligation.Status != "not_required" && obligation.Persistence != "not_required" {
-			requiredObligations++
-		}
-	}
-	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "conceptual_model", opts.MaxOutputTokens, stageBudgetInput{RequiredObligations: requiredObligations})
-	emit := stageEmitter(opts.OnProgress)
-	migrationReport := designObligationMigrationReport(previousObligations, refreshedObligations)
-	emit("propose_conceptual_model", "Proposing a source-backed conceptual model from v0.7.1 obligations.", 22, map[string]any{"required_obligations": migrationReport["required_after"], "not_required_obligations": migrationReport["not_required_after"]})
-	decisionIDs := reviewDecisionIDs(decisions)
-	controls := s.resolveLLMExecutionControls(projectID)
-	proposal, qa, err := llmpipeline.RunConceptualModel(ctx, client, llmpipeline.ConceptualModelOptions{
-		OutDir: s.projectWorkspaceDir(projectID), SourceUnits: units, RequirementAtoms: atoms.RequirementAtoms,
-		FunctionalAreas: functional.FunctionalAreas, Actors: functional.Actors, Operations: crud.Operations,
-		ReviewDecisions: decisionIDs, ReviewDecisionContext: conceptualReviewDecisionInputs(decisions),
-		DesignObligations: refreshedObligations.DesignObligations,
-		Model:             opts.Model, ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens,
-		MaxParallelism: controls.MaxParallelism, MaxRepairAttempts: controls.MaxRepairAttempts,
-		PromptVersion: controls.PromptVersion,
-		OnChunkProgress: func(phase string, completed, total int) {
-			if total <= 0 {
-				return
-			}
-			progress := 22 + completed*42/total
-			message := fmt.Sprintf("Generated conceptual-model chunk %d/%d.", completed, total)
-			if phase == "repair" {
-				progress = 64 + completed*6/total
-				message = fmt.Sprintf("Applied conceptual delta-repair chunk %d/%d.", completed, total)
-			}
-			emit("propose_conceptual_model", message, progress, map[string]any{"phase": phase, "completed_chunks": completed, "total_chunks": total})
-		},
-	})
-	if err != nil {
-		return 0, nil, err
-	}
-	emit("validate_conceptual_model", "Validating conceptual evidence and cardinalities.", 72, coverageMetadata(qa.Coverage))
-	paths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
-		"conceptual_model.proposed.json":          {Value: proposal, JSON: true},
-		"conceptual_model_qa.json":                {Value: qa, JSON: true},
-		"conceptual_model_diff.json":              {Value: conceptualModelDiff(s, project, proposal), JSON: true},
-		"design_obligations.proposed.json":        {Value: refreshedObligations, JSON: true},
-		"design_obligations.yaml":                 {Value: refreshedObligations},
-		"design_obligation_qa.json":               {Value: refreshedObligationQA, JSON: true},
-		"design_obligation_migration_report.json": {Value: migrationReport, JSON: true},
-		"llm_execution_profile.json":              {Value: map[string]any{"profile": resolvedProfile, "resolved_stage": map[string]any{"stage": "conceptual_model", "model": opts.Model, "reasoning_effort": opts.ReasoningEffort, "max_output_tokens": opts.MaxOutputTokens}}, JSON: true},
-	})
-	if err != nil {
-		return 0, nil, err
-	}
-	err = s.withProject(projectID, project.CurrentRevision, func(current *ProjectState) error {
-		invalidateLogicalArtifacts(current)
-		current.ConceptualModelProposalPath = paths["conceptual_model.proposed.json"]
-		current.ConceptualModelAcceptedPath = ""
-		current.ConceptualModelQAPath = paths["conceptual_model_qa.json"]
-		current.ConceptualModelDiffPath = paths["conceptual_model_diff.json"]
-		current.DesignObligationsProposalPath = paths["design_obligations.proposed.json"]
-		current.DesignObligationsPath = paths["design_obligations.yaml"]
-		current.DesignObligationQAPath = paths["design_obligation_qa.json"]
-		if current.LLMExecutionProfile == nil {
-			profile := resolvedProfile
-			current.LLMExecutionProfile = &profile
-		}
-		current.LifecycleStatus = "conceptual_review"
-		current.LastActivity = "Conceptual proposal passed deterministic checks and awaits explicit acceptance."
-		return nil
-	})
-	if err != nil {
-		return 0, nil, err
-	}
-	current, _ := s.Project(projectID)
-	return current.CurrentRevision, []string{"conceptual_model"}, nil
-}
-
-func designObligationMigrationReport(before, after llmpipeline.DesignObligationsFile) map[string]any {
-	count := func(file llmpipeline.DesignObligationsFile, persistence string) int {
-		total := 0
-		for _, item := range file.DesignObligations {
-			if item.Persistence == persistence {
-				total++
-			}
-		}
-		return total
-	}
-	changed := []map[string]string{}
-	byID := map[string]llmpipeline.DesignObligation{}
-	for _, item := range before.DesignObligations {
-		byID[item.ID] = item
-	}
-	for _, item := range after.DesignObligations {
-		old := byID[item.ID]
-		if old.Persistence != item.Persistence || old.Status != item.Status {
-			changed = append(changed, map[string]string{"id": item.ID, "from_persistence": old.Persistence, "to_persistence": item.Persistence, "from_status": old.Status, "to_status": item.Status, "rationale": item.Rationale})
-		}
-	}
-	return map[string]any{
-		"policy_version": "design_obligations/v0.7.1", "total": len(after.DesignObligations),
-		"required_before": count(before, "required"), "required_after": count(after, "required"),
-		"not_required_before": count(before, "not_required"), "not_required_after": count(after, "not_required"),
-		"changed": changed,
-	}
-}
-
-// PromoteStagedLogicalDraft reuses a complete logical bundle left behind by a
-// failed deterministic validation gate. It never calls an LLM and commits the
-// candidate only after fresh validation, lint and quality checks pass against
-// the current code and the project's unchanged base revision.
-func (s *Store) PromoteStagedLogicalDraft(projectID string, baseRevision int, emit jobs.StepEmitter) (int, []string, error) {
-	project, ok := s.Project(projectID)
-	if !ok {
-		return 0, nil, ErrNotFound
-	}
-	if baseRevision > 0 && baseRevision != project.CurrentRevision {
-		return 0, nil, ErrRevisionConflict
-	}
-	if project.ModelGenerated {
-		return 0, nil, errors.New("logical model is already generated")
-	}
-	if !project.AnalysisReady || len(project.OpenReviewIDs) > 0 || project.ConceptualModelAcceptedPath == "" {
-		return 0, nil, errors.New("accepted conceptual model and resolved analysis are required for logical-draft recovery")
-	}
-
-	revisionRel := s.projectRevisionRel(project.ID, project.CurrentRevision+1)
-	revisionDir := s.absoluteWorkspacePath(revisionRel)
-	required := []string{
-		"TASK.md",
-		"source_units.yaml",
-		"requirement_atoms.yaml",
-		"functional_decomposition.yaml",
-		"crud_matrix.yaml",
-		"review_decisions.yaml",
-		"dbdsl_patch.proposed.json",
-		"db_model.dsl.yaml",
-		"validation_report.json",
-	}
-	for _, name := range required {
-		path := filepath.Join(revisionDir, name)
-		info, err := os.Stat(path)
-		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
-			return 0, nil, fmt.Errorf("staged logical draft is incomplete: %s is missing or empty", name)
-		}
-	}
-
-	var previousValidation struct {
-		OK     bool     `json:"ok"`
-		Errors []string `json:"errors"`
-	}
-	if err := readJSON(filepath.Join(revisionDir, "validation_report.json"), &previousValidation); err != nil {
-		return 0, nil, fmt.Errorf("read staged validation report: %w", err)
-	}
-	if previousValidation.OK || len(previousValidation.Errors) == 0 {
-		return 0, nil, errors.New("staged logical draft is not a recorded failed-validation candidate")
-	}
-	var patch llmpipeline.PatchProposal
-	if err := readJSON(filepath.Join(revisionDir, "dbdsl_patch.proposed.json"), &patch); err != nil {
-		return 0, nil, fmt.Errorf("read staged logical patch: %w", err)
-	}
-	if len(patch.Operations) == 0 {
-		return 0, nil, errors.New("staged logical patch has no operations")
-	}
-
-	emit = stageEmitter(emit)
-	modelPath := filepath.Join(revisionDir, "db_model.dsl.yaml")
-	emit("validate", "Revalidating the staged logical bundle without an LLM call.", 30, map[string]any{"revision": project.CurrentRevision + 1})
-	validation := validate.ValidateFile(modelPath)
-	if !validation.OK() {
-		return 0, nil, fmt.Errorf("staged logical DB-DSL validation failed: %s", strings.Join(validation.Errors, "; "))
-	}
-	emit("lint", "Running semantic lint checks on the staged logical bundle.", 58, nil)
-	lintResult := lint.LintFile(modelPath)
-	if lintResult.HasErrors() {
-		return 0, nil, errors.New("staged logical DB-DSL has blocking lint errors")
-	}
-	emit("quality", "Building a fresh deterministic quality report.", 76, nil)
-	qualityReport := quality.BuildReport(modelPath, false)
-	reportPaths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
-		"validation_report.json": {Value: map[string]any{"ok": true, "errors": []string{}}, JSON: true},
-		"lint_report.json":       {Value: lintResult, JSON: true},
-		"quality_report.json":    {Value: qualityReport, JSON: true},
-	})
-	if err != nil {
-		return 0, nil, err
-	}
-
-	stagedPath := func(name string) string { return filepath.ToSlash(filepath.Join(revisionRel, name)) }
-	err = s.withProject(projectID, project.CurrentRevision, func(current *ProjectState) error {
-		invalidateLogicalArtifacts(current)
-		current.LogicalPatchProposalPath = stagedPath("dbdsl_patch.proposed.json")
-		current.ModelPath = modelPath
-		current.BundlePath = revisionDir
-		current.TaskPath = filepath.Join(revisionDir, "TASK.md")
-		current.ValidationReportPath = reportPaths["validation_report.json"]
-		current.LintReportPath = reportPaths["lint_report.json"]
-		current.QualityReportPath = reportPaths["quality_report.json"]
-		current.ModelGenerated = true
-		current.DBMLReady = false
-		current.FinalModelAccepted = false
-		current.LifecycleStatus = "model_generated"
-		current.LastActivity = "Staged logical DB-DSL draft was revalidated and safely promoted without an LLM call."
-		return nil
-	})
-	if err != nil {
-		return 0, nil, err
-	}
-	emit("promote_logical_draft", "Promoted the validated staged logical bundle.", 100, map[string]any{"revision": project.CurrentRevision + 1})
-	current, _ := s.Project(projectID)
-	return current.CurrentRevision, []string{"logical_model", "validation", "lint", "quality"}, nil
-}
-
-// LogicalProjectionMode selects how the accepted conceptual model becomes
-// DB-DSL: "deterministic" rules (default) or the legacy "llm" projection kept
-// for ablation experiments.
-func LogicalProjectionMode() string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("DBDSL_LOGICAL_PROJECTION")), "llm") {
-		return "llm"
-	}
-	return "deterministic"
 }
 
 // LogicalMappingReport returns the audit trail written next to the current
@@ -418,19 +145,6 @@ func (s *Store) LogicalMappingReport(projectID string) (map[string]any, error) {
 	return report, nil
 }
 
-// conceptualLabelLanguage reads the language of the accepted labels themselves:
-// projects modeled before localized output have English labels over Serbian sources.
-func conceptualLabelLanguage(model llmpipeline.ConceptualModelProposal) string {
-	labels := make([]string, 0, len(model.EntityConcepts))
-	for _, entity := range model.EntityConcepts {
-		labels = append(labels, entity.Label)
-		for _, attribute := range entity.Attributes {
-			labels = append(labels, attribute.Label)
-		}
-	}
-	return llmpipeline.DetectSourceLanguage(strings.Join(labels, " "))
-}
-
 func mappingReportValue(report *llmpipeline.LogicalMappingReport) any {
 	if report == nil {
 		return map[string]any{"strategy": "llm"}
@@ -439,174 +153,51 @@ func mappingReportValue(report *llmpipeline.LogicalMappingReport) any {
 }
 
 func (s *Store) GenerateLogicalModel(ctx context.Context, client llm.Client, projectID string, opts ModelStageOptions) (int, []string, error) {
-	opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens = s.resolveLLMOptions(projectID, "logical_model", opts.Model, opts.ReasoningEffort, opts.MaxOutputTokens)
-	segmentFlow := false
-	if current, ok := s.Project(projectID); ok {
-		segmentFlow = current.ConceptualDescriptionPath != ""
-	}
-	var (
-		project             *ProjectState
-		units               []dsl.SourceUnit
-		atoms               llmpipeline.RequirementAtomExtractionProposal
-		functional          llmpipeline.FunctionalAnalysisProposal
-		crud                llmpipeline.CRUDMappingProposal
-		decisions           ReviewDecisionsArtifact
-		obligationArtifacts DesignObligationArtifacts
-		conceptual          llmpipeline.ConceptualModelProposal
-		err                 error
-	)
-	deterministic := LogicalProjectionMode() == "deterministic"
-	if segmentFlow {
-		// The segment-based flow has no requirement, functional or CRUD stages:
-		// the bundle's evidence files are derived from the segments, and the
-		// projection is always the deterministic mapper.
-		deterministic = true
-		project, units, atoms, functional, crud, conceptual, err = s.segmentFlowLogicalInputs(projectID, opts.BaseRevision)
-		if err != nil {
-			return 0, nil, err
-		}
-	} else {
-		project, units, atoms, functional, crud, decisions, err = s.modelStageInputs(projectID, opts.BaseRevision)
-		if err != nil {
-			return 0, nil, err
-		}
-		if client == nil && !deterministic {
-			return 0, nil, errors.New("LLM client is required for logical projection")
-		}
-		if project.ConceptualModelAcceptedPath == "" {
-			return 0, nil, errors.New("accepted conceptual model is not ready")
-		}
-		obligationArtifacts, err = s.DesignObligations(projectID)
-		if err != nil {
-			return 0, nil, errors.New("design obligations are not ready; rerun the v0.7 requirement stage")
-		}
-		if err := readJSON(s.absoluteWorkspacePath(project.ConceptualModelAcceptedPath), &conceptual); err != nil {
-			return 0, nil, err
-		}
-		refreshedObligations, obligationQA := llmpipeline.ReclassifyDesignObligations(obligationArtifacts.Accepted, atoms.RequirementAtoms)
-		if !obligationQA.OK {
-			return 0, nil, fmt.Errorf("design-obligation readiness failed: %s", strings.Join(obligationQA.Errors, "; "))
-		}
-		readiness := llmpipeline.EvaluateRequirementReadiness(atoms.RequirementAtoms, refreshedObligations.DesignObligations)
-		if !readiness.OK {
-			return 0, nil, fmt.Errorf("logical-model readiness failed: %s", strings.Join(readiness.Errors(), "; "))
-		}
-		conceptualQA := llmpipeline.ValidateConceptualModelWithObligations(conceptual, units, atoms.RequirementAtoms, reviewDecisionIDs(decisions), refreshedObligations.DesignObligations)
-		if !conceptualQA.OK {
-			return 0, nil, fmt.Errorf("accepted conceptual model is not ready for logical mapping: %s", strings.Join(conceptualQA.Errors, "; "))
-		}
-	}
-	decisionIDs := reviewDecisionIDs(decisions)
-	opts.MaxOutputTokens = s.resolveStageBudget(projectID, "logical_model", opts.MaxOutputTokens, stageBudgetInput{
-		Entities: len(conceptual.EntityConcepts), Relationships: len(conceptual.Relationships), Constraints: len(conceptual.ConstraintConcepts),
-	})
-	emit := stageEmitter(opts.OnProgress)
-	previousProposal, validationErrors := s.failedLogicalRepairContext(project)
-	message := "Projecting the conceptual model into DB-DSL."
-	if len(validationErrors) > 0 {
-		message = fmt.Sprintf("Repairing the previous logical projection against %d validation errors.", len(validationErrors))
-	}
-	emit("project_logical_model", message, 18, map[string]any{"repair_mode": len(validationErrors) > 0, "validation_errors": len(validationErrors)})
-	controls := s.resolveLLMExecutionControls(projectID)
-	dslDecisions := make([]dsl.V05ReviewDecision, 0, len(decisions.ReviewDecisions))
-	for _, decision := range decisions.ReviewDecisions {
-		dslDecisions = append(dslDecisions, dsl.V05ReviewDecision{ID: decision.ID, Question: decision.QuestionSnapshot, AffectedAtoms: decision.AffectedAtoms,
-			Decision: map[string]any{"status": "accepted", "selected_option": decision.SelectedOption, "rationale": decision.RationaleSnapshot, "reviewed_by": decision.ReviewedBy, "reviewed_at": decision.ReviewedAt}})
-	}
-	sourceUnitFile := mustSourceUnitFile(s, projectID)
-	validateCandidate := func(candidate llmpipeline.PatchProposal) []string {
-		artifacts, buildErr := llmpipeline.BuildLogicalArtifacts(project.Name, units, atoms, functional, crud, candidate, dslDecisions)
-		if buildErr != nil {
-			return []string{"build logical artifacts: " + buildErr.Error()}
-		}
-		if segmentFlow {
-			llmpipeline.ReconcileSegmentAtomOutcomes(&artifacts)
-		}
-		bundle := &dsl.V05Bundle{
-			Document: &artifacts.Model, SourceUnits: &sourceUnitFile, RequirementAtoms: &artifacts.RequirementAtoms,
-			FunctionalDecomposition: &artifacts.FunctionalDecomposition, CRUDMatrix: &artifacts.CRUDMatrix,
-			ReviewDecisions: &artifacts.ReviewDecisions,
-		}
-		return validate.ValidateV05Bundle(bundle).Errors
-	}
-	var patch llmpipeline.PatchProposal
-	var patchQA llmpipeline.StageQA
-	var mappingReport *llmpipeline.LogicalMappingReport
-	if deterministic {
-		emit("project_logical_model", "Mapping the accepted conceptual model into DB-DSL with deterministic rules (no LLM).", 18, map[string]any{"strategy": "deterministic", "rule_version": llmpipeline.LogicalMappingRuleVersion})
-		language := conceptualLabelLanguage(conceptual)
-		if segmentFlow {
-			// Labels of the segment flow are written in the document's language,
-			// but attribute names are ASCII and would read as English.
-			language = s.detectSourceLanguage(projectID)
-		}
-		mapped, report, mapErr := llmpipeline.MapConceptualToLogical(conceptual, atoms.RequirementAtoms, llmpipeline.LogicalMappingOptions{
-			Language: language,
-		})
-		if mapErr != nil {
-			return 0, nil, mapErr
-		}
-		if validationErrors := validateCandidate(mapped); len(validationErrors) > 0 {
-			return 0, nil, fmt.Errorf("deterministic logical mapping failed DB-DSL validation: %s", strings.Join(validationErrors, "; "))
-		}
-		patch, mappingReport = mapped, &report
-		patchQA = llmpipeline.StageQA{OK: true, Errors: []string{}, Warnings: report.Warnings, Coverage: map[string]int{
-			"patch_operations": len(mapped.Operations), "entities": report.Entities, "relationships": report.Relationships,
-			"constraints": report.Constraints, "state_machines": report.StateMachines, "derived_views": report.DerivedViews,
-		}}
-	} else {
-		repairBudget := s.resolveStageBudget(projectID, "repair", 0, stageBudgetInput{Issues: len(validationErrors), AffectedElements: len(validationErrors)})
-		var err error
-		patch, patchQA, err = llmpipeline.RunLogicalProjection(ctx, client, llmpipeline.LogicalProjectionOptions{
-			OutDir: s.projectWorkspaceDir(projectID), ConceptualModel: conceptual, SourceUnits: units,
-			RequirementAtoms: atoms.RequirementAtoms, ReviewDecisions: decisionIDs,
-			ReviewDecisionContext: conceptualReviewDecisionInputs(decisions), Model: opts.Model,
-			DesignObligations: obligationArtifacts.Accepted.DesignObligations,
-			PreviousProposal:  previousProposal, ValidationErrors: validationErrors,
-			ReasoningEffort: opts.ReasoningEffort, MaxOutputTokens: opts.MaxOutputTokens, RepairMaxOutputTokens: repairBudget,
-			MaxParallelism: controls.MaxParallelism, MaxRepairAttempts: controls.MaxRepairAttempts, PromptVersion: controls.PromptVersion,
-			ValidateProposal: validateCandidate,
-			OnChunkProgress: func(completed, total int) {
-				if total > 1 {
-					emit("project_logical_model", fmt.Sprintf("Generated logical-projection chunk %d/%d.", completed, total), 18+completed*24/total, map[string]any{"completed_chunks": completed, "total_chunks": total})
-				}
-			},
-			OnRepairProgress: func(round, maximum int, errors []string, stalled bool) {
-				message := fmt.Sprintf("Repairing full DB-DSL validation errors (round %d/%d).", round, maximum)
-				if stalled {
-					message = fmt.Sprintf("Logical repair stalled in round %d/%d.", round, maximum)
-				}
-				emit("repair_logical_model", message, 42+round*4, map[string]any{
-					"repair_round": round, "max_repair_attempts": maximum, "validation_errors": len(errors), "stalled": stalled,
-				})
-			},
-		})
-		if err != nil {
-			return 0, nil, err
-		}
-	}
-	artifacts, err := llmpipeline.BuildLogicalArtifacts(project.Name, units, atoms, functional, crud, patch, dslDecisions)
+	_, _ = ctx, client // The logical projection is deterministic; no LLM call is made.
+	project, units, conceptual, err := s.segmentFlowLogicalInputs(projectID, opts.BaseRevision)
 	if err != nil {
 		return 0, nil, err
 	}
-	if deterministic {
-		artifacts.Model.Source.DerivationStrategy = llmpipeline.LogicalMappingRuleVersion
+	emit := stageEmitter(opts.OnProgress)
+	emit("project_logical_model", "Mapping the accepted conceptual model into DB-DSL with deterministic rules (no LLM).", 18, map[string]any{"strategy": "deterministic", "rule_version": llmpipeline.LogicalMappingRuleVersion})
+	dslDecisions := []dsl.ReviewDecision{}
+	sourceUnitFile := mustSourceUnitFile(s, projectID)
+	validateCandidate := func(candidate llmpipeline.PatchProposal) []string {
+		artifacts, buildErr := llmpipeline.BuildLogicalArtifacts(project.Name, units, candidate, dslDecisions)
+		if buildErr != nil {
+			return []string{"build logical artifacts: " + buildErr.Error()}
+		}
+		bundle := &dsl.Bundle{Document: &artifacts.Model, SourceUnits: &sourceUnitFile, ReviewDecisions: &artifacts.ReviewDecisions}
+		return validate.ValidateV06Bundle(bundle).Errors
 	}
-	if segmentFlow {
-		llmpipeline.ReconcileSegmentAtomOutcomes(&artifacts)
-		artifacts.Model.Source.PipelineVersion = "0.8"
-		artifacts.Model.Source.DerivationStrategy = llmpipeline.DescriptionTransformVersion + "+" + llmpipeline.LogicalMappingRuleVersion
+	// Labels of the segment flow are written in the document's language, but
+	// attribute names are ASCII and would read as English.
+	mapped, report, mapErr := llmpipeline.MapConceptualToLogical(conceptual, llmpipeline.LogicalMappingOptions{
+		Language: s.detectSourceLanguage(projectID),
+	})
+	if mapErr != nil {
+		return 0, nil, mapErr
 	}
+	if validationErrors := validateCandidate(mapped); len(validationErrors) > 0 {
+		return 0, nil, fmt.Errorf("deterministic logical mapping failed DB-DSL validation: %s", strings.Join(validationErrors, "; "))
+	}
+	patch, mappingReport := mapped, &report
+	patchQA := llmpipeline.StageQA{OK: true, Errors: []string{}, Warnings: report.Warnings, Coverage: map[string]int{
+		"patch_operations": len(mapped.Operations), "entities": report.Entities, "relationships": report.Relationships,
+		"constraints": report.Constraints, "state_machines": report.StateMachines, "derived_views": report.DerivedViews,
+	}}
+	artifacts, err := llmpipeline.BuildLogicalArtifacts(project.Name, units, patch, dslDecisions)
+	if err != nil {
+		return 0, nil, err
+	}
+	artifacts.Model.Source.DerivationStrategy = llmpipeline.DescriptionTransformVersion + "+" + llmpipeline.LogicalMappingRuleVersion
 	emit("write_logical_bundle", "Writing an isolated logical-model revision.", 48, coverageMetadata(patchQA.Coverage))
 	paths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
-		"source_units.yaml":             {Value: sourceUnitFile},
-		"requirement_atoms.yaml":        {Value: artifacts.RequirementAtoms},
-		"functional_decomposition.yaml": {Value: artifacts.FunctionalDecomposition},
-		"crud_matrix.yaml":              {Value: artifacts.CRUDMatrix},
-		"review_decisions.yaml":         {Value: artifacts.ReviewDecisions},
-		"dbdsl_patch.proposed.json":     {Value: patch, JSON: true},
-		"db_model.dsl.yaml":             {Value: artifacts.Model},
-		"logical_mapping_report.json":   {Value: mappingReportValue(mappingReport), JSON: true},
+		"source_units.yaml":           {Value: sourceUnitFile},
+		"review_decisions.yaml":       {Value: artifacts.ReviewDecisions},
+		"dbdsl_patch.proposed.json":   {Value: patch, JSON: true},
+		"db_model.dsl.yaml":           {Value: artifacts.Model},
+		"logical_mapping_report.json": {Value: mappingReportValue(mappingReport), JSON: true},
 	})
 	if err != nil {
 		return 0, nil, err
@@ -622,7 +213,7 @@ func (s *Store) GenerateLogicalModel(ctx context.Context, client llm.Client, pro
 	modelPath := s.absoluteWorkspacePath(paths["db_model.dsl.yaml"])
 	emit("validate", "Running structural DB-DSL validation.", 64, nil)
 	validation := validate.ValidateFile(modelPath)
-	lintResult := lint.Result{Version: lint.VersionV05}
+	lintResult := lint.Result{Version: lint.VersionV06}
 	if validation.OK() {
 		emit("lint", "Running semantic lint checks.", 76, nil)
 		lintResult = lint.LintFile(modelPath)
@@ -668,79 +259,29 @@ func (s *Store) GenerateLogicalModel(ctx context.Context, client llm.Client, pro
 // segmentFlowLogicalInputs loads what the logical stage needs in the
 // segment-based flow: accepted source units, the accepted conceptual model and
 // the description it came from, plus the evidence files derived from them.
-func (s *Store) segmentFlowLogicalInputs(projectID string, baseRevision int) (*ProjectState, []dsl.SourceUnit, llmpipeline.RequirementAtomExtractionProposal, llmpipeline.FunctionalAnalysisProposal, llmpipeline.CRUDMappingProposal, llmpipeline.ConceptualModelProposal, error) {
-	var (
-		atoms       llmpipeline.RequirementAtomExtractionProposal
-		functional  llmpipeline.FunctionalAnalysisProposal
-		crud        llmpipeline.CRUDMappingProposal
-		conceptual  llmpipeline.ConceptualModelProposal
-		description llmpipeline.ConceptualDescription
-	)
+func (s *Store) segmentFlowLogicalInputs(projectID string, baseRevision int) (*ProjectState, []dsl.SourceUnit, llmpipeline.ConceptualModelProposal, error) {
+	var conceptual llmpipeline.ConceptualModelProposal
 	project, ok := s.Project(projectID)
 	if !ok {
-		return nil, nil, atoms, functional, crud, conceptual, ErrNotFound
+		return nil, nil, conceptual, ErrNotFound
 	}
 	if baseRevision > 0 && baseRevision != project.CurrentRevision {
-		return nil, nil, atoms, functional, crud, conceptual, ErrRevisionConflict
+		return nil, nil, conceptual, ErrRevisionConflict
 	}
 	if project.ConceptualModelAcceptedPath == "" {
-		return nil, nil, atoms, functional, crud, conceptual, errors.New("accepted conceptual model is not ready")
+		return nil, nil, conceptual, errors.New("accepted conceptual model is not ready")
 	}
 	units := mustAcceptedSourceUnits(s, projectID)
 	if len(units) == 0 {
-		return nil, nil, atoms, functional, crud, conceptual, errors.New("source units are not ready")
+		return nil, nil, conceptual, errors.New("source units are not ready")
 	}
 	if err := readJSON(s.absoluteWorkspacePath(project.ConceptualModelAcceptedPath), &conceptual); err != nil {
-		return nil, nil, atoms, functional, crud, conceptual, err
+		return nil, nil, conceptual, err
 	}
-	if err := readJSON(s.absoluteWorkspacePath(project.ConceptualDescriptionPath), &description); err != nil {
-		return nil, nil, atoms, functional, crud, conceptual, err
+	if qa := llmpipeline.ValidateConceptualModel(conceptual, units, nil); !qa.OK {
+		return nil, nil, conceptual, fmt.Errorf("accepted conceptual model is not ready for logical mapping: %s", strings.Join(qa.Errors, "; "))
 	}
-	atoms, functional, crud = llmpipeline.SegmentEvidenceArtifacts(units, description, conceptual)
-	if qa := llmpipeline.ValidateConceptualModelWithObligations(conceptual, units, atoms.RequirementAtoms, nil, nil); !qa.OK {
-		return nil, nil, atoms, functional, crud, conceptual, fmt.Errorf("accepted conceptual model is not ready for logical mapping: %s", strings.Join(qa.Errors, "; "))
-	}
-	return project, units, atoms, functional, crud, conceptual, nil
-}
-
-func (s *Store) modelStageInputs(projectID string, baseRevision int) (*ProjectState, []dsl.SourceUnit, llmpipeline.RequirementAtomExtractionProposal, llmpipeline.FunctionalAnalysisProposal, llmpipeline.CRUDMappingProposal, ReviewDecisionsArtifact, error) {
-	project, ok := s.Project(projectID)
-	if !ok {
-		return nil, nil, llmpipeline.RequirementAtomExtractionProposal{}, llmpipeline.FunctionalAnalysisProposal{}, llmpipeline.CRUDMappingProposal{}, ReviewDecisionsArtifact{}, ErrNotFound
-	}
-	if baseRevision > 0 && baseRevision != project.CurrentRevision {
-		return nil, nil, llmpipeline.RequirementAtomExtractionProposal{}, llmpipeline.FunctionalAnalysisProposal{}, llmpipeline.CRUDMappingProposal{}, ReviewDecisionsArtifact{}, ErrRevisionConflict
-	}
-	if !project.AnalysisReady || len(project.OpenReviewIDs) > 0 {
-		return nil, nil, llmpipeline.RequirementAtomExtractionProposal{}, llmpipeline.FunctionalAnalysisProposal{}, llmpipeline.CRUDMappingProposal{}, ReviewDecisionsArtifact{}, errors.New("analysis is not ready or blocking review decisions remain")
-	}
-	units := mustAcceptedSourceUnits(s, projectID)
-	if len(units) == 0 {
-		return nil, nil, llmpipeline.RequirementAtomExtractionProposal{}, llmpipeline.FunctionalAnalysisProposal{}, llmpipeline.CRUDMappingProposal{}, ReviewDecisionsArtifact{}, errors.New("source units are not ready")
-	}
-	var atoms llmpipeline.RequirementAtomExtractionProposal
-	var functional llmpipeline.FunctionalAnalysisProposal
-	var crud llmpipeline.CRUDMappingProposal
-	if err := readJSON(s.absoluteWorkspacePath(project.RequirementAtomsProposalPath), &atoms); err != nil {
-		return nil, nil, atoms, functional, crud, ReviewDecisionsArtifact{}, err
-	}
-	atoms.RequirementAtoms = llmpipeline.NormalizeRequirementReviewSemantics(atoms.RequirementAtoms)
-	if readiness := llmpipeline.EvaluateRequirementReadiness(atoms.RequirementAtoms, nil); !readiness.OK {
-		return nil, nil, atoms, functional, crud, ReviewDecisionsArtifact{}, fmt.Errorf("requirement analysis is not ready: %s", strings.Join(readiness.Errors(), "; "))
-	}
-	if err := readJSON(s.absoluteWorkspacePath(project.FunctionalAnalysisProposalPath), &functional); err != nil {
-		return nil, nil, atoms, functional, crud, ReviewDecisionsArtifact{}, err
-	}
-	if err := readJSON(s.absoluteWorkspacePath(project.CRUDMappingProposalPath), &crud); err != nil {
-		return nil, nil, atoms, functional, crud, ReviewDecisionsArtifact{}, err
-	}
-	var decisions ReviewDecisionsArtifact
-	if project.ReviewDecisionsPath != "" {
-		if err := readYAML(s.absoluteWorkspacePath(project.ReviewDecisionsPath), &decisions); err != nil {
-			return nil, nil, atoms, functional, crud, decisions, err
-		}
-	}
-	return project, units, atoms, functional, crud, decisions, nil
+	return project, units, conceptual, nil
 }
 
 func (s *Store) ConceptualModel(projectID string) (ConceptualModelArtifacts, error) {
@@ -868,7 +409,7 @@ func conceptualModelDiff(s *Store, project *ProjectState, proposal llmpipeline.C
 		currentRelationships = append(currentRelationships, relationship.ID)
 	}
 	return map[string]any{
-		"pipeline_version": "0.7",
+		"pipeline_version": llmpipeline.PipelineVersion,
 		"previous":         map[string]any{"entities": uniqueSorted(previousEntities), "relationships": uniqueSorted(previousRelationships)},
 		"proposed":         map[string]any{"entities": uniqueSorted(currentEntities), "relationships": uniqueSorted(currentRelationships)},
 		"graph_diff": map[string]any{
@@ -903,64 +444,7 @@ func diffConceptIDs(previous, current []string) map[string][]string {
 	return map[string][]string{"added": uniqueSorted(added), "removed": uniqueSorted(removed), "unchanged": uniqueSorted(unchanged)}
 }
 
-func reviewDecisionIDs(decisions ReviewDecisionsArtifact) []string {
-	out := make([]string, 0, len(decisions.ReviewDecisions))
-	for _, item := range decisions.ReviewDecisions {
-		if item.ApplyStatus == "applied" {
-			out = append(out, item.ID)
-		}
-	}
-	return out
-}
-
-func conceptualReviewDecisionInputs(decisions ReviewDecisionsArtifact) []llmpipeline.ConceptualReviewDecisionInput {
-	out := make([]llmpipeline.ConceptualReviewDecisionInput, 0, len(decisions.ReviewDecisions))
-	for _, item := range decisions.ReviewDecisions {
-		if item.ApplyStatus != "applied" {
-			continue
-		}
-		out = append(out, llmpipeline.ConceptualReviewDecisionInput{
-			ID: item.ID, Question: item.QuestionSnapshot, SelectedOptionID: item.SelectedOption,
-			Rationale: item.RationaleSnapshot, AffectedAtoms: append([]string(nil), item.AffectedAtoms...),
-		})
-	}
-	return out
-}
-
-func (s *Store) failedLogicalRepairContext(project *ProjectState) (*llmpipeline.PatchProposal, []string) {
-	if project.SemanticVerificationPath != "" && project.LogicalPatchProposalPath != "" {
-		var semantic SemanticVerificationReport
-		if readJSON(s.absoluteWorkspacePath(project.SemanticVerificationPath), &semantic) == nil && !semantic.OK {
-			var proposal llmpipeline.PatchProposal
-			if readJSON(s.absoluteWorkspacePath(project.LogicalPatchProposalPath), &proposal) == nil && len(proposal.Operations) > 0 {
-				issues := []string{}
-				for _, issue := range semantic.Issues {
-					if issue.Blocking {
-						issues = append(issues, fmt.Sprintf("%s %s: %s", issue.Code, issue.ObligationID, issue.Message))
-					}
-				}
-				if len(issues) > 0 {
-					return &proposal, issues
-				}
-			}
-		}
-	}
-	revisionDir := s.absoluteWorkspacePath(s.projectRevisionRel(project.ID, project.CurrentRevision+1))
-	var report struct {
-		OK     bool     `json:"ok"`
-		Errors []string `json:"errors"`
-	}
-	if err := readJSON(filepath.Join(revisionDir, "validation_report.json"), &report); err != nil || report.OK || len(report.Errors) == 0 {
-		return nil, nil
-	}
-	var proposal llmpipeline.PatchProposal
-	if err := readJSON(filepath.Join(revisionDir, "dbdsl_patch.proposed.json"), &proposal); err != nil || len(proposal.Operations) == 0 {
-		return nil, nil
-	}
-	return &proposal, append([]string(nil), report.Errors...)
-}
-
-func mustSourceUnitFile(s *Store, projectID string) dsl.V05SourceUnitsFile {
+func mustSourceUnitFile(s *Store, projectID string) dsl.SourceUnitsFile {
 	artifacts, _ := s.SourceUnitArtifacts(projectID)
 	return artifacts.Accepted
 }
@@ -970,9 +454,6 @@ func invalidateLogicalArtifacts(project *ProjectState) {
 	project.ValidationReportPath = ""
 	project.LintReportPath = ""
 	project.QualityReportPath = ""
-	project.ObligationRealizationsPath = ""
-	project.SemanticVerificationPath = ""
-	project.InvariantReportPath = ""
 	project.DBMLPath = ""
 	project.TraceReportPath = ""
 	project.FinalModelAccepted = false
@@ -994,17 +475,6 @@ func (s *Store) AcceptFinalModel(projectID string, baseRevision int) (int, error
 	if !project.ModelGenerated {
 		return 0, ErrModelNotGenerated
 	}
-	semanticStatus, semanticBlocking := "not_applicable", 0
-	if !semanticVerificationNotApplicable(project) {
-		semanticReport, err := s.SemanticVerification(projectID)
-		if err != nil {
-			return 0, errors.New("semantic verification is required before final model acceptance")
-		}
-		if !semanticReport.OK || semanticReport.BlockingIssues > 0 {
-			return 0, errors.New("blocking semantic obligation issues remain")
-		}
-		semanticStatus, semanticBlocking = "passed", semanticReport.BlockingIssues
-	}
 	report := qualityForProject(project)
 	if report.Summary.ValidationErrors > 0 || report.Summary.BlockingIssues > 0 {
 		return 0, errors.New("blocking model quality issues remain")
@@ -1022,8 +492,6 @@ func (s *Store) AcceptFinalModel(projectID string, baseRevision int) (int, error
 		return 0, errors.New("accepted DB-DSL has blocking lint errors")
 	}
 	qualityReport := quality.BuildReport(modelPath, false)
-	qualityReport.Summary.SemanticVerificationStatus = semanticStatus
-	qualityReport.Summary.SemanticBlockingIssues = semanticBlocking
 	reportPaths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
 		"validation_report.json": {Value: map[string]any{"ok": true, "errors": validation.Errors}, JSON: true},
 		"lint_report.json":       {Value: lintResult, JSON: true},
@@ -1050,12 +518,6 @@ func (s *Store) AcceptFinalModel(projectID string, baseRevision int) (int, error
 	return project.CurrentRevision, nil
 }
 
-// semanticVerificationNotApplicable is true for the segment-based flow, which
-// has no design obligations to verify against.
-func semanticVerificationNotApplicable(project *ProjectState) bool {
-	return project.ConceptualDescriptionPath != "" && project.DesignObligationsPath == ""
-}
-
 func (s *Store) GenerateFinalOutputs(projectID string, baseRevision int, emit jobs.StepEmitter) (int, []string, error) {
 	project, ok := s.Project(projectID)
 	if !ok {
@@ -1066,14 +528,6 @@ func (s *Store) GenerateFinalOutputs(projectID string, baseRevision int, emit jo
 	}
 	if !project.FinalModelAccepted {
 		return 0, nil, errors.New("final model review has not been accepted")
-	}
-	semanticStatus, semanticBlocking := "not_applicable", 0
-	if !semanticVerificationNotApplicable(project) {
-		semanticReport, err := s.SemanticVerification(projectID)
-		if err != nil || !semanticReport.OK || semanticReport.BlockingIssues > 0 {
-			return 0, nil, errors.New("semantic verification must pass before final outputs")
-		}
-		semanticStatus, semanticBlocking = "passed", semanticReport.BlockingIssues
 	}
 	emit = stageEmitter(emit)
 	paths, modelPath, err := s.writeAcceptedBundleRevision(project)
@@ -1099,8 +553,6 @@ func (s *Store) GenerateFinalOutputs(projectID string, baseRevision int, emit jo
 		return 0, nil, errors.New("accepted DB-DSL has blocking lint errors before final outputs")
 	}
 	qualityReport := quality.BuildReport(modelPath, true)
-	qualityReport.Summary.SemanticVerificationStatus = semanticStatus
-	qualityReport.Summary.SemanticBlockingIssues = semanticBlocking
 	reportPaths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
 		"validation_report.json": {Value: map[string]any{"ok": true, "errors": validation.Errors}, JSON: true},
 		"lint_report.json":       {Value: lintResult, JSON: true},
@@ -1138,23 +590,20 @@ func (s *Store) GenerateFinalOutputs(projectID string, baseRevision int, emit jo
 }
 
 func (s *Store) writeAcceptedBundleRevision(project *ProjectState) (map[string]string, string, error) {
-	bundle, err := dsl.LoadV05Bundle(project.ModelPath)
+	bundle, err := dsl.LoadV06Bundle(project.ModelPath)
 	if err != nil {
 		return nil, "", err
 	}
 	document := *bundle.Document
 	document.Model.Status = "accepted"
 	document.Model.Name = strings.TrimSuffix(document.Model.Name, " LLM Draft")
-	if document.Model.Description == "Offline LLM-assisted v0.5 logical database model draft. Validate, lint and review before treating as final." {
-		document.Model.Description = "LLM-assisted v0.5 logical database model accepted after validation, lint and explicit human review."
+	if document.Model.Description == "LLM-assisted v0.6 logical database model draft. Validate, lint and review before treating as final." {
+		document.Model.Description = "LLM-assisted v0.6 logical database model accepted after validation, lint and explicit human review."
 	}
 	paths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
-		"source_units.yaml":             {Value: bundle.SourceUnits},
-		"requirement_atoms.yaml":        {Value: bundle.RequirementAtoms},
-		"functional_decomposition.yaml": {Value: bundle.FunctionalDecomposition},
-		"crud_matrix.yaml":              {Value: bundle.CRUDMatrix},
-		"review_decisions.yaml":         {Value: bundle.ReviewDecisions},
-		"db_model.dsl.yaml":             {Value: &document},
+		"source_units.yaml":     {Value: bundle.SourceUnits},
+		"review_decisions.yaml": {Value: bundle.ReviewDecisions},
+		"db_model.dsl.yaml":     {Value: &document},
 	})
 	if err != nil {
 		return nil, "", err
@@ -1180,9 +629,6 @@ func (s *Store) applyAcceptedBundlePaths(project *ProjectState, paths map[string
 	project.BundlePath = filepath.Dir(modelPath)
 	project.TaskPath = s.absoluteWorkspacePath(paths["TASK.md"])
 	project.SourceUnitsPath = paths["source_units.yaml"]
-	project.RequirementAtomsPath = paths["requirement_atoms.yaml"]
-	project.FunctionalDecompositionPath = paths["functional_decomposition.yaml"]
-	project.CRUDMatrixPath = paths["crud_matrix.yaml"]
 	// ReviewDecisionsPath stays on the workbench decision records: the bundle's
 	// review_decisions.yaml is a DB-DSL export with a different schema, and
 	// pointing here at it made any later logical rerun read empty decisions.
@@ -1206,7 +652,7 @@ func (s *Store) RefreshModelQuality(projectID string, baseRevision int, emit job
 	emit = stageEmitter(emit)
 	emit("validate", "Running structural DB-DSL validation.", 28, nil)
 	validation := validate.ValidateFile(project.ModelPath)
-	lintResult := lint.Result{Version: lint.VersionV05}
+	lintResult := lint.Result{Version: lint.VersionV06}
 	if validation.OK() {
 		emit("lint", "Running semantic lint checks.", 58, nil)
 		lintResult = lint.LintFile(project.ModelPath)
@@ -1236,4 +682,19 @@ func (s *Store) RefreshModelQuality(projectID string, baseRevision int, emit job
 		return current.CurrentRevision, []string{"validation", "lint", "quality"}, fmt.Errorf("logical DB-DSL validation failed: %s", strings.Join(validation.Errors, "; "))
 	}
 	return current.CurrentRevision, []string{"validation", "lint", "quality"}, nil
+}
+
+// distinctStrings concatenates the lists, keeping the first occurrence of each value.
+func distinctStrings(lists ...[]string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, list := range lists {
+		for _, value := range list {
+			if !seen[value] {
+				seen[value] = true
+				out = append(out, value)
+			}
+		}
+	}
+	return out
 }

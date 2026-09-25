@@ -240,21 +240,6 @@ func TestDeleteProjectRemovesWorkspaceAndPersistsDeletion(t *testing.T) {
 	}
 }
 
-func TestDeleteCanonicalProjectPersistsDeletion(t *testing.T) {
-	store := newIngestionTestStore(t)
-	if err := store.DeleteProject(CanonicalProjectID); err != nil {
-		t.Fatalf("delete canonical project: %v", err)
-	}
-
-	reloaded, err := NewStore(store.root)
-	if err != nil {
-		t.Fatalf("reload store: %v", err)
-	}
-	if _, ok := reloaded.Project(CanonicalProjectID); ok {
-		t.Fatalf("deleted canonical project returned after reload")
-	}
-}
-
 func newIngestionTestStore(t *testing.T) *Store {
 	t.Helper()
 	root := t.TempDir()

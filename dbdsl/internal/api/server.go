@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path"
@@ -17,6 +16,7 @@ import (
 
 	"dbdsl/internal/jobs"
 	"dbdsl/internal/llm"
+	"dbdsl/internal/llmpipeline"
 	"dbdsl/internal/workspace"
 )
 
@@ -40,7 +40,7 @@ func New(config Config) (*Server, error) {
 		return nil, err
 	}
 	server := &Server{store: store}
-	server.jobs = jobs.NewPersistentManager(store.ApplyJobResult, filepath.Join(config.Root, ".dbdsl_workbench", "jobs.json"))
+	server.jobs = jobs.NewPersistentManager(filepath.Join(config.Root, ".dbdsl_workbench", "jobs.json"))
 	return server, nil
 }
 
@@ -92,14 +92,6 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.handleScaffoldBundleFromTask(w, r)
-			return
-		}
-		if len(segments) == 2 && segments[1] == "llm-plan-from-task" {
-			if r.Method != http.MethodPost {
-				writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
-				return
-			}
-			s.handleLLMPlanBundleFromTask(w, r)
 			return
 		}
 	}
@@ -159,46 +151,18 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleSourceManifest(w, r, projectID)
 	case "combined-document":
 		s.handleCombinedDocument(w, r, projectID)
-	case "source-fidelity":
-		s.handleSourceFidelity(w, r, projectID)
 	case "source-segmentation":
 		s.handleSourceSegmentation(w, r, projectID)
 	case "stages":
 		s.handleStages(w, r, projectID, rest[1:])
-	case "analysis":
-		s.handleAnalysis(w, r, projectID, rest[1:])
 	case "source-units":
 		s.handleSourceUnits(w, r, projectID, rest[1:])
-	case "examples":
-		s.handleExamples(w, r, projectID)
-	case "requirements":
-		s.handleRequirements(w, r, projectID, rest[1:])
-	case "design-obligations":
-		s.handleDesignObligations(w, r, projectID)
-	case "semantic-verification":
-		s.handleSemanticVerification(w, r, projectID, rest[1:])
 	case "logical-mapping-report":
 		s.handleLogicalMappingReport(w, r, projectID)
-	case "functional-areas":
-		s.handleFunctionalAreas(w, r, projectID)
-	case "actors":
-		s.handleActors(w, r, projectID)
-	case "crud-operations":
-		s.handleCrudOperations(w, r, projectID)
-	case "review-candidates":
-		s.handleReviewCandidates(w, r, projectID, rest[1:])
-	case "review-decisions":
-		s.handleReviewDecisions(w, r, projectID, rest[1:])
 	case "conceptual-model":
 		s.handleConceptualModel(w, r, projectID, rest[1:])
 	case "model-acceptance":
 		s.handleModelAcceptance(w, r, projectID)
-	case "model-corrections":
-		s.handleModelCorrection(w, r, projectID)
-	case "model-generation":
-		s.handleModelGeneration(w, r, projectID, rest[1:])
-	case "generate-model":
-		writeError(w, r, http.StatusConflict, "granular_model_pipeline_required", "Generate the conceptual_model and logical_model stages explicitly.", nil)
 	case "model-graph":
 		s.handleModelGraph(w, r, projectID)
 	case "trace-index":
@@ -264,29 +228,17 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 		return
 	}
 	stage := rest[0]
+	// Source processing and conceptual modeling are the only LLM stages; the
+	// logical projection and the outputs are deterministic.
+	needsLLM := stage == "process_sources" || stage == "conceptual_model"
 	client, clientErr := llmClient(req.Mock)
-	// Source units are derived deterministically inside process_sources, so the
-	// only LLM stages of the active flow are source processing and conceptual modeling.
-	needsLLM := stage != "generate_outputs" && stage != "validation_lint" && stage != "semantic_verification"
-	if stage == "logical_model" && workspace.LogicalProjectionMode() == "deterministic" {
-		needsLLM = false
-	}
-	if clientErr != nil && stage == "review_candidates" {
-		if reviewNeedsLLM, gateErr := s.store.ReviewCandidateGenerationNeedsLLM(projectID); gateErr == nil && !reviewNeedsLLM {
-			needsLLM = false
-		}
-	}
-	if clientErr != nil && needsLLM {
-		writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", clientErr.Error(), nil)
-		return
-	}
 	if clientErr != nil {
+		if needsLLM {
+			writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", clientErr.Error(), nil)
+			return
+		}
 		client = nil
 	}
-	// Options for the disabled requirement/functional/CRUD/review stages below.
-	// options := workspace.AnalysisStageOptions{
-	// 	BaseRevision: req.BaseRevision, Model: req.Model, ReasoningEffort: req.ReasoningEffort, MaxOutputTokens: req.MaxOutputTokens,
-	// }
 	var runner jobs.Runner
 	var steps []string
 	switch stage {
@@ -300,41 +252,6 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 				MaxOutputTokens: req.MaxOutputTokens, OnProgress: emit,
 			})
 		}
-	// Requirement atoms, functional analysis, CRUD mapping and review candidates
-	// are disabled: the flow is segmentation → conceptual model, and the
-	// conceptual stage no longer depends on these artifacts.
-	// case "requirement_atoms":
-	// 	steps = []string{"extract_requirement_atoms", "derive_design_obligations", "validate_requirement_atoms", "write_requirement_atoms"}
-	// 	runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-	// 		ctx, cancel := s.llmStageContext(projectID)
-	// 		defer cancel()
-	// 		options.OnProgress = emit
-	// 		return s.store.GenerateRequirementAtoms(ctx, client, projectID, options)
-	// 	}
-	// case "functional_analysis":
-	// 	steps = []string{"build_functional_analysis", "validate_functional_analysis", "write_functional_analysis"}
-	// 	runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-	// 		ctx, cancel := s.llmStageContext(projectID)
-	// 		defer cancel()
-	// 		options.OnProgress = emit
-	// 		return s.store.GenerateFunctionalAnalysis(ctx, client, projectID, options)
-	// 	}
-	// case "crud_mapping":
-	// 	steps = []string{"build_crud_mapping", "validate_crud_mapping", "write_crud_mapping"}
-	// 	runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-	// 		ctx, cancel := s.llmStageContext(projectID)
-	// 		defer cancel()
-	// 		options.OnProgress = emit
-	// 		return s.store.GenerateCRUDMapping(ctx, client, projectID, options)
-	// 	}
-	// case "review_candidates":
-	// 	steps = []string{"propose_review_candidates", "validate_review_dag", "write_review_candidates"}
-	// 	runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-	// 		ctx, cancel := s.llmStageContext(projectID)
-	// 		defer cancel()
-	// 		options.OnProgress = emit
-	// 		return s.store.GenerateReviewCandidates(ctx, client, projectID, options)
-	// 	}
 	case "conceptual_model":
 		steps = []string{"propose_conceptual_model", "validate_conceptual_model", "write_conceptual_model"}
 		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
@@ -355,11 +272,6 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 				MaxOutputTokens: req.MaxOutputTokens, OnProgress: emit,
 			})
 		}
-	case "semantic_verification":
-		steps = []string{"map_obligations", "verify_obligations", "write_semantic_report"}
-		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-			return s.store.RunSemanticVerification(projectID, req.BaseRevision, emit)
-		}
 	case "generate_outputs":
 		steps = []string{"generate_dbml", "generate_trace", "refresh_quality"}
 		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
@@ -378,28 +290,6 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 }
 
-func (s *Server) handleDesignObligations(w http.ResponseWriter, r *http.Request, projectID string) {
-	if r.Method != http.MethodGet {
-		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
-		return
-	}
-	artifacts, err := s.store.DesignObligations(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	preview, previewQA, previewErr := s.store.DesignObligationMigrationPreview(projectID)
-	response := map[string]any{"design_obligations": artifacts.Accepted.DesignObligations, "qa": artifacts.QA}
-	if previewErr == nil {
-		response["migration_preview"] = preview
-		response["migration_preview_qa"] = previewQA
-	}
-	if metrics, metricsErr := s.store.ConceptualOptimizationPreview(projectID); metricsErr == nil {
-		response["conceptual_context_preview"] = metrics
-	}
-	writeJSON(w, http.StatusOK, response)
-}
-
 func (s *Server) handleLogicalMappingReport(w http.ResponseWriter, r *http.Request, projectID string) {
 	if r.Method != http.MethodGet {
 		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
@@ -413,54 +303,13 @@ func (s *Server) handleLogicalMappingReport(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"logical_mapping_report": report})
 }
 
-func (s *Server) handleSemanticVerification(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
-	if len(rest) == 1 && rest[0] == "repair-candidates" && r.Method == http.MethodPost {
-		var req struct {
-			BaseRevision int `json:"base_revision"`
-		}
-		if !decodeJSON(w, r, &req) {
-			return
-		}
-		revision, candidateIDs, err := s.store.CreateSemanticRepairCandidates(projectID, req.BaseRevision)
-		if err != nil {
-			writeMappedError(w, r, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"project_revision": revision, "review_candidate_ids": candidateIDs,
-			"message": "Blocking semantic obligations were added to the review queue.",
-		})
-		return
-	}
-	if len(rest) != 0 || r.Method != http.MethodGet {
-		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
-		return
-	}
-	report, err := s.store.SemanticVerification(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"semantic_verification": report})
-}
-
 func nextProjectStage(health workspace.ArtifactHealth) string {
-	if health.SemanticVerificationStatus == "legacy_not_applicable" && health.FinalModelAccepted && health.DBMLStatus == "ready" {
-		return "completed"
-	}
-	if health.CombinedDocumentStatus != "ready" {
-		return "process_sources"
-	}
-	if health.SourceUnitsStatus == "not_generated" {
-		// Legacy workspaces are repaired by rerunning the atomic source stage;
-		// source-unit generation is no longer an independently runnable stage.
+	if health.CombinedDocumentStatus != "ready" || health.SourceUnitsStatus == "not_generated" {
 		return "process_sources"
 	}
 	if health.SourceUnitsStatus == "needs_attention" {
 		return "source_review"
 	}
-	// Requirement atoms, design obligations, functional analysis, CRUD mapping
-	// and review candidates are not stages of the segment-based flow.
 	if health.ConceptualModelStatus != "ready" {
 		if health.ConceptualModelStatus == "proposed" {
 			return "conceptual_review"
@@ -469,13 +318,6 @@ func nextProjectStage(health workspace.ArtifactHealth) string {
 	}
 	if health.ModelStatus != "ready" {
 		return "logical_model"
-	}
-	if health.SemanticVerificationStatus == "blocked" {
-		// Blocking obligations need a person (repair or exclude); rerunning the check cannot change them.
-		return "model_review"
-	}
-	if health.SemanticVerificationStatus != "passed" && health.SemanticVerificationStatus != "not_applicable" {
-		return "semantic_verification"
 	}
 	if !health.FinalModelAccepted {
 		return "model_review"
@@ -537,30 +379,6 @@ func (s *Server) handleModelAcceptance(w http.ResponseWriter, r *http.Request, p
 	writeJSON(w, http.StatusOK, map[string]any{"project_revision": revision, "message": "Final model accepted."})
 }
 
-func (s *Server) handleModelCorrection(w http.ResponseWriter, r *http.Request, projectID string) {
-	if r.Method != http.MethodPost {
-		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
-		return
-	}
-	var req struct {
-		BaseRevision   int    `json:"base_revision"`
-		ElementID      string `json:"element_id"`
-		CorrectionType string `json:"correction_type"`
-		Note           string `json:"note"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	revision, candidateID, err := s.store.CreateModelCorrectionCandidate(projectID, workspace.ModelCorrectionRequest{
-		BaseRevision: req.BaseRevision, ElementID: req.ElementID, CorrectionType: req.CorrectionType, Note: req.Note,
-	})
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"project_revision": revision, "review_candidate_id": candidateID, "message": "Model correction was added to the review queue."})
-}
-
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	status := nonEmpty(r.URL.Query().Get("status"), "active")
 	projects, err := s.store.ListProjects(status, r.URL.Query().Get("search"))
@@ -605,7 +423,7 @@ func (s *Server) handleLLMStatus(w http.ResponseWriter, r *http.Request) {
 		"default_model":    llm.DefaultModel,
 		"mock_available":   true,
 		"provider":         "openai",
-		"pipeline_version": "0.7.2",
+		"pipeline_version": llmpipeline.PipelineVersion,
 	})
 }
 
@@ -618,41 +436,6 @@ func (s *Server) handleScaffoldBundleFromTask(w http.ResponseWriter, r *http.Req
 		return
 	}
 	bundle, err := s.store.ScaffoldBundleFromText(req.Name, req.Content)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"bundle": bundle})
-}
-
-func (s *Server) handleLLMPlanBundleFromTask(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name              string `json:"name"`
-		Content           string `json:"content"`
-		Model             string `json:"model"`
-		ReasoningEffort   string `json:"reasoning_effort"`
-		MaxOutputTokens   int    `json:"max_output_tokens"`
-		MaxRepairAttempts int    `json:"max_repair_attempts"`
-		Mock              bool   `json:"mock"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	client, err := llmClient(req.Mock)
-	if err != nil {
-		writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", err.Error(), nil)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), defaultLLMStageTimeout)
-	defer cancel()
-	bundle, err := s.store.LLMPlanBundleFromText(ctx, client, workspace.LLMPlanFromTextOptions{
-		Name:              req.Name,
-		Content:           req.Content,
-		Model:             req.Model,
-		ReasoningEffort:   req.ReasoningEffort,
-		MaxOutputTokens:   req.MaxOutputTokens,
-		MaxRepairAttempts: req.MaxRepairAttempts,
-	})
 	if err != nil {
 		writeMappedError(w, r, err)
 		return
@@ -927,19 +710,6 @@ func processSourcesSteps() []string {
 	return []string{"load_extracted_resources", "write_source_manifest", "prepare_source_segmentation", "propose_source_segmentation", "assign_source_unit_ids", "validate_source_units", "write_combined_document"}
 }
 
-func (s *Server) handleSourceFidelity(w http.ResponseWriter, r *http.Request, projectID string) {
-	if r.Method != http.MethodGet {
-		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
-		return
-	}
-	report, err := s.store.SourceFidelity(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"source_fidelity": report})
-}
-
 func (s *Server) handleSourceSegmentation(w http.ResponseWriter, r *http.Request, projectID string) {
 	if r.Method != http.MethodGet {
 		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
@@ -988,55 +758,6 @@ func (s *Server) handleCombinedDocument(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"combined_document": document})
-}
-
-func (s *Server) handleAnalysis(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
-	if len(rest) == 1 && rest[0] == "summary" && r.Method == http.MethodGet {
-		project, err := s.store.ProjectSummary(projectID)
-		if err != nil {
-			writeMappedError(w, r, err)
-			return
-		}
-		_, coverage, err := s.store.Requirements(projectID)
-		if err != nil {
-			writeMappedError(w, r, err)
-			return
-		}
-		summary := map[string]any{
-			"source_units": map[string]any{
-				"total":           project.Counts.SourceUnits,
-				"needs_attention": 0,
-				"model_relevant":  project.Counts.SourceUnits,
-				"non_model":       0,
-			},
-			"examples": map[string]any{
-				"total":          project.Counts.Examples,
-				"needs_decision": 0,
-				"normative":      1,
-				"illustrative":   1,
-			},
-			"requirements": map[string]any{
-				"total":                project.Counts.Requirements,
-				"needs_review":         coverage["requirements_needing_review"],
-				"direct_db":            coverage["direct_db_requirements"],
-				"non_model":            coverage["non_model_requirements"],
-				"source_units_covered": coverage["source_units_covered"],
-			},
-			"functional_crud": map[string]any{
-				"functional_areas": project.Counts.FunctionalAreas,
-				"operations":       project.Counts.Operations,
-				"actors":           8,
-			},
-			"review": map[string]any{
-				"open_questions":     project.Counts.OpenReviewQuestions,
-				"answered_questions": project.Counts.ReviewDecisions,
-			},
-			"can_generate_model": project.Counts.OpenReviewQuestions == 0,
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"project_revision": project.CurrentRevision, "summary": summary})
-		return
-	}
-	writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
 }
 
 func (s *Server) handleSourceUnits(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
@@ -1111,231 +832,6 @@ func (s *Server) handleSourceUnits(w http.ResponseWriter, r *http.Request, proje
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"source_unit": unit, "original_excerpt": map[string]any{"resource_id": "R-001", "title": "Printing House task", "text": unit.ExactText}})
-}
-
-func (s *Server) handleExamples(w http.ResponseWriter, r *http.Request, projectID string) {
-	if r.Method != http.MethodGet {
-		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
-		return
-	}
-	project, err := s.store.ProjectSummary(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"project_revision": project.CurrentRevision, "items": s.store.Examples(projectID)})
-}
-
-func (s *Server) handleRequirements(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
-	if r.Method != http.MethodGet {
-		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
-		return
-	}
-	requirements, coverage, err := s.store.Requirements(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	if len(rest) == 0 {
-		project, _ := s.store.ProjectSummary(projectID)
-		requirements = filterRequirements(requirements, r.URL.Query().Get("filter"), r.URL.Query().Get("search"))
-		writeJSON(w, http.StatusOK, map[string]any{"project_revision": project.CurrentRevision, "coverage": coverage, "items": requirements, "page": map[string]any{"limit": len(requirements), "next_cursor": nil}})
-		return
-	}
-	for _, req := range requirements {
-		if req.ID == rest[0] {
-			writeJSON(w, http.StatusOK, map[string]any{"requirement": req, "source_evidence": req.SourceUnits})
-			return
-		}
-	}
-	writeMappedError(w, r, workspace.ErrNotFound)
-}
-
-func (s *Server) handleFunctionalAreas(w http.ResponseWriter, r *http.Request, projectID string) {
-	items, err := s.store.FunctionalAreas(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	project, _ := s.store.ProjectSummary(projectID)
-	writeJSON(w, http.StatusOK, map[string]any{"project_revision": project.CurrentRevision, "items": items})
-}
-
-func (s *Server) handleActors(w http.ResponseWriter, r *http.Request, projectID string) {
-	items, err := s.store.Actors(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	project, _ := s.store.ProjectSummary(projectID)
-	writeJSON(w, http.StatusOK, map[string]any{"project_revision": project.CurrentRevision, "items": items})
-}
-
-func (s *Server) handleCrudOperations(w http.ResponseWriter, r *http.Request, projectID string) {
-	items, err := s.store.CrudOperations(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	project, _ := s.store.ProjectSummary(projectID)
-	writeJSON(w, http.StatusOK, map[string]any{"project_revision": project.CurrentRevision, "items": items})
-}
-
-func (s *Server) handleReviewCandidates(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
-	if len(rest) == 0 && r.Method == http.MethodGet {
-		items, err := s.store.ReviewCandidates(projectID)
-		if err != nil {
-			writeMappedError(w, r, err)
-			return
-		}
-		project, _ := s.store.ProjectSummary(projectID)
-		writeJSON(w, http.StatusOK, map[string]any{"project_revision": project.CurrentRevision, "items": items, "page": map[string]any{"limit": len(items), "next_cursor": nil}})
-		return
-	}
-	if len(rest) == 1 && rest[0] == "dependency-graph" && r.Method == http.MethodGet {
-		items, err := s.store.ReviewCandidates(projectID)
-		if err != nil {
-			writeMappedError(w, r, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"nodes": items, "edges": dependencyEdges(items)})
-		return
-	}
-	if len(rest) == 2 && rest[1] == "answer" && r.Method == http.MethodPost {
-		var req struct {
-			BaseRevision    int    `json:"base_revision"`
-			SelectedOption  string `json:"selected_option"`
-			ReviewedBy      string `json:"reviewed_by"`
-			Model           string `json:"model"`
-			ReasoningEffort string `json:"reasoning_effort"`
-			MaxOutputTokens int    `json:"max_output_tokens"`
-			Mock            bool   `json:"mock"`
-		}
-		if !decodeJSON(w, r, &req) {
-			return
-		}
-		project, ok := s.store.Project(projectID)
-		if !ok {
-			writeMappedError(w, r, workspace.ErrNotFound)
-			return
-		}
-		if project.ReviewCandidatesPath != "" {
-			client, _ := llmClient(req.Mock)
-			job := s.jobs.StartWithRevision(projectID, "apply_review_decision", req.BaseRevision, []string{"apply_review_decision", "validate_review_patch", "write_review_revision"}, func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-				ctx, cancel := s.llmStageContext(projectID)
-				defer cancel()
-				return s.store.ApplyProjectReviewDecision(ctx, client, projectID, rest[0], workspace.ApplyReviewDecisionOptions{
-					BaseRevision: req.BaseRevision, SelectedOption: req.SelectedOption, ReviewedBy: req.ReviewedBy,
-					Model: req.Model, ReasoningEffort: req.ReasoningEffort, MaxOutputTokens: req.MaxOutputTokens, OnProgress: emit,
-				})
-			})
-			writeJSON(w, http.StatusAccepted, map[string]any{"project_revision": project.CurrentRevision, "job": job})
-			return
-		}
-		job := s.jobs.StartWithRevision(projectID, "apply_review_decision", req.BaseRevision, []string{"apply_review_decision"}, func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-			emit("apply_review_decision", "Applying the selected legacy fixture decision.", 60, nil)
-			revision, err := s.store.AnswerReview(projectID, rest[0], req.SelectedOption, req.BaseRevision)
-			return revision, []string{"review_decisions"}, err
-		})
-		writeJSON(w, http.StatusAccepted, map[string]any{"project_revision": project.CurrentRevision, "job": job})
-		return
-	}
-	if len(rest) == 1 && rest[0] == "apply-recommended" && r.Method == http.MethodPost {
-		var req struct {
-			BaseRevision int `json:"base_revision"`
-		}
-		if !decodeJSON(w, r, &req) {
-			return
-		}
-		if project, ok := s.store.Project(projectID); ok && project.ReviewCandidatesPath != "" {
-			writeError(w, r, http.StatusConflict, "blocking_bulk_apply_disabled", "Project-specific blocking decisions must be answered individually.", nil)
-			return
-		}
-		job := s.jobs.StartWithRevision(projectID, "apply_review_decision", req.BaseRevision, []string{"apply_review_decision"}, func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-			emit("apply_review_decision", "Applying recommended non-production fixture decisions.", 60, nil)
-			revision, err := s.store.ApplyRecommended(projectID, req.BaseRevision)
-			return revision, []string{"review_decisions"}, err
-		})
-		writeJSON(w, http.StatusAccepted, map[string]any{"project_revision": req.BaseRevision, "job": job})
-		return
-	}
-	if len(rest) == 1 && r.Method == http.MethodGet {
-		items, err := s.store.ReviewCandidates(projectID)
-		if err != nil {
-			writeMappedError(w, r, err)
-			return
-		}
-		for _, item := range items {
-			if item.ID == rest[0] {
-				writeJSON(w, http.StatusOK, map[string]any{"review_candidate": item})
-				return
-			}
-		}
-		writeMappedError(w, r, workspace.ErrNotFound)
-		return
-	}
-	writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
-}
-
-func (s *Server) handleReviewDecisions(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
-	if len(rest) == 1 && rest[0] == "batch" && r.Method == http.MethodPost {
-		if s.jobs.HasActiveProject(projectID) {
-			writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
-			return
-		}
-		var req struct {
-			BaseRevision   int                         `json:"base_revision"`
-			Selections     []workspace.ReviewSelection `json:"selections"`
-			ReviewedBy     string                      `json:"reviewed_by"`
-			ActiveReviewMS int64                       `json:"active_review_ms"`
-		}
-		if !decodeJSON(w, r, &req) {
-			return
-		}
-		job := s.jobs.StartWithRevision(projectID, "apply_review_decision_batch", req.BaseRevision, []string{"validate_review_batch", "apply_review_batch", "write_review_revision"}, func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-			emit("validate_review_batch", "Validating structured review selections and dependencies.", 25, map[string]any{"selections": len(req.Selections), "llm_call": false})
-			revision, updated, err := s.store.ApplyProjectReviewDecisionBatch(projectID, workspace.ApplyReviewBatchOptions{BaseRevision: req.BaseRevision, Selections: req.Selections, ReviewedBy: req.ReviewedBy, DecisionMode: "manual_batch", ActiveReviewMS: req.ActiveReviewMS})
-			if err != nil {
-				return revision, updated, err
-			}
-			emit("apply_review_batch", "Applied review decisions deterministically.", 80, map[string]any{"selections": len(req.Selections), "llm_call": false})
-			return revision, updated, nil
-		})
-		writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
-		return
-	}
-	if len(rest) != 0 || r.Method != http.MethodGet {
-		writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
-		return
-	}
-	items, err := s.store.ReviewDecisions(projectID)
-	if err != nil {
-		writeMappedError(w, r, err)
-		return
-	}
-	project, _ := s.store.ProjectSummary(projectID)
-	writeJSON(w, http.StatusOK, map[string]any{"project_revision": project.CurrentRevision, "items": items})
-}
-
-func (s *Server) handleModelGeneration(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
-	if len(rest) == 1 && rest[0] == "readiness" && r.Method == http.MethodGet {
-		project, err := s.store.ProjectSummary(projectID)
-		if err != nil {
-			writeMappedError(w, r, err)
-			return
-		}
-		health, _ := s.store.ArtifactHealth(projectID)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"project_revision": project.CurrentRevision,
-			"readiness": map[string]any{
-				"can_generate_model":    health.CanGenerateModel,
-				"open_review_questions": health.OpenReviewQuestions,
-				"blocking_reasons":      blockingReasons(health),
-			},
-		})
-		return
-	}
-	writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
 }
 
 func (s *Server) handleModelGraph(w http.ResponseWriter, r *http.Request, projectID string) {
@@ -1663,7 +1159,7 @@ func writeMappedError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusNotFound, "not_found", "Resource not found.", nil)
 	case errors.Is(err, workspace.ErrRevisionConflict):
 		writeError(w, r, http.StatusConflict, "revision_conflict", "The project changed since this screen was loaded.", nil)
-	case errors.Is(err, workspace.ErrModelNotGenerated), errors.Is(err, workspace.ErrDBMLNotReady), errors.Is(err, workspace.ErrModelCorrectionUnavailable):
+	case errors.Is(err, workspace.ErrModelNotGenerated), errors.Is(err, workspace.ErrDBMLNotReady):
 		writeError(w, r, http.StatusPreconditionFailed, "precondition_failed", err.Error(), nil)
 	default:
 		writeError(w, r, http.StatusBadRequest, "validation_failed", err.Error(), nil)
@@ -1720,19 +1216,6 @@ func optionalInt(value string) (int, error) {
 	return parsed, nil
 }
 
-func uploadedSize(file multipart.File, header *multipart.FileHeader) int64 {
-	if header.Size > 0 {
-		return header.Size
-	}
-	current, _ := file.Seek(0, io.SeekCurrent)
-	end, err := file.Seek(0, io.SeekEnd)
-	if err == nil {
-		_, _ = file.Seek(current, io.SeekStart)
-		return end
-	}
-	return 0
-}
-
 func filterSourceUnits(items []workspace.SourceUnit, filter, search string) []workspace.SourceUnit {
 	if filter == "" {
 		filter = "all"
@@ -1752,90 +1235,12 @@ func filterSourceUnits(items []workspace.SourceUnit, filter, search string) []wo
 			if item.Relevance != "model_relevant" && item.Relevance != "model_supporting" {
 				continue
 			}
-		case "examples":
-			if len(item.LinkedExamples) == 0 && item.Kind != "example_reference" && item.Kind != "json_field" {
-				continue
-			}
 		case "non_model":
 			if item.Relevance != "non_model" {
 				continue
 			}
 		}
 		out = append(out, item)
-	}
-	return out
-}
-
-func filterRequirements(items []workspace.RequirementAtom, filter, search string) []workspace.RequirementAtom {
-	if filter == "" {
-		filter = "all"
-	}
-	sourceUnitID := ""
-	if filter == "by_source_unit" {
-		sourceUnitID = search
-		search = ""
-	}
-	search = strings.ToLower(search)
-	var out []workspace.RequirementAtom
-	for _, item := range items {
-		if search != "" && !strings.Contains(strings.ToLower(item.ID+" "+item.Statement+" "+item.FunctionalArea), search) {
-			continue
-		}
-		if sourceUnitID != "" && !contains(item.SourceUnits, sourceUnitID) {
-			continue
-		}
-		switch filter {
-		case "needs_review":
-			if item.ReviewStatus != "needs_review" && item.ReviewStatus != "open_review" {
-				continue
-			}
-		case "direct_db":
-			if item.ModelingRelevance != "direct_db" {
-				continue
-			}
-		case "non_model":
-			if item.ModelingRelevance != "non_model" {
-				continue
-			}
-		case "external":
-			if item.ModelingRelevance != "external" {
-				continue
-			}
-		}
-		out = append(out, item)
-	}
-	return out
-}
-
-func contains(values []string, needle string) bool {
-	for _, value := range values {
-		if value == needle {
-			return true
-		}
-	}
-	return false
-}
-
-func dependencyEdges(items []workspace.ReviewCandidate) []map[string]string {
-	var out []map[string]string
-	for _, item := range items {
-		for _, parent := range item.DependsOn {
-			out = append(out, map[string]string{"from": parent, "to": item.ID})
-		}
-	}
-	return out
-}
-
-func blockingReasons(health workspace.ArtifactHealth) []string {
-	var out []string
-	if health.OpenReviewQuestions > 0 {
-		out = append(out, strconv.Itoa(health.OpenReviewQuestions)+" open review questions")
-	}
-	if health.AnalysisStatus == "not_started" {
-		out = append(out, "analysis not started")
-	}
-	if out == nil {
-		return []string{}
 	}
 	return out
 }

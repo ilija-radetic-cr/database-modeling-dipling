@@ -38,7 +38,7 @@ func TestRunStructuredStageRetriesOnceWithValidationFeedback(t *testing.T) {
 		}
 		return nil
 	}
-	req := llm.Request{Stage: "functional_analysis", Instructions: "base", Input: "{}", Metadata: map[string]string{}}
+	req := llm.Request{Stage: "conceptual_description", Instructions: "base", Input: "{}", Metadata: map[string]string{}}
 	if err := runStructuredStage(context.Background(), client, t.TempDir(), 1, req, &target, validate); err != nil {
 		t.Fatalf("stage should succeed after feedback retry: %v", err)
 	}

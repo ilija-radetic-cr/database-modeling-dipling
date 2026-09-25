@@ -12,6 +12,18 @@ type Document struct {
 	StateMachines []StateMachine  `yaml:"state_machines"`
 	DerivedViews  []DerivedView   `yaml:"derived_views"`
 	FileSpecs     []FileSpec      `yaml:"file_specs"`
+	// Indexes are optional access paths for searching, filtering and sorting.
+	Indexes []Index `yaml:"indexes,omitempty"`
+}
+
+// Index is a non-unique index on one or more fields of an entity. Unique keys
+// are constraints; an index only speeds up reading.
+type Index struct {
+	ID          string   `yaml:"id"`
+	Owner       string   `yaml:"owner"`
+	Fields      []string `yaml:"fields"`
+	Description string   `yaml:"description"`
+	Evidence    Evidence `yaml:"evidence"`
 }
 
 type DSLMeta struct {
@@ -28,17 +40,14 @@ type ModelInfo struct {
 }
 
 type SourceInfo struct {
-	ReviewedFragmentsFile       string                   `yaml:"reviewed_fragments_file"`
-	ReviewState                 string                   `yaml:"review_state"`
-	AcceptedReviewDecisions     []AcceptedReviewDecision `yaml:"accepted_review_decisions"`
-	PipelineVersion             string                   `yaml:"pipeline_version"`
-	TaskTextFile                string                   `yaml:"task_text_file"`
-	SourceUnitsFile             string                   `yaml:"source_units_file"`
-	RequirementAtomsFile        string                   `yaml:"requirement_atoms_file"`
-	FunctionalDecompositionFile string                   `yaml:"functional_decomposition_file"`
-	CRUDMatrixFile              string                   `yaml:"crud_matrix_file"`
-	ReviewDecisionsFile         string                   `yaml:"review_decisions_file"`
-	DerivationStrategy          string                   `yaml:"derivation_strategy"`
+	ReviewedFragmentsFile   string                   `yaml:"reviewed_fragments_file"`
+	ReviewState             string                   `yaml:"review_state"`
+	AcceptedReviewDecisions []AcceptedReviewDecision `yaml:"accepted_review_decisions"`
+	PipelineVersion         string                   `yaml:"pipeline_version"`
+	TaskTextFile            string                   `yaml:"task_text_file"`
+	SourceUnitsFile         string                   `yaml:"source_units_file"`
+	ReviewDecisionsFile     string                   `yaml:"review_decisions_file"`
+	DerivationStrategy      string                   `yaml:"derivation_strategy"`
 }
 
 type AcceptedReviewDecision struct {
@@ -183,36 +192,29 @@ type FileSpec struct {
 }
 
 type Evidence struct {
-	Fragments        []string `yaml:"fragments"`
-	SourceUnits      []string `yaml:"source_units"`
-	RequirementAtoms []string `yaml:"requirement_atoms"`
-	ReviewDecisions  []string `yaml:"review_decisions"`
-	SupportLevel     string   `yaml:"support_level"`
-	Confidence       string   `yaml:"confidence"`
-	Notes            []string `yaml:"notes"`
+	Fragments       []string `yaml:"fragments"`
+	SourceUnits     []string `yaml:"source_units"`
+	ReviewDecisions []string `yaml:"review_decisions"`
+	SupportLevel    string   `yaml:"support_level"`
+	Confidence      string   `yaml:"confidence"`
+	Notes           []string `yaml:"notes"`
 }
 
-type V05Bundle struct {
-	ModelPath                   string
-	SourceUnitsPath             string
-	RequirementAtomsPath        string
-	FunctionalDecompositionPath string
-	CRUDMatrixPath              string
-	ReviewDecisionsPath         string
-	Document                    *Document
-	SourceUnits                 *V05SourceUnitsFile
-	RequirementAtoms            *V05RequirementAtomsFile
-	FunctionalDecomposition     *V05FunctionalDecompositionFile
-	CRUDMatrix                  *V05CRUDMatrixFile
-	ReviewDecisions             *V05ReviewDecisionsFile
+type Bundle struct {
+	ModelPath           string
+	SourceUnitsPath     string
+	ReviewDecisionsPath string
+	Document            *Document
+	SourceUnits         *SourceUnitsFile
+	ReviewDecisions     *ReviewDecisionsFile
 }
 
-type V05SourceUnitsFile struct {
-	Document    V05SourceUnitsDocument `yaml:"document"`
-	SourceUnits []SourceUnit           `yaml:"source_units"`
+type SourceUnitsFile struct {
+	Document    SourceUnitsDocument `yaml:"document"`
+	SourceUnits []SourceUnit        `yaml:"source_units"`
 }
 
-type V05SourceUnitsDocument struct {
+type SourceUnitsDocument struct {
 	ID              string `yaml:"id"`
 	Title           string `yaml:"title"`
 	PipelineVersion string `yaml:"pipeline_version"`
@@ -252,113 +254,18 @@ type SourceNormalizationOperation struct {
 	After  string `json:"after" yaml:"after"`
 }
 
-type V05RequirementAtomsFile struct {
-	Document         map[string]any    `yaml:"document"`
-	RequirementAtoms []RequirementAtom `yaml:"requirement_atoms"`
-	CoverageChecks   []map[string]any  `yaml:"coverage_checks"`
-}
-
-type RequirementAtom struct {
-	ID                string                  `yaml:"id"`
-	Statement         string                  `yaml:"statement"`
-	Subject           string                  `yaml:"subject,omitempty"`
-	Predicate         string                  `yaml:"predicate,omitempty"`
-	Object            string                  `yaml:"object,omitempty"`
-	Quantifier        string                  `yaml:"quantifier,omitempty"`
-	Condition         string                  `yaml:"condition,omitempty"`
-	TemporalSemantics string                  `yaml:"temporal_semantics,omitempty"`
-	Ownership         string                  `yaml:"ownership,omitempty"`
-	AtomType          string                  `yaml:"atom_type"`
-	ModelingRelevance string                  `yaml:"modeling_relevance"`
-	SourceUnits       []string                `yaml:"source_units"`
-	FunctionalArea    string                  `yaml:"functional_area"`
-	FunctionalPattern string                  `yaml:"functional_pattern"`
-	SupportLevel      string                  `yaml:"support_level"`
-	Confidence        string                  `yaml:"confidence"`
-	RequiresReview    bool                    `yaml:"requires_review"`
-	ReviewClass       string                  `yaml:"review_class,omitempty"`
-	ReviewTopic       string                  `yaml:"review_topic,omitempty"`
-	ReviewGroup       string                  `yaml:"review_group,omitempty"`
-	ReviewDecisions   []string                `yaml:"review_decisions"`
-	ModelImpacts      RequirementModelImpacts `yaml:"model_impacts"`
-	ModelingOutcome   RequirementOutcome      `yaml:"modeling_outcome"`
-}
-
-type RequirementModelImpacts struct {
-	Entities      []string `yaml:"entities"`
-	Attributes    []string `yaml:"attributes"`
-	Relationships []string `yaml:"relationships"`
-	Constraints   []string `yaml:"constraints"`
-	ImportSpecs   []string `yaml:"import_specs"`
-	StateMachines []string `yaml:"state_machines"`
-	DerivedViews  []string `yaml:"derived_views"`
-	FileSpecs     []string `yaml:"file_specs"`
-}
-
-type RequirementOutcome struct {
-	Status string `yaml:"status"`
-}
-
-type V05FunctionalDecompositionFile struct {
+type ReviewDecisionsFile struct {
 	Document        map[string]any   `yaml:"document"`
-	FunctionalAreas []FunctionalArea `yaml:"functional_areas"`
-	CoverageSummary map[string]any   `yaml:"coverage_summary"`
+	ReviewState     map[string]any   `yaml:"review_state"`
+	ReviewDecisions []ReviewDecision `yaml:"review_decisions"`
+	CoverageChecks  []map[string]any `yaml:"coverage_checks"`
 }
 
-type FunctionalArea struct {
-	ID            string   `yaml:"id"`
-	Label         string   `yaml:"label"`
-	Purpose       string   `yaml:"purpose"`
-	MainActors    []string `yaml:"main_actors"`
-	Atoms         []string `yaml:"atoms"`
-	ModelingFocus []string `yaml:"modeling_focus"`
-}
-
-type V05CRUDMatrixFile struct {
-	Document       map[string]any    `yaml:"document"`
-	Notation       map[string]string `yaml:"notation"`
-	Actors         []CRUDActor       `yaml:"actors"`
-	Operations     []CRUDOperation   `yaml:"operations"`
-	Matrix         []CRUDRow         `yaml:"matrix"`
-	CoverageChecks []map[string]any  `yaml:"coverage_checks"`
-}
-
-type CRUDActor struct {
-	ID          string `yaml:"id"`
-	Label       string `yaml:"label"`
-	Description string `yaml:"description"`
-}
-
-type CRUDOperation struct {
-	ID                string   `yaml:"id"`
-	Label             string   `yaml:"label"`
-	FunctionalArea    string   `yaml:"functional_area"`
-	FunctionalPattern string   `yaml:"functional_pattern"`
-	Actor             string   `yaml:"actor"`
-	SourceAtoms       []string `yaml:"source_atoms"`
-	SourceUnits       []string `yaml:"source_units"`
-	Description       string   `yaml:"description"`
-}
-
-type CRUDRow struct {
-	Entity     string              `yaml:"entity"`
-	Table      string              `yaml:"table"`
-	Operations map[string][]string `yaml:"operations"`
-	Rationale  string              `yaml:"rationale"`
-}
-
-type V05ReviewDecisionsFile struct {
-	Document        map[string]any      `yaml:"document"`
-	ReviewState     map[string]any      `yaml:"review_state"`
-	ReviewDecisions []V05ReviewDecision `yaml:"review_decisions"`
-	CoverageChecks  []map[string]any    `yaml:"coverage_checks"`
-}
-
-type V05ReviewDecision struct {
-	ID            string         `yaml:"id"`
-	Question      string         `yaml:"question"`
-	AffectedAtoms []string       `yaml:"affected_atoms"`
-	Decision      map[string]any `yaml:"decision"`
+type ReviewDecision struct {
+	ID               string         `yaml:"id"`
+	Question         string         `yaml:"question"`
+	AffectedElements []string       `yaml:"affected_elements"`
+	Decision         map[string]any `yaml:"decision"`
 }
 
 type ReviewedSource struct {
@@ -431,14 +338,14 @@ type FragmentEvidence struct {
 }
 
 type ReviewItem struct {
-	ID                string         `yaml:"id"`
-	Description       string         `yaml:"description"`
-	Question          string         `yaml:"question"`
-	AffectedFragments []string       `yaml:"affected_fragments"`
-	ResolvesReviewFor []string       `yaml:"resolves_review_for"`
-	DependsOn         []string       `yaml:"depends_on"`
-	Options           []ReviewOption `yaml:"options"`
-	Decision          ReviewDecision `yaml:"decision"`
+	ID                string             `yaml:"id"`
+	Description       string             `yaml:"description"`
+	Question          string             `yaml:"question"`
+	AffectedFragments []string           `yaml:"affected_fragments"`
+	ResolvesReviewFor []string           `yaml:"resolves_review_for"`
+	DependsOn         []string           `yaml:"depends_on"`
+	Options           []ReviewOption     `yaml:"options"`
+	Decision          ReviewItemDecision `yaml:"decision"`
 }
 
 type ReviewOption struct {
@@ -448,7 +355,7 @@ type ReviewOption struct {
 	Rationale   string `yaml:"rationale"`
 }
 
-type ReviewDecision struct {
+type ReviewItemDecision struct {
 	Status         string `yaml:"status"`
 	SelectedOption string `yaml:"selected_option"`
 	CustomText     string `yaml:"custom_text"`

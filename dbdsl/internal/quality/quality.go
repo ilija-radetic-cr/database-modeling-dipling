@@ -9,14 +9,12 @@ import (
 )
 
 type Summary struct {
-	ValidationErrors           int    `json:"validation_errors"`
-	LintWarnings               int    `json:"lint_warnings"`
-	LintInfo                   int    `json:"lint_info"`
-	BlockingIssues             int    `json:"blocking_issues"`
-	TraceabilityStatus         string `json:"traceability_status"`
-	DBMLStatus                 string `json:"dbml_status"`
-	SemanticVerificationStatus string `json:"semantic_verification_status"`
-	SemanticBlockingIssues     int    `json:"semantic_blocking_issues"`
+	ValidationErrors   int    `json:"validation_errors"`
+	LintWarnings       int    `json:"lint_warnings"`
+	LintInfo           int    `json:"lint_info"`
+	BlockingIssues     int    `json:"blocking_issues"`
+	TraceabilityStatus string `json:"traceability_status"`
+	DBMLStatus         string `json:"dbml_status"`
 }
 
 type Issue struct {
@@ -40,9 +38,8 @@ func BuildReport(modelPath string, dbmlReady bool) Report {
 
 	report := Report{
 		Summary: Summary{
-			TraceabilityStatus:         "complete",
-			DBMLStatus:                 "not_generated",
-			SemanticVerificationStatus: "not_run",
+			TraceabilityStatus: "complete",
+			DBMLStatus:         "not_generated",
 		},
 	}
 	if dbmlReady {

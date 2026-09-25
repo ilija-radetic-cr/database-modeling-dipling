@@ -38,10 +38,6 @@ func run(args []string) int {
 		return runGenerate(args[1:])
 	case "bundle-from-task":
 		return runBundleFromTask(args[1:])
-	case "llm-plan":
-		return runLLMPlan(args[1:])
-	case "llm-repair":
-		return runLLMRepair(args[1:])
 	case "llm-baseline":
 		return runLLMBaseline(args[1:])
 	case "evaluate":
@@ -258,7 +254,7 @@ func runBundleFromTask(args []string) int {
 	}
 	fmt.Printf("validation ok\n")
 	printLintResult(lintResult)
-	fmt.Printf("wrote v0.5 bundle to %s\n", opts.OutDir)
+	fmt.Printf("wrote v0.6 bundle to %s\n", opts.OutDir)
 	for _, path := range result.Files {
 		fmt.Printf("- %s\n", path)
 	}
@@ -278,8 +274,6 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  dbdsl trace --poc <case> --version <version> [--write]")
 	fmt.Fprintln(os.Stderr, "  dbdsl generate --poc <case> --version <version>")
 	fmt.Fprintln(os.Stderr, "  dbdsl bundle-from-task <task.md> --out <dir> [--id <model_id>] [--name <model name>]")
-	fmt.Fprintln(os.Stderr, "  dbdsl llm-plan <task.md> --out <dir> [--mock] [--model <model>]")
-	fmt.Fprintln(os.Stderr, "  dbdsl llm-repair <bundle_dir> --issue <issue_id> --out <dir> [--mock]")
 	fmt.Fprintln(os.Stderr, "  dbdsl llm-baseline <task.md> --out <dir> [--target dbml|sql] [--mock]")
 	fmt.Fprintln(os.Stderr, "  dbdsl evaluate <reference_db_model.dsl.yaml> <candidate_db_model.dsl.yaml> --out <dir>")
 	fmt.Fprintln(os.Stderr, "  dbdsl evaluation-freeze-check <freeze_manifest.yaml> [--stage preparation|ai-internal|human-signed]")

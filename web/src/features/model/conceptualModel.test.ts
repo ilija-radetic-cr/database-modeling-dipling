@@ -13,7 +13,6 @@ describe("normalizeConceptualModelForView", () => {
         attributes: null,
         evidence: {
           source_units: null,
-          requirement_atoms: ["RA-0009"],
           review_decisions: null,
         },
       }],
@@ -32,7 +31,28 @@ describe("normalizeConceptualModelForView", () => {
     expect(normalized.relationships).toEqual([]);
     expect(normalized.entity_concepts[0].attributes).toEqual([]);
     expect(normalized.entity_concepts[0].evidence.source_units).toEqual([]);
+    expect(normalized.entity_concepts[0].evidence.review_decisions).toEqual([]);
     expect(normalized.unresolved_review_ids).toEqual([]);
     expect(normalized.confidence_summary).toEqual({});
+  });
+
+  it("keeps segment evidence on entities and relationships", () => {
+    const model = {
+      entity_concepts: [{
+        id: "ENT-order", label: "Order", description: "", kind: "regular", attributes: [],
+        evidence: { source_units: ["SU-004", "SU-005"], review_decisions: [] },
+      }],
+      relationships: [{
+        id: "REL-order-customer", label: "placed by", description: "", from: "ENT-order", to: "ENT-customer", cardinality: "many_to_one",
+        evidence: { source_units: ["SU-004"], review_decisions: [] },
+      }],
+      lifecycle_concepts: [], derived_concepts: [], file_concepts: [], import_concepts: [],
+      unresolved_review_ids: [], warnings: [], confidence_summary: {},
+    } as ConceptualModel;
+
+    const normalized = normalizeConceptualModelForView(model);
+
+    expect(normalized.entity_concepts[0].evidence.source_units).toEqual(["SU-004", "SU-005"]);
+    expect(normalized.relationships[0].evidence.source_units).toEqual(["SU-004"]);
   });
 });

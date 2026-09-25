@@ -136,20 +136,8 @@ func (s *Store) combinedDocumentLineageRel(projectID string) string {
 	return filepath.ToSlash(filepath.Join(s.projectWorkspaceRel(projectID), "combined_document_lineage.json"))
 }
 
-func (s *Store) sourceSegmentsRel(projectID string) string {
-	return filepath.ToSlash(filepath.Join(s.projectWorkspaceRel(projectID), "source_segments.json"))
-}
-
-func (s *Store) sourceFidelityReportRel(projectID string) string {
-	return filepath.ToSlash(filepath.Join(s.projectWorkspaceRel(projectID), "source_fidelity_report.json"))
-}
-
 func (s *Store) sourceSegmentationProposalRel(projectID string) string {
 	return filepath.ToSlash(filepath.Join(s.projectWorkspaceRel(projectID), "source_segmentation.proposed.json"))
-}
-
-func (s *Store) sourceSegmentationQARel(projectID string) string {
-	return filepath.ToSlash(filepath.Join(s.projectWorkspaceRel(projectID), "source_segmentation_qa.json"))
 }
 
 func (s *Store) projectRevisionRel(projectID string, revision int) string {
@@ -314,7 +302,6 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 	// Sources may have changed since the last run, so detect the language afresh
 	// instead of reusing the frozen profile.
 	sourceLanguage := s.detectSourceLanguage(projectID)
-	ctx = llmpipeline.WithOutputLanguage(ctx, sourceLanguage)
 	project, ok := s.Project(projectID)
 	if !ok {
 		return 0, nil, ErrNotFound
@@ -440,15 +427,11 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 		project.SourceManifestPath = s.sourceManifestRel(project.ID)
 		project.CombinedDocumentPath = s.combinedDocumentRel(project.ID)
 		project.CombinedDocumentLineagePath = s.combinedDocumentLineageRel(project.ID)
-		project.SourceSegmentsPath = ""
-		project.SourceFidelityReportPath = ""
 		project.SourceSegmentationProposalPath = s.sourceSegmentationProposalRel(project.ID)
-		project.SourceSegmentationQAPath = ""
 		project.SourceUnitsProposalPath = sourcePaths.Proposal
 		project.SourceUnitsPath = sourcePaths.Accepted
 		project.SourceUnitQAPath = sourcePaths.QA
 		project.CombinedDocumentReady = true
-		project.AnalysisReady = false
 		project.ModelGenerated = false
 		project.DBMLReady = false
 		project.Completed = false
@@ -460,8 +443,6 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 		} else {
 			project.LifecycleStatus = "sources_processed"
 		}
-		project.OpenReviewIDs = map[string]bool{}
-		project.AnsweredReviews = map[string]string{}
 		project.LastActivity = "Source resources were segmented and assigned canonical SU evidence IDs in one revision."
 		return nil
 	})
@@ -518,20 +499,13 @@ func (s *Store) writeSourceManifestLocked(project *ProjectState) error {
 }
 
 func (s *Store) invalidateDerivedFromResources(project *ProjectState) {
-	_ = removeIfPresent(s.absoluteWorkspacePath(project.SourceSegmentsPath))
-	_ = removeIfPresent(s.absoluteWorkspacePath(project.SourceFidelityReportPath))
 	_ = removeIfPresent(s.absoluteWorkspacePath(project.SourceSegmentationProposalPath))
-	_ = removeIfPresent(s.absoluteWorkspacePath(project.SourceSegmentationQAPath))
 	_ = removeIfPresent(s.absoluteWorkspacePath(project.CombinedDocumentPath))
 	_ = removeIfPresent(s.absoluteWorkspacePath(project.CombinedDocumentLineagePath))
 	project.CombinedDocumentPath = ""
 	project.CombinedDocumentLineagePath = ""
-	project.SourceSegmentsPath = ""
-	project.SourceFidelityReportPath = ""
 	project.SourceSegmentationProposalPath = ""
-	project.SourceSegmentationQAPath = ""
 	project.CombinedDocumentReady = false
-	project.AnalysisReady = false
 	project.ModelGenerated = false
 	project.DBMLReady = false
 	project.Completed = false
@@ -539,8 +513,6 @@ func (s *Store) invalidateDerivedFromResources(project *ProjectState) {
 	project.TaskPath = ""
 	project.BundlePath = ""
 	project.LifecycleStatus = "intake"
-	project.OpenReviewIDs = map[string]bool{}
-	project.AnsweredReviews = map[string]string{}
 	s.invalidateDerivedFromCombinedDocument(project)
 }
 
@@ -551,21 +523,6 @@ func writeJSONArtifact(path string, value any) error {
 	}
 	data = append(data, '\n')
 	return writeAtomic(path, data)
-}
-
-func (s *Store) SourceFidelity(projectID string) (llmpipeline.SourceFidelityReport, error) {
-	project, ok := s.Project(projectID)
-	if !ok {
-		return llmpipeline.SourceFidelityReport{}, ErrNotFound
-	}
-	if project.SourceFidelityReportPath == "" {
-		return llmpipeline.SourceFidelityReport{}, ErrNotFound
-	}
-	var report llmpipeline.SourceFidelityReport
-	if err := readJSON(s.absoluteWorkspacePath(project.SourceFidelityReportPath), &report); err != nil {
-		return llmpipeline.SourceFidelityReport{}, err
-	}
-	return report, nil
 }
 
 func (s *Store) SourceSegmentation(projectID string) (llmpipeline.SourceSegmentationProposal, error) {
@@ -591,18 +548,6 @@ func (s *Store) invalidateDerivedFromCombinedDocument(project *ProjectState) {
 }
 
 func (s *Store) invalidateDerivedFromSourceUnits(project *ProjectState) {
-	project.RequirementAtomsProposalPath = ""
-	project.RequirementAtomsPath = ""
-	project.RequirementAtomQAPath = ""
-	project.DesignObligationsProposalPath = ""
-	project.DesignObligationsPath = ""
-	project.DesignObligationQAPath = ""
-	project.FunctionalAnalysisProposalPath = ""
-	project.FunctionalDecompositionPath = ""
-	project.FunctionalAnalysisQAPath = ""
-	project.CRUDMappingProposalPath = ""
-	project.CRUDMatrixPath = ""
-	project.CRUDMappingQAPath = ""
 	invalidateModelAndReview(project)
 }
 
@@ -643,39 +588,6 @@ func (s *Store) writeCombinedDocumentArtifacts(project *ProjectState, lineage Co
 	}
 	data = append(data, '\n')
 	return writeAtomic(s.absoluteWorkspacePath(s.combinedDocumentLineageRel(project.ID)), data)
-}
-
-func validateCombinedDocumentLineage(proposal llmpipeline.CombinedDocumentProposal, resources []extractedResource) ([]string, error) {
-	var warnings []string
-	if len(proposal.Sentences) == 0 {
-		return nil, errors.New("combined document has no sentences")
-	}
-	byID := map[string]extractedResource{}
-	for _, resource := range resources {
-		byID[resource.Resource.ID] = resource
-	}
-	for _, sentence := range proposal.Sentences {
-		if len(sentence.DerivedFrom) == 0 {
-			return nil, fmt.Errorf("%s has no lineage", sentence.ID)
-		}
-		for _, origin := range sentence.DerivedFrom {
-			resource, ok := byID[origin.ResourceID]
-			if !ok {
-				return nil, fmt.Errorf("%s references unknown resource %s", sentence.ID, origin.ResourceID)
-			}
-			if origin.LineStart <= 0 || origin.LineEnd <= 0 || origin.LineStart > origin.LineEnd || origin.LineEnd > len(resource.Lines) {
-				return nil, fmt.Errorf("%s has invalid line span %d-%d for %s", sentence.ID, origin.LineStart, origin.LineEnd, origin.ResourceID)
-			}
-			spanText := strings.Join(resource.Lines[origin.LineStart-1:origin.LineEnd], "\n")
-			if !containsCompacted(spanText, origin.ExactText) {
-				if sentence.Transformation == "copied" {
-					return nil, fmt.Errorf("%s copied span text was not found in %s lines %d-%d", sentence.ID, origin.ResourceID, origin.LineStart, origin.LineEnd)
-				}
-				warnings = append(warnings, fmt.Sprintf("%s exact_text not found verbatim in %s lines %d-%d; accepted as %s transformation", sentence.ID, origin.ResourceID, origin.LineStart, origin.LineEnd, sentence.Transformation))
-			}
-		}
-	}
-	return warnings, nil
 }
 
 func renderCombinedDocumentMarkdown(projectName string, sentences []llmpipeline.CombinedDocumentSentence) string {
@@ -916,18 +828,6 @@ func ensureTrailingNewline(text string) string {
 		return text
 	}
 	return text + "\n"
-}
-
-func containsCompacted(haystack, needle string) bool {
-	needle = compactWhitespace(needle)
-	if needle == "" {
-		return false
-	}
-	return strings.Contains(compactWhitespace(haystack), needle)
-}
-
-func compactWhitespace(value string) string {
-	return strings.Join(strings.Fields(value), " ")
 }
 
 func resourceExtension(fileType, fileName string) string {

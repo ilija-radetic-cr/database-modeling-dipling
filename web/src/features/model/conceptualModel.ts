@@ -12,7 +12,6 @@ export function normalizeConceptualModelForView(model: ConceptualModel): Concept
     evidence: {
       ...entity.evidence,
       source_units: entity.evidence?.source_units ?? [],
-      requirement_atoms: entity.evidence?.requirement_atoms ?? [],
       review_decisions: entity.evidence?.review_decisions ?? [],
     },
   }));
@@ -21,7 +20,6 @@ export function normalizeConceptualModelForView(model: ConceptualModel): Concept
     evidence: {
       ...relationship.evidence,
       source_units: relationship.evidence?.source_units ?? [],
-      requirement_atoms: relationship.evidence?.requirement_atoms ?? [],
       review_decisions: relationship.evidence?.review_decisions ?? [],
     },
   }));
@@ -34,6 +32,7 @@ export function normalizeConceptualModelForView(model: ConceptualModel): Concept
     derived_concepts: wire.derived_concepts ?? [],
     file_concepts: wire.file_concepts ?? [],
     import_concepts: wire.import_concepts ?? [],
+    index_concepts: wire.index_concepts ?? [],
     unresolved_review_ids: wire.unresolved_review_ids ?? [],
     warnings: wire.warnings ?? [],
     confidence_summary: wire.confidence_summary ?? {},

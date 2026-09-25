@@ -12,14 +12,7 @@ import (
 
 // DescriptionTransformVersion identifies the deterministic rules that turn a
 // conceptual description into the conceptual model read by the logical mapper.
-const DescriptionTransformVersion = "conceptual_description_to_model_v2"
-
-// SegmentAtomID is the evidence atom that stands for one source unit in the
-// DB-DSL bundle. The segment-based flow has no separate requirement stage, so
-// every cited unit is its own requirement.
-func SegmentAtomID(unitID string) string {
-	return "RA-" + strings.TrimPrefix(unitID, "SU-")
-}
+const DescriptionTransformVersion = "conceptual_description_to_model_v4"
 
 type descriptionTransformer struct {
 	description ConceptualDescription
@@ -129,14 +122,13 @@ func (t *descriptionTransformer) evidence(primary DescriptionEvidence, fallbacks
 			}
 		}
 	}
-	out := EvidenceProposal{SourceUnits: []string{}, RequirementAtoms: []string{}, ReviewDecisions: []string{}, Notes: []string{}, SupportLevel: "explicit", Confidence: "high"}
+	out := EvidenceProposal{SourceUnits: []string{}, ReviewDecisions: []string{}, Notes: []string{}, SupportLevel: "explicit", Confidence: "high"}
 	if chosen.Mode == "implied" {
 		out.SupportLevel, out.Confidence = "inferred", "medium"
 	}
 	for _, id := range chosen.Segments {
 		if _, ok := t.units[id]; ok {
 			out.SourceUnits = appendUnique(out.SourceUnits, id)
-			out.RequirementAtoms = appendUnique(out.RequirementAtoms, SegmentAtomID(id))
 		}
 	}
 	return out
@@ -286,7 +278,7 @@ func (t *descriptionTransformer) addDerivedProperty(thing DescriptionThing, enti
 	t.model.DerivedConcepts = append(t.model.DerivedConcepts, PlanElementProposal{
 		ID: t.uniqueID("DER-" + strings.TrimPrefix(entityID, "ENT-") + "-" + upperID(property.Name)), Label: shortLabel(property.Name, property.Name),
 		Description: propertyDescription(property), Kind: "derived", Sources: []string{entityID}, Metrics: []string{metric},
-		SourceUnits: evidence.SourceUnits, RequirementAtoms: evidence.RequirementAtoms,
+		SourceUnits: evidence.SourceUnits,
 	})
 }
 
@@ -300,9 +292,6 @@ func (t *descriptionTransformer) mapLinks(thing DescriptionThing) {
 		if toID == "" {
 			continue
 		}
-		if t.hasInverseRelationship(fromID, toID) {
-			continue
-		}
 		thisMany, otherMany := countIsMany(link.PerThis, false), countIsMany(link.PerOther, true)
 		cardinality := "many_to_one"
 		switch {
@@ -313,32 +302,60 @@ func (t *descriptionTransformer) mapLinks(thing DescriptionThing) {
 		case !otherMany:
 			cardinality = "one_to_one"
 		}
+		// The foreign key of a one-to-many link sits on the other side, so its
+		// optionality is how many of this thing one of the other has.
 		required := countIsRequired(link.PerThis)
+		if cardinality == "one_to_many" {
+			required = countIsRequired(link.PerOther)
+		}
 		target := t.thingByID[link.To]
-		t.model.Relationships = append(t.model.Relationships, ConceptualRelationshipProposal{
+		relationship := ConceptualRelationshipProposal{
 			ID:    t.uniqueID("REL-" + strings.TrimPrefix(fromID, "ENT-") + "-" + strings.TrimPrefix(toID, "ENT-")),
 			Label: shortLabel(link.Meaning, thing.Name+" "+target.Name), Description: descriptionText(link.Meaning, thing.Name+" – "+target.Name),
 			From: fromID, To: toID, Cardinality: cardinality, Required: &required,
 			Evidence: t.evidence(link.Evidence, thing.Evidence, t.fallback[thing.ID]),
-		})
+		}
+		if i := t.inverseRelationship(fromID, toID); i >= 0 {
+			t.resolveInverse(i, relationship)
+			continue
+		}
+		t.model.Relationships = append(t.model.Relationships, relationship)
 	}
 }
 
-func (t *descriptionTransformer) hasInverseRelationship(fromID, toID string) bool {
+func (t *descriptionTransformer) inverseRelationship(fromID, toID string) int {
 	if fromID == toID {
-		return false
+		return -1
 	}
-	for _, rel := range t.model.Relationships {
+	for i, rel := range t.model.Relationships {
 		if rel.From == toID && rel.To == fromID {
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
+}
+
+// resolveInverse keeps one of two links stated from both sides. A link whose
+// foreign key sits on its own side (many-to-one or one-to-one) says exactly
+// which record points where, so it wins over a one-to-many or many-to-many
+// statement of the same link; otherwise the first statement stays.
+func (t *descriptionTransformer) resolveInverse(i int, candidate ConceptualRelationshipProposal) {
+	existing := &t.model.Relationships[i]
+	holdsKey := func(cardinality string) bool { return cardinality == "many_to_one" || cardinality == "one_to_one" }
+	if holdsKey(candidate.Cardinality) && !holdsKey(existing.Cardinality) {
+		t.warn("link %s – %s is stated from both sides with different counts; the link that holds the foreign key is kept", existing.From, existing.To)
+		mergeEvidenceInto(&candidate.Evidence, existing.Evidence)
+		delete(t.usedIDs, existing.ID)
+		*existing = candidate
+		return
+	}
+	mergeEvidenceInto(&existing.Evidence, candidate.Evidence)
 }
 
 func (t *descriptionTransformer) mapLifecycle(thing DescriptionThing) {
 	states := trimmedUniqueStrings(thing.States)
-	if len(states) == 0 {
+	if len(states) < 2 {
+		// A single state distinguishes nothing and is not a lifecycle.
 		return
 	}
 	outgoing := map[string]bool{}
@@ -353,7 +370,6 @@ func (t *descriptionTransformer) mapLifecycle(thing DescriptionThing) {
 		transitions = append(transitions, ConceptualTransition{From: from, To: to})
 		for _, id := range t.evidence(transition.Evidence).SourceUnits {
 			evidence.SourceUnits = appendUnique(evidence.SourceUnits, id)
-			evidence.RequirementAtoms = appendUnique(evidence.RequirementAtoms, SegmentAtomID(id))
 		}
 	}
 	terminal := []string{}
@@ -369,7 +385,7 @@ func (t *descriptionTransformer) mapLifecycle(thing DescriptionThing) {
 		ID: t.uniqueID("LC-" + strings.TrimPrefix(entityID, "ENT-")), Label: shortLabel("Stanje "+thing.Name, "Stanje"),
 		Description: "Stanja: " + strings.Join(states, ", ") + ".", Kind: "lifecycle", Owner: entityID, Field: "status",
 		States: states, Initial: states[0], Terminal: terminal, Transitions: transitions,
-		SourceUnits: evidence.SourceUnits, RequirementAtoms: evidence.RequirementAtoms,
+		SourceUnits: evidence.SourceUnits,
 	})
 }
 
@@ -539,29 +555,37 @@ func (t *descriptionTransformer) resolveTargets(refs []string) []string {
 	return targets
 }
 
-// resolveEntities resolves references to the entities they read from.
-func (t *descriptionTransformer) resolveEntities(refs []string) []string {
-	entities := []string{}
-	for _, ref := range refs {
-		if entityID, _ := t.resolveRef(ref); entityID != "" {
-			entities = appendUnique(entities, entityID)
-		}
-	}
-	return entities
-}
-
+// mapQueries turns the criteria that queries search, filter or sort by into
+// index proposals. Queries themselves are not part of the data model: the
+// description already checked that the data they need is there.
 func (t *descriptionTransformer) mapQueries() {
+	byAttribute := map[string]int{}
 	for _, query := range t.description.Queries {
-		entities := t.resolveEntities(query.Needs)
 		evidence := t.evidence(query.Evidence)
-		if len(entities) == 0 || len(evidence.SourceUnits) == 0 {
+		if len(evidence.SourceUnits) == 0 {
 			continue
 		}
-		t.model.DerivedConcepts = append(t.model.DerivedConcepts, PlanElementProposal{
-			ID: t.uniqueID("DER-" + upperID(nonEmpty(query.ID, "query"))), Label: shortLabel(query.Description, "Pregled"),
-			Description: descriptionText(query.Description, "Pregled"), Kind: "derived", Sources: entities, Metrics: []string{query.Description},
-			SourceUnits: evidence.SourceUnits, RequirementAtoms: evidence.RequirementAtoms,
-		})
+		for _, ref := range query.Criteria {
+			entityID, property := t.resolveRef(ref)
+			if entityID == "" || property == "" {
+				continue
+			}
+			for _, attributeID := range t.attributes[entityID][snakeIdentifier(property)] {
+				if i, ok := byAttribute[attributeID]; ok {
+					index := &t.model.IndexConcepts[i]
+					mergeEvidenceInto(&index.Evidence, evidence)
+					if !strings.Contains(index.Description, query.Description) {
+						index.Description += " " + query.Description
+					}
+					continue
+				}
+				byAttribute[attributeID] = len(t.model.IndexConcepts)
+				t.model.IndexConcepts = append(t.model.IndexConcepts, ConceptualIndexProposal{
+					ID: t.uniqueID("IDX-" + strings.TrimPrefix(attributeID, "ATTR-")), Label: shortLabel("Pretraga po "+property, "Pretraga"),
+					Description: query.Description, Owner: entityID, Targets: []string{attributeID}, Evidence: evidence,
+				})
+			}
+		}
 	}
 }
 
@@ -574,7 +598,7 @@ func (t *descriptionTransformer) mapImports() {
 		t.model.ImportConcepts = append(t.model.ImportConcepts, PlanElementProposal{
 			ID: t.uniqueID("IMP-" + upperID(nonEmpty(item.ID, "import"))), Label: shortLabel(item.Description, "Uvoz"),
 			Description: descriptionText(item.Description, "Uvoz podataka"), Kind: "import",
-			SourceUnits: evidence.SourceUnits, RequirementAtoms: evidence.RequirementAtoms,
+			SourceUnits: evidence.SourceUnits,
 		})
 	}
 }
@@ -713,105 +737,4 @@ func propertyDescription(property DescriptionProperty) string {
 		text += " (" + strings.Join(notes, "; ") + ")"
 	}
 	return text
-}
-
-// SegmentEvidenceArtifacts builds the requirement, functional and CRUD files the
-// DB-DSL v0.5 bundle format still requires. In the segment-based flow they are
-// not analysis results: one evidence atom per source unit, one functional area
-// for the whole system, the actors of the description, and no operations.
-func SegmentEvidenceArtifacts(units []dsl.SourceUnit, description ConceptualDescription, model ConceptualModelProposal) (RequirementAtomExtractionProposal, FunctionalAnalysisProposal, CRUDMappingProposal) {
-	cited := map[string]bool{}
-	mark := func(atoms []string) {
-		for _, id := range atoms {
-			cited[id] = true
-		}
-	}
-	for _, entity := range model.EntityConcepts {
-		mark(entity.Evidence.RequirementAtoms)
-		for _, attribute := range entity.Attributes {
-			mark(attribute.Evidence.RequirementAtoms)
-		}
-	}
-	for _, rel := range model.Relationships {
-		mark(rel.Evidence.RequirementAtoms)
-	}
-	for _, constraint := range model.ConstraintConcepts {
-		mark(constraint.Evidence.RequirementAtoms)
-	}
-	for _, group := range [][]PlanElementProposal{model.LifecycleConcepts, model.DerivedConcepts, model.FileConcepts, model.ImportConcepts} {
-		for _, item := range group {
-			mark(item.RequirementAtoms)
-		}
-	}
-	atoms := RequirementAtomExtractionProposal{RequirementAtoms: []RequirementAtomProposal{}, Warnings: []string{}, ConfidenceSummary: map[string]string{"strategy": "segment_evidence_v1"}}
-	atomIDs, atomUnits := []string{}, []string{}
-	for _, unit := range units {
-		if !conceptualInputUnit(unit) || unit.Kind == "heading" {
-			continue
-		}
-		id := SegmentAtomID(unit.ID)
-		atom := RequirementAtomProposal{
-			ID: id, Statement: unitText(unit), AtomType: "source_segment", SourceUnits: []string{unit.ID},
-			SupportLevel: "explicit", Confidence: "high", FunctionalArea: "FA-001", FunctionalPattern: "domain_modeling",
-			ReviewClass: ReviewClassNone, ReviewTopic: "none", ExampleRole: "none", Warnings: []string{}, ReviewDecisions: []string{},
-			ModelingRelevance: "non_model", ModelingOutcome: "intentionally_not_in_db", PersistenceEffect: "not_required",
-		}
-		if cited[id] {
-			atom.ModelingRelevance, atom.ModelingOutcome, atom.PersistenceEffect = "direct_db", "represented", "required"
-		}
-		atoms.RequirementAtoms = append(atoms.RequirementAtoms, atom)
-		atomIDs = append(atomIDs, id)
-		atomUnits = append(atomUnits, unit.ID)
-	}
-	actors := []ActorProposal{}
-	actorIDs := []string{}
-	seen := map[string]bool{}
-	for _, actor := range description.Actors {
-		id := snakeIdentifier(nonEmpty(actor.ID, actor.Name))
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		actors = append(actors, ActorProposal{ID: id, Label: nonEmpty(strings.TrimSpace(actor.Name), id), Description: descriptionText(actor.Description, actor.Name), Kind: "human"})
-		actorIDs = append(actorIDs, id)
-	}
-	if len(actors) == 0 {
-		actors = append(actors, ActorProposal{ID: "sistem", Label: "Sistem", Description: "Opisani sistem.", Kind: "system"})
-		actorIDs = append(actorIDs, "sistem")
-	}
-	sort.Strings(actorIDs)
-	functional := FunctionalAnalysisProposal{
-		FunctionalAreas: []FunctionalAreaProposal{{ID: "FA-001", Label: "Sistem", Purpose: "Ceo opisani sistem; oblasti se u toku zasnovanom na segmentima ne izdvajaju.", MainActors: actorIDs, Atoms: atomIDs, ModelingFocus: []string{}}},
-		Actors:          actors, Warnings: []string{}, ConfidenceSummary: map[string]string{"strategy": "segment_evidence_v1"},
-	}
-	// One placeholder operation keeps the CRUD matrix well-formed; operations
-	// are not analysed in this flow.
-	crud := CRUDMappingProposal{Operations: []CRUDOperationProposal{{
-		ID: "OP-001", Label: "Rad sa podacima sistema", ActorID: actorIDs[0], FunctionalAreaID: "FA-001",
-		Creates: []string{}, Reads: []string{}, Updates: []string{}, Deletes: []string{}, PersistentData: []string{},
-		Outcome: "Operacije se u toku zasnovanom na segmentima ne izdvajaju.", RequirementAtoms: atomIDs, SourceUnits: atomUnits, Warnings: []string{},
-	}}, Warnings: []string{}, ConfidenceSummary: map[string]string{"strategy": "segment_evidence_v1"}}
-	return atoms, functional, crud
-}
-
-// ReconcileSegmentAtomOutcomes aligns evidence atoms with the final logical
-// model: an atom is represented exactly when some element of the model cites
-// it. The mapper may fold or drop conceptual elements, so the outcome decided
-// before mapping is not reliable.
-func ReconcileSegmentAtomOutcomes(artifacts *LogicalArtifacts) {
-	for i := range artifacts.RequirementAtoms.RequirementAtoms {
-		atom := &artifacts.RequirementAtoms.RequirementAtoms[i]
-		if countImpacts(atom.ModelImpacts) > 0 {
-			atom.ModelingOutcome.Status = "represented"
-			atom.ModelingRelevance = "direct_db"
-			continue
-		}
-		atom.ModelingOutcome.Status = "intentionally_not_in_db"
-		atom.ModelingRelevance = "non_model"
-	}
-}
-
-func countImpacts(impacts dsl.RequirementModelImpacts) int {
-	return len(impacts.Entities) + len(impacts.Attributes) + len(impacts.Relationships) + len(impacts.Constraints) +
-		len(impacts.ImportSpecs) + len(impacts.StateMachines) + len(impacts.DerivedViews) + len(impacts.FileSpecs)
 }

@@ -1,7 +1,6 @@
 package llmpipeline
 
 import (
-	"context"
 	"strings"
 	"unicode"
 )
@@ -50,17 +49,3 @@ func DetectSourceLanguage(text string) string {
 }
 
 type outputLanguageKey struct{}
-
-// WithOutputLanguage attaches the project's output language to the context of a
-// stage. Prompts carry their own language rules; nothing is appended to them.
-func WithOutputLanguage(ctx context.Context, language string) context.Context {
-	return context.WithValue(ctx, outputLanguageKey{}, language)
-}
-
-func outputLanguage(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	language, _ := ctx.Value(outputLanguageKey{}).(string)
-	return language
-}

@@ -30,7 +30,7 @@ Open <http://127.0.0.1:5173>. The Vite development server proxies `/api` to the 
 
 The backend creates local runtime state, project artifacts and LLM audit logs in `.dbdsl_workbench/`; this directory is intentionally ignored by Git.
 
-The application workflow covers source intake, source segmentation, deterministic text normalization, source-unit review, requirement extraction, functional and CRUD analysis, human review, conceptual modeling, logical DB-DSL projection, semantic-obligation resolution, validation and repair, and final DBML and SQL generation.
+The application workflow covers source intake and preparation, conceptual modeling, logical DB-DSL projection, validation and final DBML and SQL generation.
 
 ## Offline development
 
@@ -52,8 +52,7 @@ npm run build
 
 - `dbdsl/` — Go backend, DB-DSL core, CLI and tests
 - `web/` — React/Vite workbench
-- `poc/` — canonical startup bundle and fixtures required by the backend/test suite
-- `fixtures/` — integration-test manifest
+- `fixtures/` — versioned golden bundles and the integration-test manifest
 - `go.work` — repository-level Go workspace configuration
 
 Secrets, runtime projects, generated exports, dependency directories and build outputs are not included.

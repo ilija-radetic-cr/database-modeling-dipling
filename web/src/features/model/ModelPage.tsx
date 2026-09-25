@@ -10,7 +10,7 @@ import ReactFlow, {
   type Node,
   type NodeProps,
 } from "reactflow";
-import { AlertTriangle, ArrowRight, CheckCircle2, GitBranch, Play, RotateCcw, Search } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Play, RotateCcw, Search } from "lucide-react";
 import { api } from "@/shared/api/client";
 import type { ConceptualDescription, Job, ModelNode, QualityIssue, SourceUnit } from "@/shared/api/types";
 import { Badge, Button, Drawer, LoadingState, Panel, StatusBadge } from "@/shared/components/ui";
@@ -44,24 +44,15 @@ export function ModelPage({ projectId, mode }: { projectId: string; mode: string
 			generateOutputs.mutate();
 		},
 	});
-	const continuePipeline = () => {
-		requestAutoRun(projectId);
-		navigate(`/projects/${projectId}/analysis/overview`);
-	};
 	const health = project.data?.artifact_health;
 	const modelReady = health?.model_status === "ready";
 	const nextAction = finalModelAction({
 		modelReady,
 		accepted: !!health?.final_model_accepted,
 		dbmlReady: health?.dbml_status === "ready",
-		semanticStatus: health?.semantic_verification_status,
 	});
 	const action = nextAction === "return_to_pipeline" ? (
 		<Button onClick={() => navigate(`/projects/${projectId}/analysis/overview`)}>Return to pipeline</Button>
-	) : nextAction === "verify_semantic" ? (
-		<Button variant="primary" onClick={continuePipeline}><Play size={18} />Verify Semantic Obligations</Button>
-	) : nextAction === "resolve_semantic" ? (
-		<Button variant="primary" onClick={() => navigate(`/projects/${projectId}/model/quality`)}><AlertTriangle size={18} />Resolve Semantic Issues</Button>
 	) : nextAction === "accept_model" ? (
 		<Button variant="primary" disabled={accept.isPending} onClick={() => accept.mutate()}><CheckCircle2 size={18} />Accept Final Model</Button>
 	) : nextAction === "generate_outputs" ? (
@@ -139,6 +130,7 @@ function ConceptualView({ projectId }: { projectId: string }) {
 		["Derived", model.derived_concepts],
 		["Files", model.file_concepts],
 		["Imports", model.import_concepts],
+		["Indexes", model.index_concepts ?? []],
 	] as const;
 	return (
 		<div className="page">
@@ -230,7 +222,8 @@ function DescriptionPanel({ description, warnings }: { description: ConceptualDe
 							</li>
 						))}
 					</ul>
-					{warnings.length > 0 && <ul className="plain-list muted">{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+					{/* The backend can emit the same warning text more than once, so the index is the key. */}
+					{warnings.length > 0 && <ul className="plain-list muted">{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>}
 				</Panel>
 			)}
 			<div className="grid-2">
@@ -249,6 +242,18 @@ function DescriptionPanel({ description, warnings }: { description: ConceptualDe
 					</ul>
 				</Panel>
 			</div>
+			{description.queries.length > 0 && (
+				<Panel title={`Queries · ${description.queries.length}`}>
+					<ul className="plain-list">
+						{description.queries.map((query) => (
+							<li key={query.id}>
+								{query.description}{evidence(query.evidence.segments)}
+								{(query.criteria?.length ?? 0) > 0 && <div className="muted">criteria: {query.criteria!.join(", ")}</div>}
+							</li>
+						))}
+					</ul>
+				</Panel>
+			)}
 			{(description.boundaries.length > 0 || description.excluded.length > 0) && (
 				<div className="grid-2">
 					<Panel title={`Boundaries · ${description.boundaries.length}`}>
@@ -330,13 +335,10 @@ function ConceptualDiagram({ projectId, model }: { projectId: string; model: Ret
 }
 
 function TraceView({ projectId }: { projectId: string }) {
-	const { navigate } = useRouter();
   const [hoveredSource, setHoveredSource] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const [drawerElement, setDrawerElement] = useState<string | null>(null);
-	const [correctionType, setCorrectionType] = useState("wrong_relationship_cardinality");
-	const [correctionNote, setCorrectionNote] = useState("");
   const sourceUnitRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const lastScrolledSource = useRef<string | null>(null);
   const graph = useQuery({ queryKey: ["model-graph", projectId], queryFn: () => api.modelGraph(projectId), retry: false });
@@ -347,7 +349,6 @@ function TraceView({ projectId }: { projectId: string }) {
     queryFn: () => api.modelElement(projectId, drawerElement!),
     enabled: !!drawerElement,
   });
-	const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
 	const layoutNodes = graph.data?.model_graph.nodes ?? [];
 	const layoutEdges = graph.data?.model_graph.edges ?? [];
 	const layout = useQuery({
@@ -355,15 +356,6 @@ function TraceView({ projectId }: { projectId: string }) {
 		queryFn: () => layoutGraph(layoutNodes.map((node) => ({ id: node.id, width: tableNodeWidth, height: tableNodeHeight(node) })), layoutEdges),
 		enabled: layoutNodes.length > 0,
 		staleTime: Infinity,
-	});
-	const correction = useMutation({
-		mutationFn: () => api.requestModelCorrection(projectId, {
-			base_revision: project.data?.project.current_revision ?? 0,
-			element_id: drawerElement ?? "",
-			correction_type: correctionType,
-			note: correctionNote,
-		}),
-		onSuccess: () => navigate(`/projects/${projectId}/analysis/review`),
 	});
 
   useEffect(() => {
@@ -397,7 +389,7 @@ function TraceView({ projectId }: { projectId: string }) {
   if (graph.isError || trace.isError) {
     return (
       <Panel title="Model is not generated">
-        <p className="muted">Resolve review questions and generate the database model from Analysis Workspace.</p>
+        <p className="muted">Accept the conceptual model and run the logical model stage from the Analysis Workspace first.</p>
       </Panel>
     );
   }
@@ -513,23 +505,6 @@ function TraceView({ projectId }: { projectId: string }) {
                   ))}
                 </div>
               </Panel>
-			<Panel title="Controlled correction">
-				<div className="field" style={{ gap: 10 }}>
-					<select className="select" value={correctionType} onChange={(event) => setCorrectionType(event.target.value)}>
-						<option value="wrong_entity">Wrong entity</option>
-						<option value="missing_entity">Missing entity</option>
-						<option value="wrong_attribute">Wrong attribute</option>
-						<option value="wrong_relationship_cardinality">Wrong relationship / cardinality</option>
-						<option value="wrong_constraint">Wrong constraint</option>
-						<option value="wrong_persistence">Wrong persistence</option>
-						<option value="missing_evidence">Missing evidence</option>
-						<option value="other">Other</option>
-					</select>
-					<textarea className="textarea" placeholder="Explain the correction and expected result" value={correctionNote} onChange={(event) => setCorrectionNote(event.target.value)} />
-					<Button onClick={() => correction.mutate()} disabled={correction.isPending || correctionNote.trim() === ""}>Request model correction</Button>
-					{correction.isError && <p className="error-text">{correction.error instanceof Error ? correction.error.message : "Correction request failed."}</p>}
-				</div>
-			</Panel>
             </>
           )}
         </Drawer>
@@ -630,17 +605,8 @@ function toFlowEdges(models: { id: string; from: string; to: string; cardinality
 function QualityView({ projectId }: { projectId: string }) {
   const { navigate } = useRouter();
   const queryClient = useQueryClient();
-  const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
   const quality = useQuery({ queryKey: ["quality", projectId], queryFn: () => api.quality(projectId) });
-	const semantic = useQuery({ queryKey: ["semantic-verification", projectId], queryFn: () => api.semanticVerification(projectId), retry: false });
 	const mappingReport = useQuery({ queryKey: ["logical-mapping-report", projectId], queryFn: () => api.logicalMappingReport(projectId), retry: false });
-	const createSemanticRepairs = useMutation({
-		mutationFn: () => api.createSemanticRepairCandidates(projectId, project.data?.project.current_revision ?? 0),
-		onSuccess: () => {
-			void queryClient.invalidateQueries();
-			navigate(`/projects/${projectId}/analysis/review`);
-		},
-	});
   const accept = useMutation({
     mutationFn: (id: string) => api.acceptQuality(projectId, id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["quality", projectId] }),
@@ -667,40 +633,6 @@ function QualityView({ projectId }: { projectId: string }) {
 				{(mapping.decisions?.length ?? 0) > 0 && <details open><summary><strong>Applied rules · {mapping.decisions!.length}</strong></summary><ul className="plain-list">{mapping.decisions!.map((line) => <li key={line}>{line}</li>)}</ul></details>}
 				{(mapping.inferred?.length ?? 0) > 0 && <details><summary><strong>Inferred values · {mapping.inferred!.length}</strong></summary><ul className="plain-list">{mapping.inferred!.map((line) => <li key={line}>{line}</li>)}</ul></details>}
 				{(mapping.warnings?.length ?? 0) > 0 && <details><summary><strong>Not representable in DDL · {mapping.warnings!.length}</strong></summary><ul className="plain-list">{mapping.warnings!.map((line) => <li key={line}>{line}</li>)}</ul></details>}
-			</Panel>
-		)}
-		{semantic.data?.semantic_verification && (
-			<Panel
-				title="Semantic obligation gate"
-				action={semantic.data.semantic_verification.blocking_issues > 0 ? (
-					<Button
-						variant="primary"
-						disabled={createSemanticRepairs.isPending || project.isLoading}
-						onClick={() => createSemanticRepairs.mutate()}
-					>
-						<GitBranch size={16} /> Resolve blocking obligations
-					</Button>
-				) : undefined}
-			>
-				<div className="toolbar">
-					<Badge tone={semantic.data.semantic_verification.ok ? "good" : "bad"}>{semantic.data.semantic_verification.ok ? "Passed" : "Blocked"}</Badge>
-					<Badge>{semantic.data.semantic_verification.obligations_realized}/{semantic.data.semantic_verification.obligations_required} required obligations realized</Badge>
-					<Badge tone={semantic.data.semantic_verification.blocking_issues ? "bad" : "good"}>{semantic.data.semantic_verification.blocking_issues} blocking issues</Badge>
-				</div>
-				{createSemanticRepairs.isError && <p className="error-text">{createSemanticRepairs.error instanceof Error ? createSemanticRepairs.error.message : "Semantic repair queue could not be created."}</p>}
-				{(semantic.data.semantic_verification.issues ?? []).map((issue) => (
-					<div className="review-option-card" key={issue.id}>
-						<div className="toolbar">
-							<strong>{issue.id}</strong>
-							{issue.obligation_id && <Badge>{issue.obligation_id}</Badge>}
-							<StatusBadge value={issue.severity} />
-							<Badge tone={issue.blocking ? "bad" : "warn"}>{issue.blocking ? "blocking" : "non-blocking"}</Badge>
-						</div>
-						<p>{issue.message}</p>
-						<p className="muted">{issue.code}</p>
-						{(issue.model_elements?.length ?? 0) > 0 && <p className="muted">Current evidence: {issue.model_elements?.join(", ")}</p>}
-					</div>
-				))}
 			</Panel>
 		)}
       <Panel title="Quality Issues">

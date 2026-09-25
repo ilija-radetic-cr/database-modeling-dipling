@@ -43,14 +43,14 @@ func relationshipConstraintDocument(constraintType string) *dsl.Document {
 	}
 }
 
-func constraintReferenceValidator(doc *dsl.Document) *validatorV05 {
+func constraintReferenceValidator(doc *dsl.Document) *validatorV06 {
 	entities := map[string]dsl.Entity{}
 	attributes := map[string]map[string]bool{}
 	for _, entity := range doc.Entities {
 		entities[entity.ID] = entity
 		attributes[entity.ID] = map[string]bool{}
 	}
-	return &validatorV05{doc: doc, entityByID: entities, attributeIDs: attributes, generatedFKs: map[string]map[string]bool{}}
+	return &validatorV06{doc: doc, entityByID: entities, attributeIDs: attributes, generatedFKs: map[string]map[string]bool{}}
 }
 
 func containsValidationError(errors []string, part string) bool {
@@ -60,4 +60,18 @@ func containsValidationError(errors []string, part string) bool {
 		}
 	}
 	return false
+}
+
+func TestV05IndexRejectsUnknownFieldAndOwner(t *testing.T) {
+	doc := relationshipConstraintDocument("unique")
+	doc.Indexes = []dsl.Index{
+		{ID: "IDX-INVENTORY-ITEM", Owner: "ENT-ITEM-INVENTORY", Fields: []string{"REL-INVENTORY-ITEM"}, Description: "By item."},
+		{ID: "IDX-MISSING-FIELD", Owner: "ENT-ITEM-INVENTORY", Fields: []string{"missing"}, Description: "Broken."},
+		{ID: "IDX-MISSING-OWNER", Owner: "ENT-NONE", Fields: []string{"x"}, Description: "Broken."},
+	}
+	v := constraintReferenceValidator(doc)
+	v.validateIndexes()
+	if len(v.errors) != 2 || !containsValidationError(v.errors, "IDX-MISSING-FIELD") || !containsValidationError(v.errors, "unknown owner entity ENT-NONE") {
+		t.Fatalf("unexpected index validation: %v", v.errors)
+	}
 }

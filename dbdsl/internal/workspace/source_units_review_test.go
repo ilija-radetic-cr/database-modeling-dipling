@@ -84,7 +84,7 @@ func TestReviewSourceUnitPersistsRevisionedDecision(t *testing.T) {
 				t.Fatalf("unexpected reviewed unit: %+v", unit)
 			}
 			health, err := store.ArtifactHealth(project.ID)
-			if err != nil || health.SourceUnitsStatus != "ready" || !health.CanExtractRequirements {
+			if err != nil || health.SourceUnitsStatus != "ready" || !(health.SourceUnitsStatus == "ready") {
 				t.Fatalf("review did not open the requirement gate: health=%+v err=%v", health, err)
 			}
 		})

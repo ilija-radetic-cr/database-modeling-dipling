@@ -75,11 +75,11 @@ func TestLintIncludedFragmentNeedsDerivedCandidates(t *testing.T) {
 	assertHasIssue(t, result, "DBDSL_V02_SRC001")
 }
 
-func TestLintV05ReportsNativeWarnings(t *testing.T) {
-	result := LintV05(&dsl.V05Bundle{
+func TestLintV06ReportsNativeWarnings(t *testing.T) {
+	result := LintV06(&dsl.Bundle{
 		Document: &dsl.Document{
-			DSL:   dsl.DSLMeta{Name: "DB-DSL", Version: "0.5"},
-			Model: dsl.ModelInfo{ID: "test_v05", Name: "Test v0.5"},
+			DSL:   dsl.DSLMeta{Name: "DB-DSL", Version: "0.6"},
+			Model: dsl.ModelInfo{ID: "test_v06", Name: "Test v0.6"},
 			Entities: []dsl.Entity{
 				{
 					ID:        "Product",
@@ -98,16 +98,15 @@ func TestLintV05ReportsNativeWarnings(t *testing.T) {
 				{ID: "ProductImageFile", Owner: "Product", Field: "image_path", Storage: "path", AllowedExtensions: []string{"jpg"}},
 			},
 		},
-		RequirementAtoms: &dsl.V05RequirementAtomsFile{},
-		ReviewDecisions:  &dsl.V05ReviewDecisionsFile{},
-		CRUDMatrix:       &dsl.V05CRUDMatrixFile{},
+		SourceUnits:     &dsl.SourceUnitsFile{},
+		ReviewDecisions: &dsl.ReviewDecisionsFile{},
 	})
 
-	if result.Version != VersionV05 {
-		t.Fatalf("expected lint version %s, got %s", VersionV05, result.Version)
+	if result.Version != VersionV06 {
+		t.Fatalf("expected lint version %s, got %s", VersionV06, result.Version)
 	}
-	assertHasIssue(t, result, "DBDSL_V05_DV002")
-	assertHasIssue(t, result, "DBDSL_V05_FS004")
+	assertHasIssue(t, result, "DBDSL_V06_DV002")
+	assertHasIssue(t, result, "DBDSL_V06_FS004")
 }
 
 func writeLintFixture(t *testing.T, sourceYAML, modelYAML string) string {

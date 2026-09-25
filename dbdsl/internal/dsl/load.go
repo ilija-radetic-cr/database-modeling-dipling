@@ -61,45 +61,27 @@ func LoadBundle(path string) (*Document, *ReviewedSource, string, error) {
 	return doc, source, sourcePath, nil
 }
 
-func LoadV05Bundle(path string) (*V05Bundle, error) {
+func LoadV06Bundle(path string) (*Bundle, error) {
 	doc, err := LoadDocument(path)
 	if err != nil {
 		return nil, err
 	}
-	if doc.DSL.Version != "0.5" {
-		return nil, fmt.Errorf("load v0.5 bundle: dsl.version is %s", doc.DSL.Version)
+	if doc.DSL.Version != "0.6" {
+		return nil, fmt.Errorf("load v0.6 bundle: dsl.version is %s", doc.DSL.Version)
 	}
 
-	bundle := &V05Bundle{
+	bundle := &Bundle{
 		ModelPath: path,
 		Document:  doc,
 	}
 
-	var sourceUnits V05SourceUnitsFile
+	var sourceUnits SourceUnitsFile
 	if bundle.SourceUnitsPath, err = loadYAMLResource(path, "source.source_units_file", doc.Source.SourceUnitsFile, &sourceUnits); err != nil {
 		return nil, err
 	}
 	bundle.SourceUnits = &sourceUnits
 
-	var requirementAtoms V05RequirementAtomsFile
-	if bundle.RequirementAtomsPath, err = loadYAMLResource(path, "source.requirement_atoms_file", doc.Source.RequirementAtomsFile, &requirementAtoms); err != nil {
-		return nil, err
-	}
-	bundle.RequirementAtoms = &requirementAtoms
-
-	var functionalDecomposition V05FunctionalDecompositionFile
-	if bundle.FunctionalDecompositionPath, err = loadYAMLResource(path, "source.functional_decomposition_file", doc.Source.FunctionalDecompositionFile, &functionalDecomposition); err != nil {
-		return nil, err
-	}
-	bundle.FunctionalDecomposition = &functionalDecomposition
-
-	var crudMatrix V05CRUDMatrixFile
-	if bundle.CRUDMatrixPath, err = loadYAMLResource(path, "source.crud_matrix_file", doc.Source.CRUDMatrixFile, &crudMatrix); err != nil {
-		return nil, err
-	}
-	bundle.CRUDMatrix = &crudMatrix
-
-	var reviewDecisions V05ReviewDecisionsFile
+	var reviewDecisions ReviewDecisionsFile
 	if bundle.ReviewDecisionsPath, err = loadYAMLResource(path, "source.review_decisions_file", doc.Source.ReviewDecisionsFile, &reviewDecisions); err != nil {
 		return nil, err
 	}
@@ -120,7 +102,7 @@ func ResolveReviewedSourcePath(dslPath, sourcePath string) string {
 
 func loadYAMLResource(modelPath, fieldName, resourcePath string, target any) (string, error) {
 	if resourcePath == "" {
-		return "", fmt.Errorf("%s is required for DB-DSL v0.5", fieldName)
+		return "", fmt.Errorf("%s is required for DB-DSL v0.6", fieldName)
 	}
 	resolvedPath := ResolveModelResourcePath(modelPath, resourcePath)
 	data, err := os.ReadFile(resolvedPath)

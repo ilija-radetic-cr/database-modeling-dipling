@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"dbdsl/internal/dsl"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -162,12 +163,6 @@ type FreezeCheckResult struct {
 	CoveredLines   int
 	Obligations    int
 	WeightedScores map[string]float64
-}
-
-// CheckFreezePackage performs a read-only integrity and completeness check.
-// It deliberately does not convert an unsigned package into frozen evidence.
-func CheckFreezePackage(manifestPath string) (FreezeCheckResult, error) {
-	return CheckFreezePackageWithStage(manifestPath, FreezeStagePreparation)
 }
 
 // CheckFreezePackageWithStage verifies preparation, transparent AI-internal,

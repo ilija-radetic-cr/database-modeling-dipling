@@ -44,72 +44,6 @@ func TestLLMStatusDoesNotExposeAPIKey(t *testing.T) {
 	}
 }
 
-func TestLLMPlanFromTaskWithMockReturnsValidBundle(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
-	server := newTestServer(t)
-	payload := []byte(`{
-	  "name": "Products",
-	  "content": "System stores products in a catalog. Each product has a name.",
-	  "mock": true,
-	  "model": "mock-model"
-	}`)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/bundles/llm-plan-from-task", bytes.NewReader(payload))
-	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var body struct {
-		Bundle struct {
-			Name             string `json:"name"`
-			ModelPath        string `json:"model_path"`
-			BundlePath       string `json:"bundle_path"`
-			SourceUnits      int    `json:"source_units"`
-			Requirements     int    `json:"requirements"`
-			Entities         int    `json:"entities"`
-			ValidationErrors int    `json:"validation_errors"`
-			DBMLStatus       string `json:"dbml_status"`
-		} `json:"bundle"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body.Bundle.Name == "" || body.Bundle.ModelPath == "" || body.Bundle.BundlePath == "" {
-		t.Fatalf("expected bundle paths and name, got %+v", body.Bundle)
-	}
-	if body.Bundle.Name != "Products LLM Draft" {
-		t.Fatalf("expected bundle name from request, got %q", body.Bundle.Name)
-	}
-	if !strings.Contains(body.Bundle.BundlePath, "poc/generated/products_llm/v0.5") {
-		t.Fatalf("expected stable LLM bundle path, got %q", body.Bundle.BundlePath)
-	}
-	if body.Bundle.SourceUnits == 0 || body.Bundle.Requirements == 0 || body.Bundle.Entities == 0 {
-		t.Fatalf("expected populated bundle counts, got %+v", body.Bundle)
-	}
-	if body.Bundle.ValidationErrors != 0 || body.Bundle.DBMLStatus != "ready" {
-		t.Fatalf("expected valid ready bundle, got %+v", body.Bundle)
-	}
-}
-
-func TestLLMPlanFromTaskWithoutKeyRequiresMock(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
-	server := newTestServer(t)
-	payload := []byte(`{"name":"Products","content":"Each product has a name.","mock":false}`)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/bundles/llm-plan-from-task", bytes.NewReader(payload))
-	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusPreconditionFailed {
-		t.Fatalf("expected status 412, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "llm_unavailable") {
-		t.Fatalf("expected llm_unavailable error, got %s", rec.Body.String())
-	}
-}
-
 func TestResourceEndpointsPersistPastedTextAndManifest(t *testing.T) {
 	server := newTestServer(t)
 
@@ -446,7 +380,7 @@ func TestDeleteProjectEndpointRejectsActiveJob(t *testing.T) {
 	projectID, _ := createProjectAndAddPastedText(t, server, "Product has a name.")
 	started := make(chan struct{})
 	release := make(chan struct{})
-	server.jobs.StartWithRunner(projectID, "test", nil, func(_ string, _ string, _ jobs.StepEmitter) (int, []string, error) {
+	server.jobs.StartWithRevision(projectID, "test", 0, nil, func(_ string, _ string, _ jobs.StepEmitter) (int, []string, error) {
 		close(started)
 		<-release
 		return 0, nil, nil

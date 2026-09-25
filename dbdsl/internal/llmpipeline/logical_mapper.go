@@ -2,7 +2,6 @@ package llmpipeline
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"dbdsl/internal/dsl"
@@ -11,7 +10,7 @@ import (
 // LogicalMappingRuleVersion identifies the deterministic conceptual-to-DB-DSL
 // rule set. It is recorded in the mapping report so a logical model can be
 // traced to the exact rules that produced it.
-const LogicalMappingRuleVersion = "conceptual_to_dbdsl_v2"
+const LogicalMappingRuleVersion = "conceptual_to_dbdsl_v3"
 
 // LogicalMappingReport is the audit trail of one deterministic projection:
 // which rules fired, which values were inferred instead of declared, and which
@@ -25,6 +24,7 @@ type LogicalMappingReport struct {
 	StateMachines int      `json:"state_machines"`
 	DerivedViews  int      `json:"derived_views"`
 	FileSpecs     int      `json:"file_specs"`
+	Indexes       int      `json:"indexes"`
 	Inferred      []string `json:"inferred"`
 	Decisions     []string `json:"decisions"`
 	Warnings      []string `json:"warnings"`
@@ -52,7 +52,6 @@ type LogicalMappingOptions struct {
 type logicalMapper struct {
 	options        LogicalMappingOptions
 	model          ConceptualModelProposal
-	atomSources    map[string]map[string]bool
 	entities       []*mappedEntity
 	entityByID     map[string]*mappedEntity
 	attributeByID  map[string]*mappedAttribute
@@ -63,6 +62,7 @@ type logicalMapper struct {
 	stateMachines  []StateMachineProposal
 	derivedViews   []DerivedViewProposal
 	fileSpecs      []FileSpecProposal
+	indexes        []IndexProposal
 	report         LogicalMappingReport
 	errors         []string
 }
@@ -71,18 +71,11 @@ type logicalMapper struct {
 // patch operations without an LLM. Every relational decision (column names,
 // types, foreign-key placement, nullability, link tables) follows fixed rules;
 // values the conceptual model does not declare are inferred and reported.
-func MapConceptualToLogical(model ConceptualModelProposal, atoms []RequirementAtomProposal, options LogicalMappingOptions) (PatchProposal, LogicalMappingReport, error) {
+func MapConceptualToLogical(model ConceptualModelProposal, options LogicalMappingOptions) (PatchProposal, LogicalMappingReport, error) {
 	m := &logicalMapper{
-		options: options, model: model, atomSources: map[string]map[string]bool{}, entityByID: map[string]*mappedEntity{},
+		options: options, model: model, entityByID: map[string]*mappedEntity{},
 		attributeByID: map[string]*mappedAttribute{}, attributeOwner: map[string]string{}, fileConcepts: map[string]PlanElementProposal{},
 		report: LogicalMappingReport{Strategy: "deterministic", RuleVersion: LogicalMappingRuleVersion, Inferred: []string{}, Decisions: []string{}, Warnings: []string{}},
-	}
-	for _, atom := range atoms {
-		sources := map[string]bool{}
-		for _, id := range atom.SourceUnits {
-			sources[id] = true
-		}
-		m.atomSources[atom.ID] = sources
 	}
 	for _, concept := range model.FileConcepts {
 		m.fileConcepts[concept.ID] = concept
@@ -93,6 +86,7 @@ func MapConceptualToLogical(model ConceptualModelProposal, atoms []RequirementAt
 	m.mapConstraints()
 	m.mapLifecycles()
 	m.mapDerivedViews()
+	m.mapIndexes()
 	for _, concept := range model.ImportConcepts {
 		m.warn("import concept %s is not projected: import mappings are defined outside the relational schema", concept.ID)
 	}
@@ -129,39 +123,18 @@ func (m *logicalMapper) decide(format string, args ...any) {
 	m.report.Decisions = append(m.report.Decisions, fmt.Sprintf(format, args...))
 }
 
-// evidence keeps only citations the DB-DSL validator accepts: known atoms, and
-// source units that belong to at least one cited atom. Empty evidence falls back
-// to the owning element so every projected element stays traceable.
+// evidence keeps the cited source units (deduplicated) and falls back to the
+// owning element so every projected element stays traceable.
 func (m *logicalMapper) evidence(proposal EvidenceProposal, fallback EvidenceProposal) EvidenceProposal {
-	atoms := []string{}
-	for _, id := range proposal.RequirementAtoms {
-		if _, ok := m.atomSources[id]; ok {
-			atoms = appendUnique(atoms, id)
-		}
-	}
-	if len(atoms) == 0 && len(fallback.RequirementAtoms) > 0 {
-		return m.evidence(fallback, EvidenceProposal{})
-	}
-	allowed := map[string]bool{}
-	for _, id := range atoms {
-		for source := range m.atomSources[id] {
-			allowed[source] = true
-		}
-	}
 	sources := []string{}
 	for _, id := range proposal.SourceUnits {
-		if allowed[id] {
-			sources = appendUnique(sources, id)
-		}
+		sources = appendUnique(sources, id)
 	}
-	if len(sources) == 0 {
-		for id := range allowed {
-			sources = append(sources, id)
-		}
-		sort.Strings(sources)
+	if len(sources) == 0 && len(fallback.SourceUnits) > 0 {
+		return m.evidence(fallback, EvidenceProposal{})
 	}
 	out := proposal
-	out.RequirementAtoms, out.SourceUnits = atoms, sources
+	out.SourceUnits = sources
 	out.ReviewDecisions = append([]string{}, proposal.ReviewDecisions...)
 	out.Notes = append([]string{}, proposal.Notes...)
 	out.SupportLevel = nonEmpty(proposal.SupportLevel, "inferred")
@@ -170,9 +143,6 @@ func (m *logicalMapper) evidence(proposal EvidenceProposal, fallback EvidencePro
 }
 
 func mergeEvidenceInto(target *EvidenceProposal, extra EvidenceProposal) {
-	for _, id := range extra.RequirementAtoms {
-		target.RequirementAtoms = appendUnique(target.RequirementAtoms, id)
-	}
 	for _, id := range extra.SourceUnits {
 		target.SourceUnits = appendUnique(target.SourceUnits, id)
 	}
@@ -469,9 +439,54 @@ func (m *logicalMapper) recordApplicationRule(concept ConceptualConstraintPropos
 	m.decide("%s: %s rule recorded as application-enforced on %s", concept.ID, concept.Kind, owner)
 }
 
+// mapIndexes projects the access paths of the conceptual model. A column that
+// already leads a unique key is indexed by that key and gets no second index.
+func (m *logicalMapper) mapIndexes() {
+	leading := map[string]bool{}
+	for _, constraint := range m.constraints {
+		if constraint.Type != "unique" {
+			continue
+		}
+		if first := nonEmpty(constraint.Field, firstString(constraint.Fields)); first != "" {
+			leading[constraint.Owner+"."+first] = true
+		}
+	}
+	for _, concept := range m.model.IndexConcepts {
+		entity := m.entityByID[concept.Owner]
+		if entity == nil {
+			m.warn("index %s has no mapped owner entity and is not projected", concept.ID)
+			continue
+		}
+		fields := []string{}
+		for _, target := range concept.Targets {
+			if attribute, ok := m.attributeByID[target]; ok && m.attributeOwner[target] == concept.Owner && entity.byName[attribute.proposal.ID] == attribute {
+				fields = appendUnique(fields, attribute.proposal.ID)
+			}
+		}
+		if len(fields) == 0 {
+			m.warn("index %s has no mapped column and is not projected", concept.ID)
+			continue
+		}
+		if leading[concept.Owner+"."+fields[0]] {
+			m.decide("%s: %s.%s is already indexed by a unique key", concept.ID, entity.proposal.TableName, fields[0])
+			continue
+		}
+		leading[concept.Owner+"."+fields[0]] = true
+		m.indexes = append(m.indexes, IndexProposal{ID: concept.ID, Owner: concept.Owner, Fields: fields,
+			Description: nonEmpty(concept.Description, concept.Label), Evidence: m.evidence(concept.Evidence, entity.proposal.Evidence)})
+	}
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
 func (m *logicalMapper) mapLifecycles() {
 	for _, lifecycle := range m.model.LifecycleConcepts {
-		evidence := m.evidence(EvidenceProposal{SourceUnits: lifecycle.SourceUnits, RequirementAtoms: lifecycle.RequirementAtoms, SupportLevel: "explicit", Confidence: "high"}, EvidenceProposal{})
+		evidence := m.evidence(EvidenceProposal{SourceUnits: lifecycle.SourceUnits, SupportLevel: "explicit", Confidence: "high"}, EvidenceProposal{})
 		owner := m.entityByID[lifecycle.Owner]
 		field := lifecycle.Field
 		if owner == nil {
@@ -531,17 +546,17 @@ func (m *logicalMapper) mapLifecycles() {
 }
 
 func (m *logicalMapper) findStatusAttribute(lifecycle PlanElementProposal) (*mappedEntity, string) {
-	atoms := map[string]bool{}
-	for _, id := range lifecycle.RequirementAtoms {
-		atoms[id] = true
+	sources := map[string]bool{}
+	for _, id := range lifecycle.SourceUnits {
+		sources[id] = true
 	}
 	for _, entity := range m.entities {
 		for _, attribute := range entity.attributes {
 			if !strings.Contains(attribute.proposal.ID, "status") && !strings.Contains(attribute.proposal.ID, "state") {
 				continue
 			}
-			for _, id := range attribute.proposal.Evidence.RequirementAtoms {
-				if atoms[id] {
+			for _, id := range attribute.proposal.Evidence.SourceUnits {
+				if sources[id] {
 					m.report.Inferred = append(m.report.Inferred, fmt.Sprintf("%s: owner %s.%s inferred from shared evidence", lifecycle.ID, entity.proposal.ID, attribute.proposal.ID))
 					return entity, attribute.proposal.ID
 				}
@@ -560,19 +575,19 @@ func (m *logicalMapper) mapDerivedViews() {
 			}
 		}
 		if len(sources) == 0 {
-			atoms := map[string]bool{}
-			for _, id := range derived.RequirementAtoms {
-				atoms[id] = true
+			cited := map[string]bool{}
+			for _, id := range derived.SourceUnits {
+				cited[id] = true
 			}
 			for _, entity := range m.entities {
-				for _, id := range entity.proposal.Evidence.RequirementAtoms {
-					if atoms[id] {
+				for _, id := range entity.proposal.Evidence.SourceUnits {
+					if cited[id] {
 						sources = appendUnique(sources, entity.proposal.ID)
 					}
 				}
 			}
 			if len(sources) == 0 {
-				if entity := m.closestEntity(derived.RequirementAtoms, derived.SourceUnits, derived.Label); entity != nil {
+				if entity := m.closestEntity(derived.SourceUnits, derived.Label); entity != nil {
 					sources = []string{entity.proposal.ID}
 				}
 			}
@@ -587,22 +602,17 @@ func (m *logicalMapper) mapDerivedViews() {
 		fallback := m.entityByID[sources[0]].proposal.Evidence
 		m.derivedViews = append(m.derivedViews, DerivedViewProposal{ID: derived.ID, Label: derived.Label, Description: derived.Description,
 			Kind: derivedViewKind(derived), Sources: sources, Persistence: "virtual", Metrics: append([]string{}, derived.Metrics...), Filters: []string{}, Notes: []string{},
-			Evidence: m.evidence(EvidenceProposal{SourceUnits: derived.SourceUnits, RequirementAtoms: derived.RequirementAtoms, SupportLevel: "explicit", Confidence: "high"}, fallback)})
+			Evidence: m.evidence(EvidenceProposal{SourceUnits: derived.SourceUnits, SupportLevel: "explicit", Confidence: "high"}, fallback)})
 	}
 }
 
 // closestEntity picks the entity that shares the most source units with the
 // given evidence, breaking ties by label words. It is only used to keep
 // unprojectable conceptual elements traceable.
-func (m *logicalMapper) closestEntity(atoms, sourceUnits []string, label string) *mappedEntity {
+func (m *logicalMapper) closestEntity(sourceUnits []string, label string) *mappedEntity {
 	sources := map[string]bool{}
 	for _, id := range sourceUnits {
 		sources[id] = true
-	}
-	for _, id := range atoms {
-		for source := range m.atomSources[id] {
-			sources[source] = true
-		}
 	}
 	words := map[string]bool{}
 	for _, word := range strings.Fields(strings.ToLower(label)) {
@@ -631,13 +641,13 @@ func (m *logicalMapper) closestEntity(atoms, sourceUnits []string, label string)
 	return best
 }
 
-// preserveConceptualCoverage guarantees that every requirement atom cited by
-// the accepted conceptual model is still cited by some projected element; an
-// atom whose conceptual element had no DDL form is attached to the closest table.
+// preserveConceptualCoverage guarantees that every source unit cited by the
+// accepted conceptual model is still cited by some projected element; a unit
+// whose conceptual element had no DDL form is attached to the closest table.
 func (m *logicalMapper) preserveConceptualCoverage() {
 	cited := map[string]bool{}
 	mark := func(evidence EvidenceProposal) {
-		for _, id := range evidence.RequirementAtoms {
+		for _, id := range evidence.SourceUnits {
 			cited[id] = true
 		}
 	}
@@ -662,36 +672,38 @@ func (m *logicalMapper) preserveConceptualCoverage() {
 	for _, item := range m.fileSpecs {
 		mark(item.Evidence)
 	}
+	for _, item := range m.indexes {
+		mark(item.Evidence)
+	}
 	type orphan struct {
 		id, label string
-		atoms     []string
 		sources   []string
 	}
 	orphans := []orphan{}
 	for _, item := range m.model.ConstraintConcepts {
-		orphans = append(orphans, orphan{item.ID, item.Label, item.Evidence.RequirementAtoms, item.Evidence.SourceUnits})
+		orphans = append(orphans, orphan{item.ID, item.Label, item.Evidence.SourceUnits})
 	}
 	for _, group := range [][]PlanElementProposal{m.model.LifecycleConcepts, m.model.DerivedConcepts, m.model.FileConcepts, m.model.ImportConcepts} {
 		for _, item := range group {
-			orphans = append(orphans, orphan{item.ID, item.Label, item.RequirementAtoms, item.SourceUnits})
+			orphans = append(orphans, orphan{item.ID, item.Label, item.SourceUnits})
 		}
 	}
 	for _, item := range orphans {
 		missing := []string{}
-		for _, id := range item.atoms {
-			if _, known := m.atomSources[id]; known && !cited[id] {
+		for _, id := range item.sources {
+			if !cited[id] {
 				missing = appendUnique(missing, id)
 			}
 		}
 		if len(missing) == 0 {
 			continue
 		}
-		entity := m.closestEntity(missing, item.sources, item.label)
+		entity := m.closestEntity(missing, item.label)
 		if entity == nil {
-			m.warn("%s: atoms %s have no table to attach to", item.id, strings.Join(missing, ", "))
+			m.warn("%s: source units %s have no table to attach to", item.id, strings.Join(missing, ", "))
 			continue
 		}
-		mergeEvidenceInto(&entity.proposal.Evidence, m.evidence(EvidenceProposal{RequirementAtoms: missing, SourceUnits: item.sources}, EvidenceProposal{}))
+		mergeEvidenceInto(&entity.proposal.Evidence, m.evidence(EvidenceProposal{SourceUnits: missing}, EvidenceProposal{}))
 		for _, id := range missing {
 			cited[id] = true
 		}
@@ -739,8 +751,12 @@ func (m *logicalMapper) patch() PatchProposal {
 	for i := range m.fileSpecs {
 		patch.Operations = append(patch.Operations, PatchOperation{Operation: "add_file_spec", FileSpec: &m.fileSpecs[i]})
 	}
+	for i := range m.indexes {
+		patch.Operations = append(patch.Operations, PatchOperation{Operation: "add_index", Index: &m.indexes[i]})
+	}
 	m.report.Entities, m.report.Relationships, m.report.Constraints = len(m.entities), len(m.relationships), len(m.constraints)
 	m.report.StateMachines, m.report.DerivedViews, m.report.FileSpecs = len(m.stateMachines), len(m.derivedViews), len(m.fileSpecs)
+	m.report.Indexes = len(m.indexes)
 	return patch
 }
 

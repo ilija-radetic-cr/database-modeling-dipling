@@ -4,7 +4,7 @@ import { CheckCircle2, Circle, Loader2, RotateCcw, XCircle } from "lucide-react"
 import type { Job, JobEvent } from "@/shared/api/types";
 	import { api, subscribeToJob } from "@/shared/api/client";
 	import { Button, StatusBadge } from "@/shared/components/ui";
-	import { canRetryJob, isTerminalJobStatus, requiresLogicalValidationRepair } from "@/shared/lib/pipeline";
+	import { canRetryJob, isTerminalJobStatus, reconcileJobEvent, requiresLogicalValidationRepair } from "@/shared/lib/pipeline";
 
 export function JobProgress({
   projectId,
@@ -14,7 +14,7 @@ export function JobProgress({
 }: {
   projectId: string;
   job: Job;
-  onDone?: () => void;
+  onDone?: (job: Job) => void;
   onDismiss?: (job: Job) => void;
 }) {
   const queryClient = useQueryClient();
@@ -31,9 +31,9 @@ export function JobProgress({
 		refetchInterval: (query) => isTerminalJobStatus(query.state.data?.job.status ?? activeJob.status) ? false : 1500,
 		refetchOnWindowFocus: true,
 	});
-	const currentJob = polledJob.data?.job ?? activeJob;
-	const currentStatus = event?.status ?? currentJob.status;
-	const message = event?.message ?? currentJob.message ?? "Job queued.";
+	const currentJob = reconcileJobEvent(polledJob.data?.job ?? activeJob, event);
+	const currentStatus = currentJob.status;
+	const message = currentJob.message ?? "Job queued.";
 	const error = currentJob.error ?? (currentStatus === "failed" ? message : "");
 	const logicalValidationFailure = requiresLogicalValidationRepair(currentJob);
 	const project = useQuery({
@@ -84,11 +84,15 @@ export function JobProgress({
 	useEffect(() => {
 		if (currentStatus !== "completed" || completedNotificationRef.current === currentJob.id) return;
 		completedNotificationRef.current = currentJob.id;
+		queryClient.setQueryData<{ job: Job }>(["job", projectId, currentJob.id], { job: currentJob });
+		queryClient.setQueryData<{ items: Job[] }>(["jobs", projectId], (cached) => cached ? {
+			items: cached.items.map((item) => item.id === currentJob.id ? currentJob : item),
+		} : cached);
 		void queryClient.invalidateQueries();
-		onDoneRef.current?.();
-	}, [currentJob.id, currentStatus, queryClient]);
+		onDoneRef.current?.(currentJob);
+	}, [currentJob, currentStatus, projectId, queryClient]);
 
-	const progress = event?.progress ?? currentJob.progress ?? 0;
+	const progress = currentJob.progress ?? 0;
 	const running = !isTerminalJobStatus(currentStatus);
 	const elapsed = useElapsedSeconds(currentJob.started_at ?? currentJob.created_at, running ? undefined : currentJob.completed_at ?? currentJob.updated_at);
 	const failed = canRetryJob(currentStatus);
@@ -155,17 +159,9 @@ export function JobProgress({
 }
 
 const stageDescriptions: Record<string, string> = {
-	process_sources: "LLM produces complete evidence units · backend assigns canonical SU IDs and validates the contract",
-	combined_document: "LLM produces complete evidence units · backend assigns canonical SU IDs and validates the contract",
-	requirement_atoms: "LLM extracts atomic requirements · backend derives design obligations",
-	functional_analysis: "LLM groups requirements into actors and functional areas",
-	crud_mapping: "LLM maps business operations to create / read / update / delete effects",
-	review_candidates: "Finding design questions that need a human decision",
-	apply_review_decision_batch: "Applying your decisions deterministically (no LLM)",
-	apply_review_decision: "Applying your decision",
+	process_sources: "LLM segments the sources · backend assigns canonical segment IDs and validates the contract",
 	conceptual_model: "LLM describes what the system must remember · backend derives the conceptual model and checks coverage",
 	logical_model: "Deterministic mapping of the conceptual model into DB-DSL (no LLM) · full validation",
-	semantic_verification: "Verifying that every design obligation is realized (no LLM)",
 	generate_outputs: "Generating DBML and the traceability report (deterministic)",
 	validation_lint: "Validating and linting the DB-DSL model",
 };
@@ -181,7 +177,6 @@ export function friendlyError(error: string) {
 	if (text.includes("deadline exceeded") || text.includes("timeout")) return "The LLM call took too long and was stopped. Retry this step.";
 	if (text.includes("api key") || text.includes("openai_api_key") || text.includes("llm client is required")) return "No LLM API key is configured on the server.";
 	if (text.includes("revision_conflict") || text.includes("revision conflict")) return "The project changed while this step was running. Retry against the latest revision.";
-	if (text.includes("need your decision before conceptual modeling")) return "Some requirements still need your decision. They were added to the Review Queue; answer them and the pipeline continues.";
 	if (text.includes("cannot be mapped deterministically")) return "The conceptual model is incomplete for database mapping. Review the conceptual model and resolve the listed items.";
 	return "This step failed. You can retry it; completed earlier steps are kept unchanged.";
 }

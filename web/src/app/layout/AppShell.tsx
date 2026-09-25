@@ -1,12 +1,11 @@
 import { useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, CheckCircle2, FolderKanban, GitBranch, Settings, Workflow } from "lucide-react";
+import { BarChart3, CheckCircle2, FolderKanban, Settings, Workflow } from "lucide-react";
 import { api, projectDefaultPath } from "@/shared/api/client";
 import { routeParts, useRouter } from "@/shared/lib/router";
 import { finalizePath } from "@/shared/lib/autopilot";
 
-const defaultProjectId = "project_phf";
 const lastProjectStorageKey = "dbdsl:lastProjectId";
 
 function readLastProject() {
@@ -46,19 +45,23 @@ function Sidebar() {
   }, [routeProjectId]);
 
   const projectItems = projects.data?.items ?? [];
-  // A remembered project may have been deleted; fall back to the most recent one.
+  // A remembered project may have been deleted; fall back to the most recent
+  // open project, then to any project. With no projects there is no current one.
   const rememberedProjectId = readLastProject();
-  const currentProjectId = routeProjectId
+  const currentProjectId: string | undefined = routeProjectId
     ?? (rememberedProjectId && (projects.isLoading || projectItems.some((project) => project.id === rememberedProjectId)) ? rememberedProjectId : undefined)
     ?? projectItems.find((project) => project.lifecycle_status !== "completed")?.id
-    ?? projectItems[0]?.id
-    ?? defaultProjectId;
-  const currentProject = projectItems.find((project) => project.id === currentProjectId);
-  const currentProjectHref = currentProject ? projectDefaultPath(currentProject) : `/projects/${currentProjectId}/analysis/sources`;
+    ?? projectItems[0]?.id;
+  const currentProject = currentProjectId ? projectItems.find((project) => project.id === currentProjectId) : undefined;
+  const currentProjectHref = currentProject
+    ? projectDefaultPath(currentProject)
+    : currentProjectId ? `/projects/${currentProjectId}/analysis/sources` : "/projects/new";
+  const modelHref = currentProjectId ? `/projects/${currentProjectId}/model/conceptual` : "/projects";
+  const finalizeHref = currentProjectId ? finalizePath(currentProjectId, currentProject?.lifecycle_status) : "/projects";
 	const projectState = useQuery({
 		queryKey: ["project", currentProjectId],
-		queryFn: () => api.getProject(currentProjectId),
-		enabled: !!currentProjectId && !!currentProject,
+		queryFn: () => api.getProject(currentProjectId ?? ""),
+		enabled: !!currentProject,
 		retry: false,
 	});
 	const health = projectState.data?.artifact_health;
@@ -70,35 +73,30 @@ function Sidebar() {
         label: "Current Project",
         icon: Workflow,
         href: currentProjectHref,
-        active: path.startsWith(`/projects/${currentProjectId}/`) && !path.includes("/analysis/review") && !path.includes("/model") && !path.includes("/completed") && !path.endsWith("/dbml"),
-      },
-      {
-        label: "Reviews",
-        icon: GitBranch,
-        href: `/projects/${currentProjectId}/analysis/review`,
-        active: path.startsWith(`/projects/${currentProjectId}/analysis/review`),
-		disabled: health?.review_candidates_status !== "ready",
-		reason: "Review questions are available after CRUD mapping.",
+        active: !!currentProjectId && path.startsWith(`/projects/${currentProjectId}/`) && !path.includes("/model") && !path.includes("/completed") && !path.endsWith("/dbml"),
+        disabled: !currentProjectId,
+        reason: "Create or open a project first.",
       },
       {
         label: "Model",
         icon: BarChart3,
-		href: `/projects/${currentProjectId}/model/conceptual`,
-        active: path.startsWith(`/projects/${currentProjectId}/model`),
-		disabled: health?.conceptual_model_status !== "ready" && health?.model_status !== "ready",
+		href: modelHref,
+        active: !!currentProjectId && path.startsWith(`/projects/${currentProjectId}/model`),
+		// A proposed conceptual model is reviewed in the model workspace, so it opens as soon as one exists.
+		disabled: (health?.conceptual_model_status ?? "not_generated") === "not_generated" && health?.model_status !== "ready",
 		reason: "The model workspace unlocks after the conceptual model stage.",
       },
       {
         label: currentProject?.lifecycle_status === "completed" ? "Completed" : "Finalize",
         icon: CheckCircle2,
-        href: finalizePath(currentProjectId, currentProject?.lifecycle_status),
-        active: path.startsWith(`/projects/${currentProjectId}/completed`) || path.startsWith(`/projects/${currentProjectId}/dbml`),
+        href: finalizeHref,
+        active: !!currentProjectId && (path.startsWith(`/projects/${currentProjectId}/completed`) || path.startsWith(`/projects/${currentProjectId}/dbml`)),
 		disabled: health?.dbml_status !== "ready" && !health?.can_complete_project && currentProject?.lifecycle_status !== "completed",
 		reason: "Finalize the accepted model and generate current DBML and trace outputs first.",
       },
       { label: "Settings", icon: Settings, href: "/settings", active: path === "/settings" },
-    ].filter((item) => item.label !== "Reviews" || (!health?.segment_flow && health?.review_candidates_status === "ready")),
-	[currentProject?.lifecycle_status, currentProjectHref, currentProjectId, health, path],
+    ],
+	[currentProject?.lifecycle_status, currentProjectHref, currentProjectId, finalizeHref, health, modelHref, path],
   );
 
   function switchProject(projectId: string) {
@@ -115,8 +113,8 @@ function Sidebar() {
       </div>
       <label className="project-switcher">
         <span>Current project</span>
-        <select className="select" value={currentProjectId} onChange={(event) => switchProject(event.target.value)}>
-          {!currentProject && <option value={currentProjectId}>{currentProjectId}</option>}
+        <select className="select" value={currentProjectId ?? ""} onChange={(event) => switchProject(event.target.value)}>
+          {!currentProject && <option value={currentProjectId ?? ""}>{currentProjectId ?? "No projects yet"}</option>}
           {projectItems.map((project) => (
             <option value={project.id} key={project.id}>
               {project.name}

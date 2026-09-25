@@ -1,0 +1,2469 @@
+dsl:
+    name: DB-DSL
+    version: "0.6"
+model:
+    id: bus
+    name: bus
+    domain_slice: bus
+    status: accepted
+    description: LLM-assisted v0.6 logical database model accepted after validation, lint and explicit human review.
+source:
+    reviewed_fragments_file: ""
+    review_state: resolved
+    accepted_review_decisions: []
+    pipeline_version: 0.9.0
+    task_text_file: TASK.md
+    source_units_file: source_units.yaml
+    review_decisions_file: review_decisions.yaml
+    derivation_strategy: conceptual_description_to_model_v4+conceptual_to_dbdsl_v3
+entities:
+    - id: ENT-KORISNICKI-NALOG
+      label: Кориснички налог
+      description: Налог регистрованог корисника или јединственог администратора.
+      table_name: korisnicki_nalog
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-004
+            - SU-005
+            - SU-013
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: korisnicko_ime
+          label: korisnicko_ime
+          description: Јединствено име за пријаву. (vrednost se pamti u trenutku događaja, preuzeta iz zahtev_za_registraciju.korisnicko_ime при прихватању)
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: korisnicko_ime
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+                - SU-015
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: lozinka
+          label: lozinka
+          description: Лозинка за пријаву. (vrednost se pamti u trenutku događaja, preuzeta iz zahtev_za_registraciju.lozinka при прихватању)
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: lozinka
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+                - SU-016
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: uloga
+          label: uloga
+          description: Врста налога. (vrednost dodeljuje sistem)
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: uloga
+          enum_values:
+            - администратор
+            - регистровани корисник
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-004
+                - SU-013
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: status
+          label: Status
+          description: 'Stanja: активан.'
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: status
+          enum_values:
+            - активан
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-004
+                - SU-005
+                - SU-013
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-ZAHTEV-ZA-REGISTRACIJU
+      label: Захтев за регистрацију
+      description: Захтев који садржи податке новог корисника и исход администраторског разматрања.
+      table_name: zahtev_za_registraciju
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-010
+            - SU-011
+            - SU-012
+            - SU-014
+            - SU-045
+            - SU-059
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: ime
+          label: ime
+          description: Име особе.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: ime
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: prezime
+          label: prezime
+          description: Презиме особе.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: prezime
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: korisnicko_ime
+          label: korisnicko_ime
+          description: Жељено корисничко име.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: korisnicko_ime
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: lozinka
+          label: lozinka
+          description: Жељена лозинка.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: lozinka
+          enum_values: []
+          notes:
+            - 'Application-enforced rule CON-PRAVILA-LOZINKE: Лозинка мора задовољити прописана правила сложености.'
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+                - SU-016
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: adresa_stanovanja_grad
+          label: grad
+          description: Адреса становања.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: adresa_stanovanja_grad
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: adresa_stanovanja_opstina
+          label: opstina
+          description: Адреса становања.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: adresa_stanovanja_opstina
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: adresa_stanovanja_adresa
+          label: adresa
+          description: Адреса становања.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: adresa_stanovanja_adresa
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: datum_rodjenja
+          label: datum_rodjenja
+          description: Датум рођења.
+          type: date
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: datum_rodjenja
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: kontakt_telefon
+          label: kontakt_telefon
+          description: Контакт телефон.
+          type: phone
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: kontakt_telefon
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: kategorija_zaposlenja
+          label: kategorija_zaposlenja
+          description: Категорија запослења.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: kategorija_zaposlenja
+          enum_values:
+            - незапослен
+            - запослен
+            - студент
+            - лице са инвалидитетом
+            - пензионер
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: email
+          label: email
+          description: Електронска пошта.
+          type: email
+          required: false
+          precision: null
+          scale: null
+          default: null
+          source_field: email
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: vreme_podnosenja
+          label: vreme_podnosenja
+          description: Време подношења потребно за листу пристиглих захтева. (vrednost dodeljuje sistem)
+          type: datetime
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: vreme_podnosenja
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-012
+                - SU-013
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+        - id: status
+          label: Status
+          description: 'Stanja: на чекању, прихваћен, одбачен.'
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: status
+          enum_values:
+            - на чекању
+            - прихваћен
+            - одбачен
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+                - SU-011
+                - SU-012
+                - SU-013
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-GRADSKA-LINIJA
+      label: Градска линија
+      description: Градска аутобуска линија са крајњим станицама, међустаницама, редом вожње и возачима.
+      table_name: gradska_linija
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-046
+            - SU-047
+            - SU-050
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: broj_linije
+          label: broj_linije
+          description: Број линије.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: broj_linije
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-027
+                - SU-047
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: polaziste
+          label: polaziste
+          description: Полазно стајалиште.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: polaziste
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-047
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: odrediste
+          label: odrediste
+          description: Крајње стајалиште.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: odrediste
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-047
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: status
+          label: Status
+          description: 'Stanja: активна.'
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: status
+          enum_values:
+            - активна
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-046
+                - SU-047
+                - SU-050
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-STANICA-NA-GRADSKOJ-LINIJI
+      label: Станица на градској линији
+      description: Уређено појављивање међустанице на градској линији.
+      table_name: stanica_na_gradskoj_liniji
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-027
+            - SU-047
+            - SU-091
+            - SU-093
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: naziv
+          label: naziv
+          description: Назив станице.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: naziv
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-047
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: redosled
+          label: redosled
+          description: Положај станице на рути.
+          type: integer
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: redosled
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-047
+                - SU-091
+                - SU-093
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+    - id: ENT-POLAZAK-REDA-VOZNJE
+      label: Полазак реда вожње
+      description: Једно време из реда вожње градске линије.
+      table_name: polazak_reda_voznje
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-030
+            - SU-047
+            - SU-091
+            - SU-093
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: vreme
+          label: vreme
+          description: Време у реду вожње.
+          type: time
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: vreme
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-091
+                - SU-093
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-VOZAC
+      label: Возач
+      description: Возач градске или међуградске линије.
+      table_name: vozac
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-046
+            - SU-048
+            - SU-051
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: ime
+          label: ime
+          description: Име возача.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: ime
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-048
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: prezime
+          label: prezime
+          description: Презиме возача.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: prezime
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-048
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: datum_rodjenja
+          label: datum_rodjenja
+          description: Датум рођења.
+          type: date
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: datum_rodjenja
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-048
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: godina_pocetka_voznje
+          label: godina_pocetka_voznje
+          description: Година почетка вожње.
+          type: integer
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: godina_pocetka_voznje
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-048
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-OTKAZIVANJE-GRADSKE-LINIJE
+      label: Отказивање градске линије
+      description: Запис о отказивању градске линије у одређеном периоду.
+      table_name: otkazivanje_gradske_linije
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-049
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: period_od
+          label: period_od
+          description: Почетак периода отказивања.
+          type: datetime
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: period_od
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-049
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: period_do
+          label: period_do
+          description: Крај периода отказивања.
+          type: datetime
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: period_do
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-049
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: status
+          label: Status
+          description: 'Stanja: важеће.'
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: status
+          enum_values:
+            - важеће
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-049
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-PREVOZNIK
+      label: Превозник
+      description: Превозник који обавља међуградске линије.
+      table_name: prevoznik
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-051
+            - SU-057
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: naziv
+          label: naziv
+          description: Назив превозника.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: naziv
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-057
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: adresa
+          label: adresa
+          description: Адреса превозника.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: adresa
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-057
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: kontakt_telefon
+          label: kontakt_telefon
+          description: Контакт телефон.
+          type: phone
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: kontakt_telefon
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-057
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: logo
+          label: logo
+          description: Лого превозника.
+          type: file_path
+          required: false
+          precision: null
+          scale: null
+          default: null
+          source_field: logo
+          enum_values: []
+          notes:
+            - 'Application-enforced rule CON-FORMAT-LOGOA: Лого превозника мора бити у подржаном формату.'
+          evidence:
+            fragments: []
+            source_units:
+                - SU-057
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-MEDJUGRADSKA-LINIJA
+      label: Међуградска линија
+      description: Дефиниција руте међуградске линије, одвојена од конкретног датираног поласка.
+      table_name: medjugradska_linija
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-051
+            - SU-052
+            - SU-053
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: polaziste
+          label: polaziste
+          description: Место поласка.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: polaziste
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-052
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: odrediste
+          label: odrediste
+          description: Крајње одредиште.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: odrediste
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-052
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-STANICA-NA-MEDJUGRADSKOJ-LINIJI
+      label: Станица на међуградској линији
+      description: Уређена међустаница која може служити као полазиште или одредиште претраге.
+      table_name: stanica_na_medjugradskoj_liniji
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-020
+            - SU-022
+            - SU-052
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: naziv
+          label: naziv
+          description: Назив места или станице.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: naziv
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-052
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: redosled
+          label: redosled
+          description: Положај на рути потребан за ваљане подрелације.
+          type: integer
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: redosled
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-022
+                - SU-052
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+    - id: ENT-MEDJUGRADSKI-POLAZAK
+      label: Међуградски полазак
+      description: Конкретно временски одређено извршење међуградске линије.
+      table_name: medjugradski_polazak
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-023
+            - SU-031
+            - SU-053
+            - SU-020
+            - SU-036
+            - SU-054
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: vreme_polaska
+          label: vreme_polaska
+          description: Датум и време поласка.
+          type: datetime
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: vreme_polaska
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-053
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: vreme_dolaska
+          label: vreme_dolaska
+          description: Датум и време крајњег доласка.
+          type: datetime
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: vreme_dolaska
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-053
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: status
+          label: Status
+          description: 'Stanja: заказан, прошао.'
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: status
+          enum_values:
+            - заказан
+            - прошао
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-023
+                - SU-031
+                - SU-053
+                - SU-036
+                - SU-041
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-AUTOBUS-SLIKE
+      label: slike
+      description: Слике аутобуса.
+      table_name: slike
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-033
+            - SU-056
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: slike
+          label: slike
+          description: Слике аутобуса.
+          type: file_path
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: slike
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-033
+                - SU-056
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-AUTOBUS
+      label: Аутобус
+      description: Аутобус доступан за доделу међуградском поласку.
+      table_name: autobus
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-051
+            - SU-056
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: marka
+          label: marka
+          description: Марка аутобуса.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: marka
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-056
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: model
+          label: model
+          description: Модел аутобуса.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: model
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-056
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: broj_putnickih_sedista
+          label: broj_putnickih_sedista
+          description: Број седишта расположивих искључиво путницима.
+          type: integer
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: broj_putnickih_sedista
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-056
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-REZERVACIJA
+      label: Резервација
+      description: Захтев и историја резервације карата за конкретан међуградски полазак.
+      table_name: rezervacija
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-035
+            - SU-041
+            - SU-045
+            - SU-059
+            - SU-042
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: broj_karata
+          label: broj_karata
+          description: Број тражених карата.
+          type: integer
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: broj_karata
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-035
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: vreme_podnosenja
+          label: vreme_podnosenja
+          description: Време подношења резервације. (vrednost dodeljuje sistem)
+          type: datetime
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: vreme_podnosenja
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-035
+                - SU-041
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+        - id: ishod
+          label: ishod
+          description: 'Исход који се саопштава кориснику. (vrednost dodeljuje sistem; postoji kada: Када администратор одлучи.)'
+          type: string
+          required: false
+          precision: null
+          scale: null
+          default: null
+          source_field: ishod
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-059
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: status
+          label: Status
+          description: 'Stanja: на чекању, одобрена, одбијена, отказана.'
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: status
+          enum_values:
+            - на чекању
+            - одобрена
+            - одбијена
+            - отказана
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-035
+                - SU-041
+                - SU-045
+                - SU-059
+                - SU-042
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-OPCIJA-KARTE
+      label: Опција карте
+      description: Понуђена месечна или годишња карта са трајањем и ценом.
+      table_name: opcija_karte
+      kind: lookup
+      evidence:
+        fragments: []
+        source_units:
+            - SU-038
+            - SU-039
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: vrsta
+          label: vrsta
+          description: Врста временске карте.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: vrsta
+          enum_values:
+            - месечна
+            - годишња
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-038
+                - SU-039
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: kategorija_zaposlenja
+          label: kategorija_zaposlenja
+          description: Категорија којој је опција намењена.
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: kategorija_zaposlenja
+          enum_values:
+            - незапослен
+            - запослен
+            - студент
+            - лице са инвалидитетом
+            - пензионер
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-010
+                - SU-038
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: trajanje
+          label: trajanje
+          description: Трајање карте.
+          type: integer
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: trajanje
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-039
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: cena
+          label: cena
+          description: Цена карте.
+          type: money
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: cena
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-039
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-ZAHTEV-ZA-KARTU
+      label: Захтев за карту
+      description: Захтев за издавање месечне или годишње карте.
+      table_name: zahtev_za_kartu
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-037
+            - SU-040
+            - SU-045
+            - SU-059
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes:
+        - id: vreme_podnosenja
+          label: vreme_podnosenja
+          description: Време подношења захтева. (vrednost dodeljuje sistem)
+          type: datetime
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: vreme_podnosenja
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-037
+                - SU-059
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+        - id: cena
+          label: cena
+          description: Цена сачувана у тренутку захтева. (vrednost se pamti u trenutku događaja, preuzeta iz opcija_karte.cena при подношењу)
+          type: money
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: cena
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-038
+                - SU-039
+                - SU-040
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+        - id: trajanje
+          label: trajanje
+          description: Трајање сачувано у тренутку захтева. (vrednost se pamti u trenutku događaja, preuzeta iz opcija_karte.trajanje при подношењу)
+          type: integer
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: trajanje
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-039
+                - SU-040
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+        - id: ishod
+          label: ishod
+          description: 'Исход захтева. (vrednost dodeljuje sistem; postoji kada: Када администратор одлучи.)'
+          type: string
+          required: false
+          precision: null
+          scale: null
+          default: null
+          source_field: ishod
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-059
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+        - id: status
+          label: Status
+          description: 'Stanja: на чекању, одобрен, одбијен.'
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: status
+          enum_values:
+            - на чекању
+            - одобрен
+            - одбијен
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-037
+                - SU-040
+                - SU-045
+                - SU-059
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-KARTA-GRADSKOG-PREVOZA
+      label: Карта градског превоза
+      description: Издата месечна или годишња карта градског превоза.
+      table_name: karta_gradskog_prevoza
+      kind: regular
+      evidence:
+        fragments: []
+        source_units:
+            - SU-037
+            - SU-040
+            - SU-059
+        review_decisions: []
+        support_level: inferred
+        confidence: medium
+        notes: []
+      attributes:
+        - id: vazi_od
+          label: vazi_od
+          description: Почетак важења. (vrednost dodeljuje sistem)
+          type: date
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: vazi_od
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-039
+                - SU-040
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+        - id: cena
+          label: cena
+          description: Одобрена цена карте. (vrednost se pamti u trenutku događaja, preuzeta iz zahtev_za_kartu.cena при одобрењу)
+          type: money
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: cena
+          enum_values: []
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-039
+                - SU-040
+            review_decisions: []
+            support_level: inferred
+            confidence: medium
+            notes: []
+        - id: status
+          label: Status
+          description: 'Stanja: важећа, истекла.'
+          type: string
+          required: true
+          precision: null
+          scale: null
+          default: null
+          source_field: status
+          enum_values:
+            - важећа
+            - истекла
+          notes: []
+          evidence:
+            fragments: []
+            source_units:
+                - SU-037
+                - SU-040
+                - SU-059
+                - SU-039
+            review_decisions: []
+            support_level: explicit
+            confidence: high
+            notes: []
+    - id: ENT-GRADSKA-LINIJA-VOZAC
+      label: Градска линија Возач link
+      description: Association table for Возачи који возе линију.
+      table_name: gradska_linija_vozac
+      kind: association
+      evidence:
+        fragments: []
+        source_units:
+            - SU-047
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+      attributes: []
+relationships:
+    - id: REL-AUTOBUS-SLIKE
+      label: slike
+      description: 'slike: više vrednosti za jedan zapis Аутобус.'
+      from: ENT-AUTOBUS
+      to: ENT-AUTOBUS-SLIKE
+      cardinality: one_to_many
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-033
+            - SU-056
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-GRADSKA-LINIJA-VOZAC
+      label: Возачи који возе линију
+      description: Возачи који возе линију.
+      from: ENT-GRADSKA-LINIJA
+      to: ENT-VOZAC
+      cardinality: many_to_many
+      required: true
+      fk_required: true
+      on_delete: cascade
+      identifying: false
+      through: ENT-GRADSKA-LINIJA-VOZAC
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-047
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-STANICA-NA-GRADSKOJ-LINIJI-GRADSKA-LINIJA
+      label: Линија којој станица припада
+      description: Линија којој станица припада.
+      from: ENT-STANICA-NA-GRADSKOJ-LINIJI
+      to: ENT-GRADSKA-LINIJA
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-047
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-POLAZAK-REDA-VOZNJE-GRADSKA-LINIJA
+      label: Линија чијем реду вожње припада
+      description: Линија чијем реду вожње припада.
+      from: ENT-POLAZAK-REDA-VOZNJE
+      to: ENT-GRADSKA-LINIJA
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-047
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-OTKAZIVANJE-GRADSKE-LINIJE-GRADSKA-LINIJA
+      label: Отказана линија
+      description: Отказана линија.
+      from: ENT-OTKAZIVANJE-GRADSKE-LINIJE
+      to: ENT-GRADSKA-LINIJA
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-049
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-MEDJUGRADSKA-LINIJA-PREVOZNIK
+      label: Превозник линије
+      description: Превозник линије.
+      from: ENT-MEDJUGRADSKA-LINIJA
+      to: ENT-PREVOZNIK
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-052
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-STANICA-NA-MEDJUGRADSKOJ-LINIJI-MEDJUGRADSKA-LINIJA
+      label: Линија којој станица припада
+      description: Линија којој станица припада.
+      from: ENT-STANICA-NA-MEDJUGRADSKOJ-LINIJI
+      to: ENT-MEDJUGRADSKA-LINIJA
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-052
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-MEDJUGRADSKI-POLAZAK-MEDJUGRADSKA-LINIJA
+      label: Линија која се извршава
+      description: Линија која се извршава.
+      from: ENT-MEDJUGRADSKI-POLAZAK
+      to: ENT-MEDJUGRADSKA-LINIJA
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-053
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-MEDJUGRADSKI-POLAZAK-AUTOBUS
+      label: Додељени аутобус
+      description: Додељени аутобус.
+      from: ENT-MEDJUGRADSKI-POLAZAK
+      to: ENT-AUTOBUS
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-053
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-MEDJUGRADSKI-POLAZAK-VOZAC
+      label: Додељени возач
+      description: Додељени возач.
+      from: ENT-MEDJUGRADSKI-POLAZAK
+      to: ENT-VOZAC
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-053
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-REZERVACIJA-KORISNICKI-NALOG
+      label: Корисник који резервише
+      description: Корисник који резервише.
+      from: ENT-REZERVACIJA
+      to: ENT-KORISNICKI-NALOG
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-035
+            - SU-041
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-REZERVACIJA-MEDJUGRADSKI-POLAZAK
+      label: Полазак за који се резервише
+      description: Полазак за који се резервише.
+      from: ENT-REZERVACIJA
+      to: ENT-MEDJUGRADSKI-POLAZAK
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-035
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-ZAHTEV-ZA-KARTU-KORISNICKI-NALOG
+      label: Подносилац захтева
+      description: Подносилац захтева.
+      from: ENT-ZAHTEV-ZA-KARTU
+      to: ENT-KORISNICKI-NALOG
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-037
+            - SU-038
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-ZAHTEV-ZA-KARTU-OPCIJA-KARTE
+      label: Изабрана опција карте
+      description: Изабрана опција карте.
+      from: ENT-ZAHTEV-ZA-KARTU
+      to: ENT-OPCIJA-KARTE
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-038
+            - SU-039
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: REL-KARTA-GRADSKOG-PREVOZA-KORISNICKI-NALOG
+      label: Власник карте
+      description: Власник карте.
+      from: ENT-KARTA-GRADSKOG-PREVOZA
+      to: ENT-KORISNICKI-NALOG
+      cardinality: many_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-037
+            - SU-040
+        review_decisions: []
+        support_level: inferred
+        confidence: medium
+        notes: []
+    - id: REL-KARTA-GRADSKOG-PREVOZA-ZAHTEV-ZA-KARTU
+      label: Одобрени захтев из ког је карта
+      description: Одобрени захтев из ког је карта настала.
+      from: ENT-KARTA-GRADSKOG-PREVOZA
+      to: ENT-ZAHTEV-ZA-KARTU
+      cardinality: one_to_one
+      required: true
+      fk_required: true
+      on_delete: restrict
+      identifying: false
+      through: ""
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-040
+            - SU-059
+        review_decisions: []
+        support_level: inferred
+        confidence: medium
+        notes: []
+constraints:
+    - id: CON-ID-KORISNICKI-NALOG
+      type: unique
+      owner: ENT-KORISNICKI-NALOG
+      field: korisnicko_ime
+      fields: []
+      value: null
+      min: null
+      max: null
+      pattern: ""
+      expression: ""
+      condition: null
+      requires: []
+      description: 'Jedinstveno određuje: korisnicko_ime.'
+      evidence:
+        fragments: []
+        source_units:
+            - SU-004
+            - SU-005
+            - SU-013
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: CON-ID-GRADSKA-LINIJA
+      type: unique
+      owner: ENT-GRADSKA-LINIJA
+      field: broj_linije
+      fields: []
+      value: null
+      min: null
+      max: null
+      pattern: ""
+      expression: ""
+      condition: null
+      requires: []
+      description: 'Jedinstveno određuje: broj_linije.'
+      evidence:
+        fragments: []
+        source_units:
+            - SU-046
+            - SU-047
+            - SU-050
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: CON-ID-STANICA-NA-GRADSKOJ-LINIJI
+      type: unique
+      owner: ENT-STANICA-NA-GRADSKOJ-LINIJI
+      field: ""
+      fields:
+        - redosled
+        - REL-STANICA-NA-GRADSKOJ-LINIJI-GRADSKA-LINIJA
+      value: null
+      min: null
+      max: null
+      pattern: ""
+      expression: ""
+      condition: null
+      requires: []
+      description: 'Jedinstveno određuje: gradska_linija, redosled.'
+      evidence:
+        fragments: []
+        source_units:
+            - SU-027
+            - SU-047
+            - SU-091
+            - SU-093
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: CON-ID-POLAZAK-REDA-VOZNJE
+      type: unique
+      owner: ENT-POLAZAK-REDA-VOZNJE
+      field: ""
+      fields:
+        - vreme
+        - REL-POLAZAK-REDA-VOZNJE-GRADSKA-LINIJA
+      value: null
+      min: null
+      max: null
+      pattern: ""
+      expression: ""
+      condition: null
+      requires: []
+      description: 'Jedinstveno određuje: gradska_linija, vreme.'
+      evidence:
+        fragments: []
+        source_units:
+            - SU-030
+            - SU-047
+            - SU-091
+            - SU-093
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: CON-ID-STANICA-NA-MEDJUGRADSKOJ-LINIJI
+      type: unique
+      owner: ENT-STANICA-NA-MEDJUGRADSKOJ-LINIJI
+      field: ""
+      fields:
+        - redosled
+        - REL-STANICA-NA-MEDJUGRADSKOJ-LINIJI-MEDJUGRADSKA-LINIJA
+      value: null
+      min: null
+      max: null
+      pattern: ""
+      expression: ""
+      condition: null
+      requires: []
+      description: 'Jedinstveno određuje: medjugradska_linija, redosled.'
+      evidence:
+        fragments: []
+        source_units:
+            - SU-020
+            - SU-022
+            - SU-052
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: CON-ID-OPCIJA-KARTE
+      type: unique
+      owner: ENT-OPCIJA-KARTE
+      field: ""
+      fields:
+        - vrsta
+        - kategorija_zaposlenja
+      value: null
+      min: null
+      max: null
+      pattern: ""
+      expression: ""
+      condition: null
+      requires: []
+      description: 'Jedinstveno određuje: vrsta, kategorija_zaposlenja.'
+      evidence:
+        fragments: []
+        source_units:
+            - SU-038
+            - SU-039
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+import_specs: []
+state_machines:
+    - id: LC-KORISNICKI-NALOG
+      owner: ENT-KORISNICKI-NALOG
+      field: status
+      states:
+        - активан
+      initial: активан
+      terminal: []
+      transitions: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-004
+            - SU-005
+            - SU-013
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: LC-ZAHTEV-ZA-REGISTRACIJU
+      owner: ENT-ZAHTEV-ZA-REGISTRACIJU
+      field: status
+      states:
+        - на чекању
+        - прихваћен
+        - одбачен
+      initial: на чекању
+      terminal:
+        - прихваћен
+        - одбачен
+      transitions:
+        - from: на чекању
+          to: прихваћен
+        - from: на чекању
+          to: одбачен
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-010
+            - SU-011
+            - SU-012
+            - SU-013
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: LC-GRADSKA-LINIJA
+      owner: ENT-GRADSKA-LINIJA
+      field: status
+      states:
+        - активна
+      initial: активна
+      terminal: []
+      transitions: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-046
+            - SU-047
+            - SU-050
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: LC-OTKAZIVANJE-GRADSKE-LINIJE
+      owner: ENT-OTKAZIVANJE-GRADSKE-LINIJE
+      field: status
+      states:
+        - важеће
+      initial: важеће
+      terminal: []
+      transitions: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-049
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: LC-MEDJUGRADSKI-POLAZAK
+      owner: ENT-MEDJUGRADSKI-POLAZAK
+      field: status
+      states:
+        - заказан
+        - прошао
+      initial: заказан
+      terminal:
+        - прошао
+      transitions:
+        - from: заказан
+          to: прошао
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-023
+            - SU-031
+            - SU-053
+            - SU-036
+            - SU-041
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: LC-REZERVACIJA
+      owner: ENT-REZERVACIJA
+      field: status
+      states:
+        - на чекању
+        - одобрена
+        - одбијена
+        - отказана
+      initial: на чекању
+      terminal:
+        - одбијена
+        - отказана
+      transitions:
+        - from: на чекању
+          to: одобрена
+        - from: на чекању
+          to: одбијена
+        - from: одобрена
+          to: отказана
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-035
+            - SU-041
+            - SU-045
+            - SU-059
+            - SU-042
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: LC-ZAHTEV-ZA-KARTU
+      owner: ENT-ZAHTEV-ZA-KARTU
+      field: status
+      states:
+        - на чекању
+        - одобрен
+        - одбијен
+      initial: на чекању
+      terminal:
+        - одобрен
+        - одбијен
+      transitions:
+        - from: на чекању
+          to: одобрен
+        - from: на чекању
+          to: одбијен
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-037
+            - SU-040
+            - SU-045
+            - SU-059
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: LC-KARTA-GRADSKOG-PREVOZA
+      owner: ENT-KARTA-GRADSKOG-PREVOZA
+      field: status
+      states:
+        - важећа
+        - истекла
+      initial: важећа
+      terminal:
+        - истекла
+      transitions:
+        - from: важећа
+          to: истекла
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-037
+            - SU-040
+            - SU-059
+            - SU-039
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+derived_views:
+    - id: DER-VOZAC-GODINE-ISKUSTVA
+      label: godine_iskustva
+      description: Текуће године искуства.
+      kind: projection
+      sources:
+        - ENT-VOZAC
+      persistence: virtual
+      metrics:
+        - 'godine_iskustva: текућа година − година_pocetka_voznje'
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-048
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-KARTA-GRADSKOG-PREVOZA-VAZI-DO
+      label: vazi_do
+      description: Крај важења израчунат из трајања.
+      kind: projection
+      sources:
+        - ENT-KARTA-GRADSKOG-PREVOZA
+      persistence: virtual
+      metrics:
+        - 'vazi_do: vazi_od + zahtev_za_kartu.trajanje'
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-039
+            - SU-040
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-PRIJAVA
+      label: Пријава корисника провером унетих приступних података
+      description: Пријава корисника провером унетих приступних података.
+      kind: projection
+      sources:
+        - ENT-KORISNICKI-NALOG
+      persistence: virtual
+      metrics:
+        - Пријава корисника провером унетих приступних података.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-006
+            - SU-007
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-PRETRAGA-MEDJUGRADSKIH-POLAZAKA
+      label: Претрага будућих међуградских полазака по превознику
+      description: Претрага будућих међуградских полазака по превознику, интервалу времена, датуму, полазишту и/или одредишту, укључујући међустанице.
+      kind: projection
+      sources:
+        - ENT-MEDJUGRADSKA-LINIJA
+        - ENT-MEDJUGRADSKI-POLAZAK
+        - ENT-STANICA-NA-MEDJUGRADSKOJ-LINIJI
+        - ENT-PREVOZNIK
+      persistence: virtual
+      metrics:
+        - Претрага будућих међуградских полазака по превознику, интервалу времена, датуму, полазишту и/или одредишту, укључујући међустанице.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-020
+            - SU-021
+            - SU-022
+            - SU-036
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-NAJSKORIJI-POLASCI
+      label: Десет најскоријих међуградских полазака између било
+      description: Десет најскоријих међуградских полазака између било која два града.
+      kind: projection
+      sources:
+        - ENT-MEDJUGRADSKI-POLAZAK
+        - ENT-MEDJUGRADSKA-LINIJA
+      persistence: virtual
+      metrics:
+        - Десет најскоријих међуградских полазака између било која два града.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-024
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-PRETRAGA-GRADSKIH-LINIJA
+      label: Преглед и филтрирање градских линија по
+      description: Преглед и филтрирање градских линија по броју и крајњим станицама, односно проналажење линија које стају на задатој станици.
+      kind: projection
+      sources:
+        - ENT-GRADSKA-LINIJA
+        - ENT-STANICA-NA-GRADSKOJ-LINIJI
+      persistence: virtual
+      metrics:
+        - Преглед и филтрирање градских линија по броју и крајњим станицама, односно проналажење линија које стају на задатој станици.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-027
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-DETALJI-GRADSKE-LINIJE
+      label: Детаљи градске линије са редом вожње
+      description: Детаљи градске линије са редом вожње и возачима.
+      kind: projection
+      sources:
+        - ENT-GRADSKA-LINIJA
+        - ENT-POLAZAK-REDA-VOZNJE
+        - ENT-VOZAC
+      persistence: virtual
+      metrics:
+        - Детаљи градске линије са редом вожње и возачима.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-029
+            - SU-030
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-FILTRIRANJE-MEDJUGRADSKIH-LINIJA
+      label: Претрага међуградских линија по свим приказаним
+      description: Претрага међуградских линија по свим приказаним параметрима.
+      kind: projection
+      sources:
+        - ENT-MEDJUGRADSKA-LINIJA
+        - ENT-MEDJUGRADSKI-POLAZAK
+        - ENT-STANICA-NA-MEDJUGRADSKOJ-LINIJI
+        - ENT-PREVOZNIK
+      persistence: virtual
+      metrics:
+        - Претрага међуградских линија по свим приказаним параметрима.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-031
+            - SU-032
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-DETALJI-MEDJUGRADSKE-LINIJE
+      label: Детаљи међуградске линије, аутобуса, возача, слика
+      description: Детаљи међуградске линије, аутобуса, возача, слика и уређене руте.
+      kind: projection
+      sources:
+        - ENT-MEDJUGRADSKA-LINIJA
+        - ENT-STANICA-NA-MEDJUGRADSKOJ-LINIJI
+        - ENT-MEDJUGRADSKI-POLAZAK
+        - ENT-AUTOBUS
+        - ENT-VOZAC
+      persistence: virtual
+      metrics:
+        - Детаљи међуградске линије, аутобуса, возача, слика и уређене руте.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-033
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-REZERVACIJE-KORISNIKA
+      label: Преглед свих резервација корисника, уз разликовање
+      description: Преглед свих резервација корисника, уз разликовање резервација за прошле поласке.
+      kind: projection
+      sources:
+        - ENT-REZERVACIJA
+        - ENT-MEDJUGRADSKI-POLAZAK
+      persistence: virtual
+      metrics:
+        - Преглед свих резервација корисника, уз разликовање резервација за прошле поласке.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-035
+            - SU-041
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+    - id: DER-PRETRAGA-SA-PRESEDANJIMA
+      label: Опциона претрага траса састављених од две
+      description: Опциона претрага траса састављених од две или три међуградске подлиније, са једним или два преседања.
+      kind: projection
+      sources:
+        - ENT-MEDJUGRADSKA-LINIJA
+        - ENT-STANICA-NA-MEDJUGRADSKOJ-LINIJI
+        - ENT-MEDJUGRADSKI-POLAZAK
+      persistence: virtual
+      metrics:
+        - Опциона претрага траса састављених од две или три међуградске подлиније, са једним или два преседања.
+      filters: []
+      notes: []
+      evidence:
+        fragments: []
+        source_units:
+            - SU-083
+            - SU-084
+            - SU-085
+        review_decisions: []
+        support_level: explicit
+        confidence: high
+        notes: []
+file_specs: []

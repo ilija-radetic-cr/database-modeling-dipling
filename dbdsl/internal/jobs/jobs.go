@@ -77,30 +77,17 @@ type jobState struct {
 	runner      Runner
 }
 
-func NewManager(applyResult func(projectID string, jobType string) (int, []string, error)) *Manager {
-	return NewPersistentManager(applyResult, "")
-}
-
 // NewPersistentManager preserves job summaries and event timelines across
 // workbench restarts. In-flight work is marked interrupted during recovery;
 // stage artifacts remain untouched and the user can retry against the latest
 // project revision.
-func NewPersistentManager(applyResult func(projectID string, jobType string) (int, []string, error), statePath string) *Manager {
+func NewPersistentManager(statePath string) *Manager {
 	m := &Manager{
-		jobs:        map[string]*jobState{},
-		applyResult: applyResult,
-		statePath:   statePath,
+		jobs:      map[string]*jobState{},
+		statePath: statePath,
 	}
 	m.load()
 	return m
-}
-
-func (m *Manager) Start(projectID, jobType string, steps []string) Job {
-	return m.StartWithRevision(projectID, jobType, 0, steps, nil)
-}
-
-func (m *Manager) StartWithRunner(projectID, jobType string, steps []string, runner Runner) Job {
-	return m.StartWithRevision(projectID, jobType, 0, steps, runner)
 }
 
 func (m *Manager) StartWithRevision(projectID, jobType string, inputRevision int, steps []string, runner Runner) Job {
@@ -132,7 +119,7 @@ func (m *Manager) StartWithRevision(projectID, jobType string, inputRevision int
 	job := state.job
 	m.mu.Unlock()
 
-	go m.run(id, steps, runner)
+	go m.run(id, runner)
 	return job
 }
 
@@ -237,7 +224,7 @@ func (m *Manager) Unsubscribe(id string, ch <-chan Event) {
 	}
 }
 
-func (m *Manager) run(id string, steps []string, runner Runner) {
+func (m *Manager) run(id string, runner Runner) {
 	m.update(id, StatusRunning, "", "Job started.", 2, 0, nil, nil)
 	if runner != nil {
 		m.mu.Lock()
@@ -257,27 +244,7 @@ func (m *Manager) run(id string, steps []string, runner Runner) {
 		m.update(id, StatusCompleted, "", "Job completed.", 100, revision, updated, nil)
 		return
 	}
-	if len(steps) == 0 {
-		steps = []string{"run"}
-	}
-	for i, step := range steps {
-		progress := 10 + int(float64(i)/float64(len(steps))*75)
-		m.update(id, StatusRunning, step, humanStep(step), progress, 0, nil, nil)
-		time.Sleep(180 * time.Millisecond)
-	}
-
-	m.mu.Lock()
-	state := m.jobs[id]
-	projectID := state.projectID
-	jobType := state.job.Type
-	m.mu.Unlock()
-
-	revision, updated, err := m.applyResult(projectID, jobType)
-	if err != nil {
-		m.update(id, StatusFailed, "", err.Error(), 100, 0, nil, nil)
-		return
-	}
-	m.update(id, StatusCompleted, "", "Job completed.", 100, revision, updated, nil)
+	m.update(id, StatusFailed, "", "job has no runner", 100, 0, nil, nil)
 }
 
 func (m *Manager) update(id string, status Status, step string, message string, progress int, revision int, updated []string, metadata map[string]any) {
@@ -409,50 +376,5 @@ func terminal(status Status) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func humanStep(step string) string {
-	switch step {
-	case "load_extracted_resources":
-		return "Loading extracted resources."
-	case "write_source_manifest":
-		return "Writing source manifest."
-	case "prepare_source_segmentation":
-		return "Preparing complete source resources."
-	case "propose_source_segmentation":
-		return "Segmenting source resources with the LLM."
-	case "assign_segment_ids":
-		return "Assigning segment IDs."
-	case "assign_source_unit_ids":
-		return "Assigning canonical SU evidence IDs."
-	case "validate_source_units":
-		return "Validating source evidence coverage."
-	case "write_combined_document":
-		return "Writing combined source document."
-	case "detect_examples":
-		return "Detecting structured examples."
-	case "extract_requirements":
-		return "Extracting requirement atoms."
-	case "build_functional_crud":
-		return "Building functional and CRUD analysis."
-	case "create_review_candidates":
-		return "Creating review questions."
-	case "apply_review_decision":
-		return "Applying review decision."
-	case "refresh_analysis":
-		return "Refreshing affected analysis artifacts."
-	case "validate":
-		return "Running validation."
-	case "lint":
-		return "Running lint checks."
-	case "build_model_graph":
-		return "Building model graph."
-	case "build_trace_index":
-		return "Building trace index."
-	case "generate_dbml":
-		return "Generating DBML."
-	default:
-		return "Running " + step + "."
 	}
 }

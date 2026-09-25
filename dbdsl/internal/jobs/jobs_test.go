@@ -9,14 +9,14 @@ import (
 
 func TestManagerPersistsCompletedTimeline(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jobs.json")
-	m := NewPersistentManager(nil, path)
+	m := NewPersistentManager(path)
 	job := m.StartWithRevision("project_1", "source_units", 4, []string{"extract"}, func(_ string, _ string, emit StepEmitter) (int, []string, error) {
 		emit("extract", "Extracting.", 45, nil)
 		return 5, []string{"source_units"}, nil
 	})
 	waitForStatus(t, m, job.ID, StatusCompleted)
 
-	reloaded := NewPersistentManager(nil, path)
+	reloaded := NewPersistentManager(path)
 	got, ok := reloaded.Get(job.ID)
 	if !ok || got.Status != StatusCompleted || got.InputRevision != 4 || got.OutputRevision != 5 {
 		t.Fatalf("unexpected reloaded job: %#v, found=%v", got, ok)
@@ -28,7 +28,7 @@ func TestManagerPersistsCompletedTimeline(t *testing.T) {
 }
 
 func TestManagerFailureCanRetryWithoutMutatingFirstJob(t *testing.T) {
-	m := NewManager(nil)
+	m := NewPersistentManager("")
 	attempt := 0
 	runner := func(_ string, _ string, _ StepEmitter) (int, []string, error) {
 		attempt++
@@ -52,14 +52,14 @@ func TestManagerFailureCanRetryWithoutMutatingFirstJob(t *testing.T) {
 
 func TestManagerMarksInflightJobInterruptedOnRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jobs.json")
-	m := NewPersistentManager(nil, path)
+	m := NewPersistentManager(path)
 	block := make(chan struct{})
 	job := m.StartWithRevision("project_1", "logical_model", 8, nil, func(_ string, _ string, _ StepEmitter) (int, []string, error) {
 		<-block
 		return 9, nil, nil
 	})
 	waitForStatus(t, m, job.ID, StatusRunning)
-	reloaded := NewPersistentManager(nil, path)
+	reloaded := NewPersistentManager(path)
 	got, ok := reloaded.Get(job.ID)
 	close(block)
 	waitForStatus(t, m, job.ID, StatusCompleted)

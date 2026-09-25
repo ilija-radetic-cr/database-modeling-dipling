@@ -5,16 +5,12 @@ import (
 	"testing"
 )
 
-func mapperEvidence(atom string) EvidenceProposal {
-	return EvidenceProposal{SourceUnits: []string{"SU-1"}, RequirementAtoms: []string{atom}, SupportLevel: "explicit", Confidence: "high"}
+func mapperEvidence(unit string) EvidenceProposal {
+	return EvidenceProposal{SourceUnits: []string{"SU-1", unit}, SupportLevel: "explicit", Confidence: "high"}
 }
 
-func mapperFixture() (ConceptualModelProposal, []RequirementAtomProposal) {
+func mapperFixture() ConceptualModelProposal {
 	required, optional := true, false
-	atoms := []RequirementAtomProposal{}
-	for _, id := range []string{"RA-1", "RA-2", "RA-3", "RA-4", "RA-5", "RA-6", "RA-7"} {
-		atoms = append(atoms, RequirementAtomProposal{ID: id, SourceUnits: []string{"SU-1"}})
-	}
 	model := ConceptualModelProposal{
 		EntityConcepts: []ConceptualEntityProposal{
 			{ID: "ENT-CUSTOMER", Label: "Customer", Kind: "regular", Evidence: mapperEvidence("RA-1"), Attributes: []ConceptualAttributeProposal{
@@ -42,14 +38,14 @@ func mapperFixture() (ConceptualModelProposal, []RequirementAtomProposal) {
 		LifecycleConcepts: []PlanElementProposal{{ID: "LFC-ORDER", Label: "Order lifecycle", Owner: "ENT-ORDER", Field: "status",
 			States: []string{"new", "accepted", "rejected"}, Initial: "new", Terminal: []string{"accepted", "rejected"},
 			Transitions: []ConceptualTransition{{From: "new", To: "accepted"}, {From: "new", To: "rejected"}, {From: "gone", To: "new"}},
-			SourceUnits: []string{"SU-1"}, RequirementAtoms: []string{"RA-3"}}},
+			SourceUnits: []string{"SU-1"}}},
 	}
-	return model, atoms
+	return model
 }
 
 func TestMapConceptualToLogicalAppliesRelationalRules(t *testing.T) {
-	model, atoms := mapperFixture()
-	patch, report, err := MapConceptualToLogical(model, atoms, LogicalMappingOptions{})
+	model := mapperFixture()
+	patch, report, err := MapConceptualToLogical(model, LogicalMappingOptions{})
 	if err != nil {
 		t.Fatalf("map: %v", err)
 	}
@@ -95,7 +91,7 @@ func TestMapConceptualToLogicalAppliesRelationalRules(t *testing.T) {
 	if relationships["REL-PAYS"] != nil {
 		t.Error("REL-PAYS creates the same orders.customer_id foreign key and must be merged into REL-PLACES")
 	}
-	if !containsString(relationships["REL-PLACES"].Evidence.RequirementAtoms, "RA-5") {
+	if !containsString(relationships["REL-PLACES"].Evidence.SourceUnits, "RA-5") {
 		t.Error("merged relationship must keep the evidence of the relationship it absorbed")
 	}
 	link := entities["ENT-ORDER-PIZZA"]
@@ -108,7 +104,7 @@ func TestMapConceptualToLogicalAppliesRelationalRules(t *testing.T) {
 	if c := constraints["CON-TOTAL"]; c == nil || c.Type != "check" || c.Expression != "total_price >= 0" {
 		t.Errorf("check with expression must be emitted: %+v", c)
 	}
-	if constraints["CON-ACCESS"] != nil || !containsString(relationships["REL-PLACES"].Evidence.RequirementAtoms, "RA-7") {
+	if constraints["CON-ACCESS"] != nil || !containsString(relationships["REL-PLACES"].Evidence.SourceUnits, "RA-7") {
 		t.Error("an application-enforced rule on a relationship must be recorded on that relationship, not as DDL")
 	}
 	if len(machines) != 1 || machines[0].Initial != "new" || len(machines[0].Transitions) != 2 {
@@ -123,9 +119,9 @@ func TestMapConceptualToLogicalAppliesRelationalRules(t *testing.T) {
 }
 
 func TestMapConceptualToLogicalRejectsUnresolvedCardinality(t *testing.T) {
-	model, atoms := mapperFixture()
+	model := mapperFixture()
 	model.Relationships[0].Cardinality = "unknown"
-	if _, _, err := MapConceptualToLogical(model, atoms, LogicalMappingOptions{}); err == nil || !strings.Contains(err.Error(), "unresolved cardinality") {
+	if _, _, err := MapConceptualToLogical(model, LogicalMappingOptions{}); err == nil || !strings.Contains(err.Error(), "unresolved cardinality") {
 		t.Fatalf("unknown cardinality must stop the mapping instead of being defaulted: %v", err)
 	}
 }

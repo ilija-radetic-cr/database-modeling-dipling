@@ -23,12 +23,12 @@ func TraceFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if doc.DSL.Version == "0.5" {
-		bundle, err := dsl.LoadV05Bundle(path)
+	if doc.DSL.Version == "0.6" {
+		bundle, err := dsl.LoadV06Bundle(path)
 		if err != nil {
 			return "", err
 		}
-		return TraceReportV05(bundle), nil
+		return TraceReportV06(bundle), nil
 	}
 
 	doc, source, sourcePath, err := dsl.LoadBundle(path)

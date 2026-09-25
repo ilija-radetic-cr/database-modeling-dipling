@@ -4,11 +4,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"dbdsl/internal/scaffold"
 )
 
-func TestCompareIdenticalGoldenBundle(t *testing.T) {
-	model := filepath.Join("..", "..", "..", "poc", "printing_house_full", "v0.5_granularity_sentance", "db_model.dsl.yaml")
-	report, err := Compare(model, model)
+func TestCompareIdenticalScaffoldBundle(t *testing.T) {
+	dir := t.TempDir()
+	result, err := scaffold.BundleFromText("Print shop stores products. Every product has a unique code.", dir, scaffold.Options{Name: "Print shop"})
+	if err != nil {
+		t.Fatalf("scaffold: %v", err)
+	}
+	report, err := Compare(result.ModelPath, result.ModelPath)
 	if err != nil {
 		t.Fatalf("compare: %v", err)
 	}

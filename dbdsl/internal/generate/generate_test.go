@@ -77,7 +77,7 @@ func TestTraceReportIncludesEvidenceTrail(t *testing.T) {
 			{
 				ID:       "PH-REV-001",
 				Question: "Da li modelovati stampariju?",
-				Decision: dsl.ReviewDecision{
+				Decision: dsl.ReviewItemDecision{
 					Status:         "accepted",
 					SelectedOption: "print_shop_only",
 					Rationale:      "PoC modeluje katalog.",
@@ -139,8 +139,8 @@ func TestTraceReportV02IncludesNewSections(t *testing.T) {
 	assertContains(t, got, "ProductImageFile")
 }
 
-func TestDBMLV05RegularJoinEntityKeepsScalarID(t *testing.T) {
-	doc := generatorFixtureDocumentV05()
+func TestDBMLV06RegularJoinEntityKeepsScalarID(t *testing.T) {
+	doc := generatorFixtureDocumentV06()
 
 	got := DBML(doc)
 
@@ -148,42 +148,27 @@ func TestDBMLV05RegularJoinEntityKeepsScalarID(t *testing.T) {
 	assertContains(t, got, "Ref: cart_items.product_print_service_id > product_print_services.id")
 }
 
-func TestTraceReportV05IncludesNativePipelineSections(t *testing.T) {
-	bundle := &dsl.V05Bundle{
-		Document: generatorFixtureDocumentV05(),
-		SourceUnits: &dsl.V05SourceUnitsFile{SourceUnits: []dsl.SourceUnit{
+func TestTraceReportV06IncludesNativePipelineSections(t *testing.T) {
+	bundle := &dsl.Bundle{
+		Document: generatorFixtureDocumentV06(),
+		SourceUnits: &dsl.SourceUnitsFile{SourceUnits: []dsl.SourceUnit{
 			{ID: "SU-001", Section: "catalog", Kind: "sentence", Relevance: "model_relevant", Text: dsl.SourceUnitText{Normalized: "Product has print service."}},
 		}},
-		RequirementAtoms: &dsl.V05RequirementAtomsFile{RequirementAtoms: []dsl.RequirementAtom{
-			{
-				ID:                "RA-001",
-				Statement:         "Product has print service.",
-				ModelingRelevance: "direct_db",
-				FunctionalArea:    "catalog",
-				SourceUnits:       []string{"SU-001"},
-				ModelImpacts:      dsl.RequirementModelImpacts{Entities: []string{"ProductPrintService"}},
-				ModelingOutcome:   dsl.RequirementOutcome{Status: "represented"},
-			},
-		}},
-		CRUDMatrix: &dsl.V05CRUDMatrixFile{
-			Actors: []dsl.CRUDActor{{ID: "system"}},
-			Operations: []dsl.CRUDOperation{
-				{ID: "manage_services", Actor: "system", FunctionalArea: "catalog", SourceAtoms: []string{"RA-001"}, SourceUnits: []string{"SU-001"}},
-			},
-			Matrix: []dsl.CRUDRow{{Entity: "ProductPrintService"}},
-		},
-		ReviewDecisions: &dsl.V05ReviewDecisionsFile{ReviewDecisions: []dsl.V05ReviewDecision{
-			{ID: "RD-001", AffectedAtoms: []string{"RA-001"}, Decision: map[string]any{"status": "accepted", "selected_option": "join_entity"}},
+		ReviewDecisions: &dsl.ReviewDecisionsFile{ReviewDecisions: []dsl.ReviewDecision{
+			{ID: "RD-001", AffectedElements: []string{"ProductPrintService"}, Decision: map[string]any{"status": "accepted", "selected_option": "join_entity"}},
 		}},
 	}
 
-	got := TraceReportV05(bundle)
+	got := TraceReportV06(bundle)
 
-	assertContains(t, got, "Traceability Report v0.5")
-	assertContains(t, got, "Requirement Atom Coverage")
-	assertContains(t, got, "CRUD Operations")
-	assertContains(t, got, "RA-001")
+	assertContains(t, got, "Traceability Report v0.6")
+	assertContains(t, got, "Source units referenced by model")
+	assertContains(t, got, "Source Unit Appendix")
+	assertContains(t, got, "RD-001")
 	assertContains(t, got, "SU-001")
+	if strings.Contains(got, "Requirement atoms") || strings.Contains(got, "CRUD") {
+		t.Fatalf("v0.6 trace must not mention atoms or CRUD:\n%s", got)
+	}
 }
 
 func generatorFixtureDocument() *dsl.Document {
@@ -298,12 +283,12 @@ func generatorFixtureDocument() *dsl.Document {
 	}
 }
 
-func generatorFixtureDocumentV05() *dsl.Document {
+func generatorFixtureDocumentV06() *dsl.Document {
 	return &dsl.Document{
-		DSL: dsl.DSLMeta{Name: "DB-DSL", Version: "0.5"},
+		DSL: dsl.DSLMeta{Name: "DB-DSL", Version: "0.6"},
 		Model: dsl.ModelInfo{
-			ID:          "test_model_v05",
-			Name:        "Test Model v0.5",
+			ID:          "test_model_v06",
+			Name:        "Test Model v0.6",
 			DomainSlice: "catalog",
 			Status:      "draft_model",
 			Description: "Test model.",
@@ -314,9 +299,9 @@ func generatorFixtureDocumentV05() *dsl.Document {
 				Label:     "Product",
 				TableName: "products",
 				Kind:      "regular",
-				Evidence:  evidenceV05("SU-001", "RA-001", "RD-001"),
+				Evidence:  evidenceV06("SU-001", "RD-001"),
 				Attributes: []dsl.Attribute{
-					{ID: "code", Label: "Code", Type: "string", Required: boolPtr(true), Evidence: evidenceV05("SU-001", "RA-001", "RD-001")},
+					{ID: "code", Label: "Code", Type: "string", Required: boolPtr(true), Evidence: evidenceV06("SU-001", "RD-001")},
 				},
 			},
 			{
@@ -324,9 +309,9 @@ func generatorFixtureDocumentV05() *dsl.Document {
 				Label:     "Print service",
 				TableName: "print_services",
 				Kind:      "lookup",
-				Evidence:  evidenceV05("SU-001", "RA-001", "RD-001"),
+				Evidence:  evidenceV06("SU-001", "RD-001"),
 				Attributes: []dsl.Attribute{
-					{ID: "name", Label: "Name", Type: "string", Required: boolPtr(true), Evidence: evidenceV05("SU-001", "RA-001", "RD-001")},
+					{ID: "name", Label: "Name", Type: "string", Required: boolPtr(true), Evidence: evidenceV06("SU-001", "RD-001")},
 				},
 			},
 			{
@@ -334,9 +319,9 @@ func generatorFixtureDocumentV05() *dsl.Document {
 				Label:     "Product print service",
 				TableName: "product_print_services",
 				Kind:      "regular",
-				Evidence:  evidenceV05("SU-001", "RA-001", "RD-001"),
+				Evidence:  evidenceV06("SU-001", "RD-001"),
 				Attributes: []dsl.Attribute{
-					{ID: "additional_price", Label: "Additional price", Type: "money", Required: boolPtr(true), Evidence: evidenceV05("SU-001", "RA-001", "RD-001")},
+					{ID: "additional_price", Label: "Additional price", Type: "money", Required: boolPtr(true), Evidence: evidenceV06("SU-001", "RD-001")},
 				},
 			},
 			{
@@ -344,13 +329,13 @@ func generatorFixtureDocumentV05() *dsl.Document {
 				Label:     "Cart item",
 				TableName: "cart_items",
 				Kind:      "regular",
-				Evidence:  evidenceV05("SU-001", "RA-001", "RD-001"),
+				Evidence:  evidenceV06("SU-001", "RD-001"),
 			},
 		},
 		Relationships: []dsl.Relationship{
-			{ID: "ProductPrintServiceProduct", Label: "Product print service product", From: "ProductPrintService", To: "Product", Cardinality: "many_to_one", Required: boolPtr(true), Evidence: evidenceV05("SU-001", "RA-001", "RD-001")},
-			{ID: "ProductPrintServiceService", Label: "Product print service service", From: "ProductPrintService", To: "PrintService", Cardinality: "many_to_one", Required: boolPtr(true), Evidence: evidenceV05("SU-001", "RA-001", "RD-001")},
-			{ID: "CartItemPrintService", Label: "Cart item print service", From: "CartItem", To: "ProductPrintService", Cardinality: "many_to_one", Required: boolPtr(false), Evidence: evidenceV05("SU-001", "RA-001", "RD-001")},
+			{ID: "ProductPrintServiceProduct", Label: "Product print service product", From: "ProductPrintService", To: "Product", Cardinality: "many_to_one", Required: boolPtr(true), Evidence: evidenceV06("SU-001", "RD-001")},
+			{ID: "ProductPrintServiceService", Label: "Product print service service", From: "ProductPrintService", To: "PrintService", Cardinality: "many_to_one", Required: boolPtr(true), Evidence: evidenceV06("SU-001", "RD-001")},
+			{ID: "CartItemPrintService", Label: "Cart item print service", From: "CartItem", To: "ProductPrintService", Cardinality: "many_to_one", Required: boolPtr(false), Evidence: evidenceV06("SU-001", "RD-001")},
 		},
 	}
 }
@@ -505,13 +490,12 @@ func evidence(fragmentID, reviewID string) dsl.Evidence {
 	return evidence
 }
 
-func evidenceV05(sourceUnitID, atomID, reviewID string) dsl.Evidence {
+func evidenceV06(sourceUnitID, reviewID string) dsl.Evidence {
 	return dsl.Evidence{
-		SourceUnits:      []string{sourceUnitID},
-		RequirementAtoms: []string{atomID},
-		ReviewDecisions:  []string{reviewID},
-		SupportLevel:     "explicit",
-		Confidence:       "high",
+		SourceUnits:     []string{sourceUnitID},
+		ReviewDecisions: []string{reviewID},
+		SupportLevel:    "explicit",
+		Confidence:      "high",
 	}
 }
 

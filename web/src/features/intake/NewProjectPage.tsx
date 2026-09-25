@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, CheckCircle2, Database, Eye, FileUp, FolderOpen, Play, Sparkles, Trash2, UserCheck } from "lucide-react";
 import { api } from "@/shared/api/client";
 import type { BundleCandidate, InputResource, Job } from "@/shared/api/types";
-import { Badge, Button, Drawer, Field, LoadingState, Metric, Panel, StatusBadge } from "@/shared/components/ui";
+import { Badge, Button, Drawer, Field, LoadingState, Panel, StatusBadge } from "@/shared/components/ui";
 import { useRouter } from "@/shared/lib/router";
 import { JobProgress } from "@/features/jobs/JobProgress";
 import { requestAutoRun } from "@/shared/lib/autopilot";
@@ -15,7 +15,7 @@ export function NewProjectPage() {
   const [projectRevision, setProjectRevision] = useState(1);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [sourceTitle, setSourceTitle] = useState("Main task text");
+  const [sourceTitle] = useState("Main task text");
 	const [sourceText, setSourceText] = useState("");
 	const [bundlePath, setBundlePath] = useState("");
   const [llmModel, setLlmModel] = useState("gpt-5.6-sol");
@@ -49,23 +49,10 @@ export function NewProjectPage() {
     queryFn: () => api.sourceManifest(projectId ?? ""),
     enabled: projectId !== null,
   });
-  const combinedDocument = useQuery({
-    queryKey: ["combined-document", projectId],
-    queryFn: () => api.combinedDocument(projectId ?? ""),
-    enabled: projectId !== null && project.data?.artifact_health.combined_document_status === "ready",
-  });
   const resourcePreview = useQuery({
     queryKey: ["resource-text", projectId, selectedResource?.id],
     queryFn: () => api.resourceText(projectId ?? "", selectedResource?.id ?? ""),
     enabled: projectId !== null && selectedResource !== null,
-  });
-  const create = useMutation({
-    mutationFn: () => api.createProject({ name, description, language: "sr-Cyrl", domain: "information_system" }),
-    onSuccess: ({ project }) => {
-      setProjectId(project.id);
-      setProjectRevision(project.current_revision);
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
   });
   // One action from task text to a running pipeline: create the project, attach
   // every source, build the lossless source document, then hand over to autopilot.
@@ -167,27 +154,6 @@ export function NewProjectPage() {
       navigate(`/projects/${project.id}/model/trace`);
     },
   });
-  const llmDraftAndImport = useMutation({
-    mutationFn: async () => {
-      const model = llmUseMock ? "mock-model" : llmModel.trim() || llmStatus.data?.default_model || "gpt-5.6-sol";
-      const generated = await api.llmPlanBundleFromTask({
-        name,
-        content: sourceText,
-        model,
-        reasoning_effort: "medium",
-        max_output_tokens: 12000,
-        max_repair_attempts: 1,
-        mock: llmUseMock,
-      });
-      return api.importBundle(generated.bundle.bundle_path);
-    },
-    onSuccess: ({ project }) => {
-      void queryClient.invalidateQueries({ queryKey: ["bundles"] });
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate(`/projects/${project.id}/model/trace`);
-    },
-  });
-
   const ready = useMemo(() => projectId !== null, [projectId]);
   const bundleItems = bundles.data?.items ?? [];
   const llmAvailable = llmUseMock || !!llmStatus.data?.available;
@@ -203,7 +169,7 @@ export function NewProjectPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">New Project</h1>
-          <p className="page-subtitle">Create a database modeling project from task sources and structured examples.</p>
+          <p className="page-subtitle">Create a database modeling project from task sources.</p>
         </div>
         <Button onClick={() => navigate("/projects")}>Projects</Button>
       </div>
@@ -255,7 +221,7 @@ export function NewProjectPage() {
                   </Button>
                   {readyResourceCount > 0 && <Badge tone="good">{readyResourceCount} source{readyResourceCount === 1 ? "" : "s"} attached</Badge>}
                 </div>
-                <p className="muted small">The pipeline runs automatically and stops only where a design decision needs you.</p>
+                <p className="muted small">The pipeline runs automatically and stops only where your review is needed.</p>
               </div>
             </div>
             {(start.isError || addText.isError || upload.isError || process.isError) && (
@@ -277,11 +243,8 @@ export function NewProjectPage() {
                 <div className="llm-box">
                   <div className="bundle-main">
                     <div className="toolbar">
-                      <Button onClick={() => scaffoldAndImport.mutate()} disabled={sourceText.trim() === "" || scaffoldAndImport.isPending}>
-                        <Database size={18} /> Generate Scaffold
-                      </Button>
                       <Bot size={18} />
-                      <strong>One-shot LLM draft</strong>
+                      <strong>LLM settings for source segmentation</strong>
                       <Badge tone={llmAvailable ? "good" : "warn"}>{llmUseMock ? "mock" : llmStatus.data?.available ? "ready" : "no key"}</Badge>
                     </div>
                     <label className="toolbar toggle-label">
@@ -290,18 +253,16 @@ export function NewProjectPage() {
                     </label>
                   </div>
                   <Field label="Model">
-                    <input className="input" value={llmModel} onChange={(event) => setLlmModel(event.target.value)} disabled={llmUseMock || llmDraftAndImport.isPending} />
+                    <input className="input" value={llmModel} onChange={(event) => setLlmModel(event.target.value)} disabled={llmUseMock || start.isPending} />
                   </Field>
-                  <div className="toolbar">
-                    <Button onClick={() => llmDraftAndImport.mutate()} disabled={sourceText.trim() === "" || !llmAvailable || llmDraftAndImport.isPending}>
-                      <Sparkles size={18} />
-                      {llmDraftAndImport.isPending ? "Generating LLM Draft..." : "Generate LLM Draft"}
-                    </Button>
-                  </div>
                   {llmStatus.isError && <p className="error-text">{(llmStatus.error as Error).message}</p>}
-                  {llmDraftAndImport.isError && <p className="error-text">{(llmDraftAndImport.error as Error).message}</p>}
-                  {scaffoldAndImport.isError && <p className="error-text">{(scaffoldAndImport.error as Error).message}</p>}
                 </div>
+                <div className="toolbar">
+                  <Button onClick={() => scaffoldAndImport.mutate()} disabled={sourceText.trim() === "" || scaffoldAndImport.isPending}>
+                    <Database size={18} /> Generate Scaffold
+                  </Button>
+                </div>
+                {scaffoldAndImport.isError && <p className="error-text">{(scaffoldAndImport.error as Error).message}</p>}
                 <Field label="Import existing v0.5 bundle path">
                   <input className="input" value={bundlePath} onChange={(event) => setBundlePath(event.target.value)} />
                 </Field>
@@ -347,12 +308,11 @@ export function NewProjectPage() {
           ) : null}
           <Panel title="How the analysis works">
             <ol className="how-it-works">
-              <li><Sparkles size={16} /><div><strong>Sources</strong><span>The text is split into traceable sentences and classified.</span></div></li>
-              <li><Sparkles size={16} /><div><strong>Evidence</strong><span>Atomic requirements, functional areas and CRUD operations are extracted.</span></div></li>
-              <li className="gate"><UserCheck size={16} /><div><strong>Your decisions</strong><span>Ambiguities become questions with options and consequences.</span></div></li>
-              <li><Sparkles size={16} /><div><strong>Conceptual model</strong><span>Entities, attributes, types and relationships are proposed.</span></div></li>
+              <li><Sparkles size={16} /><div><strong>Sources</strong><span>The LLM splits the text into traceable segments; each becomes a source unit with a stable ID.</span></div></li>
+              <li className="gate"><UserCheck size={16} /><div><strong>Your review</strong><span>Only segments the segmentation flagged as unclear wait for your decision.</span></div></li>
+              <li><Sparkles size={16} /><div><strong>Conceptual model</strong><span>The LLM describes what the system must remember; entities, attributes and relationships are derived from it.</span></div></li>
               <li className="gate"><UserCheck size={16} /><div><strong>Your acceptance</strong><span>You review the ER diagram before it becomes a database model.</span></div></li>
-              <li><CheckCircle2 size={16} /><div><strong>Database model</strong><span>Deterministic rules produce DB-DSL, validated and traced to the source; DBML is generated.</span></div></li>
+              <li><CheckCircle2 size={16} /><div><strong>Database model</strong><span>Deterministic rules produce DB-DSL, validated and traced to the source; after your final acceptance DBML is generated.</span></div></li>
             </ol>
           </Panel>
         </div>
@@ -467,7 +427,6 @@ function BundleCard({
       </div>
       <div className="toolbar">
         <Badge>{bundle.source_units} sources</Badge>
-        <Badge>{bundle.requirements} reqs</Badge>
         <Badge>{bundle.entities} tables</Badge>
         <Badge>{bundle.relationships} rels</Badge>
         <Badge tone={bundle.validation_errors ? "bad" : "good"}>{bundle.validation_errors} errors</Badge>

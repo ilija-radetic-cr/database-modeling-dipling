@@ -2,7 +2,7 @@ package llmpipeline
 
 import "dbdsl/internal/dsl"
 
-const PipelineVersion = "0.8.0"
+const PipelineVersion = "0.9.0"
 
 type CombinedDocumentResource struct {
 	ID            string                 `json:"id"`
@@ -69,17 +69,6 @@ type CombinedDocumentOrigin struct {
 	ExactText       string `json:"exact_text"`
 }
 
-// SourceSegment is a backend-owned, lossless unit of extracted source text.
-// Unlike an OD sentence, it is never authored or renumbered by an LLM.
-type SourceSegment struct {
-	ID         string `json:"id"`
-	ResourceID string `json:"resource_id"`
-	LineStart  int    `json:"line_start"`
-	LineEnd    int    `json:"line_end"`
-	Text       string `json:"text"`
-	Authority  string `json:"authority"`
-}
-
 // SourceSegmentationSegment is one segment as the LLM returned it, with the
 // SU ID the backend assigned. The backend adds nothing else.
 type SourceSegmentationSegment struct {
@@ -90,28 +79,6 @@ type SourceSegmentationSegment struct {
 
 type SourceSegmentationProposal struct {
 	Segments []SourceSegmentationSegment `json:"segments"`
-}
-
-type SourceSegmentDisposition struct {
-	SegmentID string   `json:"segment_id"`
-	Status    string   `json:"status"`
-	ODIDs     []string `json:"od_sentence_ids"`
-	Reason    string   `json:"reason,omitempty"`
-}
-
-type SourceFidelityReport struct {
-	OK                  bool                       `json:"ok"`
-	PipelineVersion     string                     `json:"pipeline_version"`
-	SegmentsTotal       int                        `json:"segments_total"`
-	NormativeSegments   int                        `json:"normative_segments"`
-	NormativeCovered    int                        `json:"normative_covered"`
-	NormativeCoverage   float64                    `json:"normative_coverage"`
-	DispositionCounts   map[string]int             `json:"disposition_counts"`
-	UncoveredSegmentIDs []string                   `json:"uncovered_segment_ids"`
-	NeedsAttention      []string                   `json:"needs_attention"`
-	Dispositions        []SourceSegmentDisposition `json:"dispositions"`
-	Errors              []string                   `json:"errors"`
-	Warnings            []string                   `json:"warnings"`
 }
 
 type SourceUnitProposal struct {
@@ -169,22 +136,11 @@ type SourceUnitQA struct {
 }
 
 type EvidenceProposal struct {
-	SourceUnits      []string `json:"source_units"`
-	RequirementAtoms []string `json:"requirement_atoms"`
-	ReviewDecisions  []string `json:"review_decisions"`
-	SupportLevel     string   `json:"support_level"`
-	Confidence       string   `json:"confidence"`
-	Notes            []string `json:"notes"`
-}
-
-type RequirementExtractionProposal struct {
-	RequirementAtoms  []RequirementAtomProposal `json:"requirement_atoms"`
-	FunctionalAreas   []FunctionalAreaProposal  `json:"functional_areas"`
-	Actors            []ActorProposal           `json:"actors"`
-	Operations        []OperationProposal       `json:"operations"`
-	ReviewCandidates  []ReviewCandidateProposal `json:"review_candidates"`
-	Warnings          []string                  `json:"warnings"`
-	ConfidenceSummary map[string]string         `json:"confidence_summary"`
+	SourceUnits     []string `json:"source_units"`
+	ReviewDecisions []string `json:"review_decisions"`
+	SupportLevel    string   `json:"support_level"`
+	Confidence      string   `json:"confidence"`
+	Notes           []string `json:"notes"`
 }
 
 type RequirementAtomProposal struct {
@@ -215,58 +171,10 @@ type RequirementAtomProposal struct {
 	ReviewDecisions   []string `json:"review_decisions,omitempty"`
 }
 
-type ReviewOptionEffects struct {
-	ModelingOutcome      string             `json:"modeling_outcome" yaml:"modeling_outcome"`
-	PersistenceEffect    string             `json:"persistence_effect" yaml:"persistence_effect"`
-	SupportLevel         string             `json:"support_level" yaml:"support_level"`
-	RequiresFollowup     bool               `json:"requires_followup" yaml:"requires_followup"`
-	AtomUpdates          []ReviewAtomUpdate `json:"atom_updates,omitempty" yaml:"atom_updates,omitempty"`
-	ImpactDimensions     []string           `json:"impact_dimensions,omitempty" yaml:"impact_dimensions,omitempty"`
-	FollowupCandidateIDs []string           `json:"followup_candidate_ids,omitempty" yaml:"followup_candidate_ids,omitempty"`
-}
-
-type ReviewAtomUpdate struct {
-	AtomID            string `json:"atom_id" yaml:"atom_id"`
-	ModelingOutcome   string `json:"modeling_outcome" yaml:"modeling_outcome"`
-	PersistenceEffect string `json:"persistence_effect" yaml:"persistence_effect"`
-	SupportLevel      string `json:"support_level" yaml:"support_level"`
-	Confidence        string `json:"confidence" yaml:"confidence"`
-}
-
 type RequirementAtomExtractionProposal struct {
 	RequirementAtoms  []RequirementAtomProposal `json:"requirement_atoms"`
 	Warnings          []string                  `json:"warnings"`
 	ConfidenceSummary map[string]string         `json:"confidence_summary"`
-}
-
-type DesignObligation struct {
-	ID                 string   `json:"id" yaml:"id"`
-	Statement          string   `json:"statement" yaml:"statement"`
-	Kind               string   `json:"kind" yaml:"kind"`
-	Persistence        string   `json:"persistence" yaml:"persistence"`
-	SourceUnits        []string `json:"source_units" yaml:"source_units"`
-	RequirementAtoms   []string `json:"requirement_atoms" yaml:"requirement_atoms"`
-	VerificationTarget string   `json:"verification_target" yaml:"verification_target"`
-	Risk               string   `json:"risk" yaml:"risk"`
-	RequiresReview     bool     `json:"requires_review" yaml:"requires_review"`
-	Status             string   `json:"status" yaml:"status"`
-	Rationale          string   `json:"rationale" yaml:"rationale"`
-}
-
-type DesignObligationsFile struct {
-	Document          map[string]any     `json:"document" yaml:"document"`
-	DesignObligations []DesignObligation `json:"design_obligations" yaml:"design_obligations"`
-}
-
-type DesignObligationQA struct {
-	OK               bool     `json:"ok"`
-	RequirementAtoms int      `json:"requirement_atoms"`
-	Obligations      int      `json:"obligations"`
-	CoveredAtoms     int      `json:"covered_atoms"`
-	UncoveredAtomIDs []string `json:"uncovered_atom_ids"`
-	NeedsAttention   []string `json:"needs_attention"`
-	Errors           []string `json:"errors"`
-	Warnings         []string `json:"warnings"`
 }
 
 type FunctionalAreaProposal struct {
@@ -305,7 +213,6 @@ type CRUDOperationProposal struct {
 	Deletes          []string `json:"deletes"`
 	PersistentData   []string `json:"persistent_data"`
 	Outcome          string   `json:"outcome"`
-	RequirementAtoms []string `json:"requirement_atoms"`
 	SourceUnits      []string `json:"source_units"`
 	RequiresReview   bool     `json:"requires_review"`
 	Warnings         []string `json:"warnings"`
@@ -322,64 +229,6 @@ type StageQA struct {
 	Errors   []string       `json:"errors"`
 	Warnings []string       `json:"warnings"`
 	Coverage map[string]int `json:"coverage"`
-}
-
-type ReviewOptionProposal struct {
-	ID                    string               `json:"id" yaml:"id"`
-	Label                 string               `json:"label" yaml:"label"`
-	Rationale             string               `json:"rationale" yaml:"rationale"`
-	EffectSummary         string               `json:"effect_summary" yaml:"effect_summary"`
-	Benefits              []string             `json:"benefits" yaml:"benefits"`
-	Risks                 []string             `json:"risks" yaml:"risks"`
-	AffectedArtifactKinds []string             `json:"affected_artifact_kinds" yaml:"affected_artifact_kinds"`
-	Recommended           bool                 `json:"recommended" yaml:"recommended"`
-	Effects               *ReviewOptionEffects `json:"effects,omitempty" yaml:"effects,omitempty"`
-}
-
-type ProjectReviewCandidateProposal struct {
-	ID                       string                 `json:"id" yaml:"id"`
-	DecisionKey              string                 `json:"decision_key,omitempty" yaml:"decision_key,omitempty"`
-	Question                 string                 `json:"question" yaml:"question"`
-	Description              string                 `json:"description" yaml:"description"`
-	Category                 string                 `json:"category" yaml:"category"`
-	Phase                    string                 `json:"phase" yaml:"phase"`
-	Severity                 string                 `json:"severity" yaml:"severity"`
-	Blocking                 bool                   `json:"blocking" yaml:"blocking"`
-	AffectedSourceUnits      []string               `json:"affected_source_units" yaml:"affected_source_units"`
-	AffectedAtoms            []string               `json:"affected_atoms" yaml:"affected_atoms"`
-	AffectedFunctionalAreas  []string               `json:"affected_functional_areas" yaml:"affected_functional_areas"`
-	AffectedOperations       []string               `json:"affected_operations" yaml:"affected_operations"`
-	AffectedModelCandidates  []string               `json:"affected_model_candidates" yaml:"affected_model_candidates"`
-	DependsOn                []string               `json:"depends_on" yaml:"depends_on"`
-	MayAffect                []string               `json:"may_affect" yaml:"may_affect"`
-	CreatedByDecision        string                 `json:"created_by_decision" yaml:"created_by_decision"`
-	Options                  []ReviewOptionProposal `json:"options" yaml:"options"`
-	RecommendedOptionID      string                 `json:"recommended_option_id" yaml:"recommended_option_id"`
-	RecommendationConfidence string                 `json:"recommendation_confidence" yaml:"recommendation_confidence"`
-	Warnings                 []string               `json:"warnings" yaml:"warnings"`
-}
-
-type ProjectReviewProposal struct {
-	ReviewCandidates  []ProjectReviewCandidateProposal `json:"review_candidates"`
-	Warnings          []string                         `json:"warnings"`
-	ConfidenceSummary map[string]string                `json:"confidence_summary"`
-}
-
-type ReviewPatchOperation struct {
-	Operation string `json:"operation"`
-	TargetID  string `json:"target_id"`
-	Field     string `json:"field"`
-	Value     string `json:"value"`
-}
-
-type ReviewResolutionPatchProposal struct {
-	Operations             []ReviewPatchOperation           `json:"operations"`
-	AffectedArtifacts      []string                         `json:"affected_artifacts"`
-	Explanation            string                           `json:"explanation"`
-	NewReviewCandidates    []ProjectReviewCandidateProposal `json:"new_review_candidates"`
-	RequiresHumanReview    bool                             `json:"requires_human_review"`
-	ValidationExpectations []string                         `json:"validation_expectations"`
-	Warnings               []string                         `json:"warnings"`
 }
 
 type ConceptualAttributeProposal struct {
@@ -426,6 +275,17 @@ type ConceptualConstraintProposal struct {
 	Evidence    EvidenceProposal `json:"evidence" yaml:"evidence"`
 }
 
+// ConceptualIndexProposal is an access path: an attribute that queries search,
+// filter or sort by. It is not part of the data model, only of physical design.
+type ConceptualIndexProposal struct {
+	ID          string           `json:"id" yaml:"id"`
+	Label       string           `json:"label" yaml:"label"`
+	Description string           `json:"description" yaml:"description"`
+	Owner       string           `json:"owner" yaml:"owner"`
+	Targets     []string         `json:"targets" yaml:"targets"`
+	Evidence    EvidenceProposal `json:"evidence" yaml:"evidence"`
+}
+
 type ConceptualModelProposal struct {
 	EntityConcepts      []ConceptualEntityProposal       `json:"entity_concepts" yaml:"entity_concepts"`
 	Relationships       []ConceptualRelationshipProposal `json:"relationships" yaml:"relationships"`
@@ -434,6 +294,7 @@ type ConceptualModelProposal struct {
 	DerivedConcepts     []PlanElementProposal            `json:"derived_concepts" yaml:"derived_concepts"`
 	FileConcepts        []PlanElementProposal            `json:"file_concepts" yaml:"file_concepts"`
 	ImportConcepts      []PlanElementProposal            `json:"import_concepts" yaml:"import_concepts"`
+	IndexConcepts       []ConceptualIndexProposal        `json:"index_concepts,omitempty" yaml:"index_concepts,omitempty"`
 	UnresolvedReviewIDs []string                         `json:"unresolved_review_ids" yaml:"unresolved_review_ids"`
 	Warnings            []string                         `json:"warnings" yaml:"warnings"`
 	ConfidenceSummary   map[string]string                `json:"confidence_summary" yaml:"confidence_summary"`
@@ -450,35 +311,13 @@ type OperationProposal struct {
 	Description       string   `json:"description"`
 }
 
-type ReviewCandidateProposal struct {
-	ID                  string   `json:"id"`
-	Question            string   `json:"question"`
-	AffectedAtoms       []string `json:"affected_atoms"`
-	RecommendedOptionID string   `json:"recommended_option_id"`
-	Rationale           string   `json:"rationale"`
-}
-
-type ModelPlanProposal struct {
-	CandidateEntities      []PlanElementProposal     `json:"candidate_entities"`
-	CandidateRelationships []PlanElementProposal     `json:"candidate_relationships"`
-	CandidateConstraints   []PlanElementProposal     `json:"candidate_constraints"`
-	CandidateStateMachines []PlanElementProposal     `json:"candidate_state_machines"`
-	CandidateDerivedViews  []PlanElementProposal     `json:"candidate_derived_views"`
-	CandidateFileSpecs     []PlanElementProposal     `json:"candidate_file_specs"`
-	ReviewCandidates       []ReviewCandidateProposal `json:"review_candidates"`
-	Warnings               []string                  `json:"warnings"`
-	UnresolvedQuestions    []string                  `json:"unresolved_questions"`
-	ConfidenceSummary      map[string]string         `json:"confidence_summary"`
-}
-
 type PlanElementProposal struct {
-	ID               string   `json:"id"`
-	Label            string   `json:"label"`
-	Description      string   `json:"description"`
-	TableName        string   `json:"table_name"`
-	Kind             string   `json:"kind"`
-	SourceUnits      []string `json:"source_units"`
-	RequirementAtoms []string `json:"requirement_atoms"`
+	ID          string   `json:"id"`
+	Label       string   `json:"label"`
+	Description string   `json:"description"`
+	TableName   string   `json:"table_name"`
+	Kind        string   `json:"kind"`
+	SourceUnits []string `json:"source_units"`
 	// Lifecycle concepts: the owning entity, its status attribute and the states.
 	Owner       string                 `json:"owner,omitempty"`
 	Field       string                 `json:"field,omitempty"`
@@ -514,6 +353,17 @@ type PatchOperation struct {
 	DerivedView     *DerivedViewProposal  `json:"derived_view"`
 	FileSpec        *FileSpecProposal     `json:"file_spec"`
 	ImportSpec      *ImportSpecProposal   `json:"import_spec"`
+	Index           *IndexProposal        `json:"index,omitempty"`
+}
+
+// IndexProposal is a non-unique index the deterministic mapper derives from
+// the search and sort criteria of the conceptual description.
+type IndexProposal struct {
+	ID          string           `json:"id"`
+	Owner       string           `json:"owner"`
+	Fields      []string         `json:"fields"`
+	Description string           `json:"description"`
+	Evidence    EvidenceProposal `json:"evidence"`
 }
 
 type EntityProposal struct {
@@ -631,11 +481,4 @@ type ImportMappingProposal struct {
 	SourcePath string   `json:"source_path"`
 	Target     string   `json:"target"`
 	Notes      []string `json:"notes"`
-}
-
-type RepairProposal struct {
-	PatchOperations     []PatchOperation `json:"patch_operations"`
-	RequiresHumanReview bool             `json:"requires_human_review"`
-	Explanation         string           `json:"explanation"`
-	Warnings            []string         `json:"warnings"`
 }

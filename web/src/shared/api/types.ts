@@ -2,7 +2,7 @@ export type ProjectLifecycleStatus =
   | "intake"
   | "sources_processed"
 	| "source_review"
-  | "analysis_review"
+	| "conceptual_review"
   | "ready_for_model_generation"
   | "model_generated"
   | "ready_for_dbml"
@@ -50,12 +50,6 @@ export interface ProjectCounts {
   resources: number;
   combined_sentences?: number;
   source_units: number;
-  examples: number;
-  requirements: number;
-  functional_areas: number;
-  operations: number;
-  open_review_questions: number;
-  review_decisions: number;
   entities?: number;
   relationships?: number;
 }
@@ -94,32 +88,19 @@ export interface LlmStatus {
   pipeline_version: string;
 }
 
+// ArtifactHealth mirrors the backend's view of the segment-based pipeline:
+// segmentation, source units, the conceptual model, the deterministic logical
+// model and the DBML output, plus the gates a person has passed.
 export interface ArtifactHealth {
-  analysis_status: "not_started" | "processing" | "sources_ready" | "ready" | "needs_attention" | "outdated";
   source_manifest_status: "not_generated" | "ready";
   combined_document_status: "not_generated" | "ready";
-	source_segmentation_status: "not_generated" | "ready" | "fallback";
-	source_fidelity_status: "not_generated" | "ready" | "needs_attention";
+	source_segmentation_status: "not_generated" | "ready";
 	source_units_status: "not_generated" | "ready" | "needs_attention";
-	requirement_atoms_status: "not_generated" | "ready";
-	design_obligations_status: "not_generated" | "ready";
-	functional_analysis_status: "not_generated" | "ready";
-	crud_mapping_status: "not_generated" | "ready";
-	review_candidates_status: "not_generated" | "ready";
 	conceptual_model_status: "not_generated" | "proposed" | "ready";
-	segment_flow?: boolean;
-	semantic_verification_status: "not_generated" | "passed" | "blocked" | "outdated" | "legacy_not_applicable" | "not_applicable";
-	semantic_blocking_issues: number;
-  model_status: "not_generated" | "generating" | "ready" | "outdated" | "failed";
+  model_status: "not_generated" | "failed" | "ready";
   dbml_status: "not_generated" | "ready" | "outdated" | "blocked";
-  open_review_questions: number;
-  can_generate_model: boolean;
   can_continue_to_dbml: boolean;
   can_complete_project: boolean;
-	can_extract_requirements: boolean;
-	can_build_functional_analysis: boolean;
-	can_build_crud_mapping: boolean;
-	can_propose_review_candidates: boolean;
 	can_project_logical_model: boolean;
 	can_generate_outputs: boolean;
 	final_model_accepted: boolean;
@@ -262,28 +243,6 @@ export interface SourceTextNormalization {
   operations: SourceNormalizationOperation[];
 }
 
-export interface SourceSegmentDisposition {
-  segment_id: string;
-  status: "retained" | "uncovered" | string;
-  od_sentence_ids: string[];
-  reason?: string;
-}
-
-export interface SourceFidelityReport {
-  ok: boolean;
-  pipeline_version: string;
-  segments_total: number;
-  normative_segments: number;
-  normative_covered: number;
-  normative_coverage: number;
-  disposition_counts: Record<string, number>;
-  uncovered_segment_ids: string[];
-  needs_attention: string[];
-  dispositions: SourceSegmentDisposition[];
-  errors: string[];
-  warnings: string[];
-}
-
 export interface SourceUnit {
   id: string;
   kind: string;
@@ -293,11 +252,8 @@ export interface SourceUnit {
   exact_text?: string;
   relevance: string;
   confidence: "high" | "medium" | "low";
-  review_status: "reviewed" | "needs_attention" | "open_review";
+  review_status: "reviewed" | "needs_attention";
   origin_spans: OriginSpan[];
-  linked_examples: string[];
-  linked_requirements: string[];
-  open_review_candidates: string[];
 	segment_ids?: string[];
 	od_sentence_ids?: string[];
 	warnings?: string[];
@@ -338,170 +294,30 @@ export interface SourceUnitReviewResult {
 	remaining_needs_attention: number;
 }
 
+// ProjectStageName lists the stages `POST /stages/{stage}/run` accepts.
 export type ProjectStageName =
 	| "process_sources"
-	| "combined_document"
-	| "requirement_atoms"
-	| "functional_analysis"
-	| "crud_mapping"
-	| "review_candidates"
 	| "conceptual_model"
 	| "logical_model"
-	| "semantic_verification"
-	| "validation_lint"
 	| "generate_outputs"
-	| "export_bundle";
+	| "validation_lint";
 
-export interface StructuredExample {
-  id: string;
-  type: string;
-  title: string;
-  origin_spans: OriginSpan[];
-  source_units: string[];
-  authority: "normative" | "illustrative" | "not_sure";
-  mapping_status: "not_mapped" | "partially_mapped" | "mapped";
-  raw_content: string;
-  parsed_fields: ParsedField[];
-  open_review_candidates: string[];
-}
+// ProjectNextStage is what `GET /stages` recommends next: a runnable stage, a
+// human gate (source, conceptual or final-model review) or completion.
+export type ProjectNextStage =
+	| "process_sources"
+	| "source_review"
+	| "conceptual_model"
+	| "conceptual_review"
+	| "logical_model"
+	| "model_review"
+	| "generate_outputs"
+	| "completed";
 
-export interface ParsedField {
-  path: string;
-  observed_type: string;
-  sample_values: string[];
-  mapped_to?: string;
-}
-
-export interface RequirementAtom {
-  id: string;
-  statement: string;
-	subject?: string;
-	predicate?: string;
-	object?: string;
-	quantifier?: string;
-	condition?: string;
-	temporal_semantics?: string;
-	ownership?: string;
-  atom_type: string;
-  modeling_relevance: string;
-  source_units: string[];
-  functional_area?: string;
-  functional_pattern?: string;
-  support_level: string;
-  confidence: "high" | "medium" | "low";
-  review_status: "reviewed" | "needs_review" | "open_review";
-  review_class: "none" | "non_blocking_gap" | "external_dependency" | "blocking_model_choice" | "blocking_source_defect" | string;
-  review_topic: "none" | "persistence" | "identity" | "cardinality" | "uniqueness" | "lifecycle" | "enforcement" | "example_structure" | "external_contract" | "other" | string;
-  warnings: string[];
-  modeling_outcome: string;
-  model_impact_preview: string[];
-  open_review_candidates: string[];
-}
-
-export interface FunctionalArea {
-  id: string;
-  label: string;
-  purpose: string;
-  main_actors: string[];
-  requirement_atoms: string[];
-  modeling_focus: string[];
-  open_review_candidates: string[];
-}
-
-export interface ActorSummary {
-  id: string;
-  label: string;
-  kind: string;
-  operation_count: number;
-  functional_areas: string[];
-  maps_to_user_role: boolean;
-  open_review_candidates: string[];
-}
-
-export interface CrudOperation {
-  id: string;
-  label: string;
-  actor_id: string;
-  functional_area_id: string;
-  creates: string[];
-  reads: string[];
-  updates: string[];
-  deletes: string[];
-  persistent_data: string[];
-  outcome: string;
-  requirement_atoms: string[];
-  source_units: string[];
-  review_status: "reviewed" | "needs_review" | "open_review";
-  open_review_candidates: string[];
-}
-
-export interface ReviewCandidate {
-  id: string;
-	decision_key?: string;
-  question: string;
-  description: string;
-  status: "open" | "answered" | "resolved";
-  affected_atoms: string[];
-  depends_on: string[];
-  may_affect: string[];
-  options: ReviewOption[];
-  selected_option?: string;
-  recommended_option_id?: string;
-	category?: string;
-	phase?: string;
-	severity?: "low" | "medium" | "high" | "critical";
-	blocking: boolean;
-	affected_source_units?: string[];
-	affected_functional_areas?: string[];
-	affected_operations?: string[];
-	affected_model_candidates?: string[];
-	recommendation_confidence?: "high" | "medium" | "low";
-	warnings?: string[];
-}
-
-export interface ReviewOption {
-  id: string;
-  label: string;
-  recommended?: boolean;
-  rationale: string;
-	effect_summary?: string;
-	benefits?: string[];
-	risks?: string[];
-	affected_artifact_kinds?: string[];
-	effects?: {
-		modeling_outcome: string;
-		persistence_effect: string;
-		support_level: string;
-		requires_followup?: boolean;
-		atom_updates?: Array<{
-			atom_id: string;
-			modeling_outcome: string;
-			persistence_effect: string;
-			support_level: string;
-			confidence: string;
-		}>;
-		impact_dimensions?: string[];
-		followup_candidate_ids?: string[];
-	};
-}
-
-export interface ReviewDecision {
-  id: string;
-  question: string;
-  affected_atoms: string[];
-  selected_option: string;
-  status: string;
-  rationale?: string;
-  reviewed_by?: string;
-  reviewed_at?: string;
-	decision_mode?: string;
-	policy_version?: string;
-	active_review_ms?: number;
-}
-
+// Evidence points at source units; review_decisions stays in the wire format
+// but is always empty in the segment-based flow.
 export interface EvidenceRef {
   source_units: string[];
-  requirement_atoms: string[];
   review_decisions: string[];
   support_level?: string;
   confidence?: string;
@@ -560,6 +376,7 @@ export interface ConceptualModel {
 	derived_concepts: Array<{ id: string; label: string; description: string }>;
 	file_concepts: Array<{ id: string; label: string; description: string }>;
 	import_concepts: Array<{ id: string; label: string; description: string }>;
+	index_concepts?: Array<{ id: string; label: string; description: string; owner: string; targets: string[] }>;
 	unresolved_review_ids: string[];
 	warnings: string[];
 	confidence_summary: Record<string, string>;
@@ -587,7 +404,7 @@ export interface ConceptualDescription {
 		evidence: DescriptionEvidence;
 	}>;
 	rules: Array<{ id: string; kind: string; statement: string; applies_to: string[]; evidence: DescriptionEvidence }>;
-	queries: Array<{ id: string; description: string; needs: string[]; evidence: DescriptionEvidence }>;
+	queries: Array<{ id: string; description: string; needs: string[]; criteria?: string[]; evidence: DescriptionEvidence }>;
 	imports: Array<{ id: string; description: string; fills: string[]; evidence: DescriptionEvidence }>;
 	boundaries: Array<{ kind: string; description: string; kept_outcome: string; evidence: DescriptionEvidence }>;
 	excluded: Array<{ segment: string; reason: string }>;
@@ -633,7 +450,6 @@ export interface ModelEdge {
 export interface TraceIndex {
   source_to_elements: Record<string, string[]>;
   element_to_sources: Record<string, string[]>;
-  requirement_to_elements: Record<string, string[]>;
   review_to_elements: Record<string, string[]>;
 }
 
@@ -668,28 +484,6 @@ export interface QualityIssue {
   message: string;
   blocking: boolean;
   accepted: boolean;
-}
-
-export interface SemanticIssue {
-  id: string;
-  severity: "medium" | "high" | "critical";
-  code: string;
-  kind: string;
-  obligation_id?: string;
-  message: string;
-  model_elements?: string[];
-  blocking: boolean;
-}
-
-export interface SemanticVerificationReport {
-  version: string;
-  pipeline_version: string;
-  ok: boolean;
-  obligations_total: number;
-  obligations_required: number;
-  obligations_realized: number;
-  blocking_issues: number;
-  issues: SemanticIssue[];
 }
 
 export interface JobRef {
@@ -792,12 +586,6 @@ export interface LLMOptimizationReport {
 	totals: LLMOptimizationStageMetrics;
 	by_stage: Record<string, LLMOptimizationStageMetrics>;
 	calls_by_reason: Record<string, number>;
-	avoided_review_resolution_calls: number;
-	avoided_generation_calls: number;
-	auto_applied_decisions: number;
-	batched_manual_decisions: number;
-	active_review_ms: number;
-	unresolved_review_questions: number;
 }
 
 export interface MutationResult {

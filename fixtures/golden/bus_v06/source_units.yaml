@@ -1,0 +1,1496 @@
+document:
+    id: project_053_source_units
+    title: bus source units
+    pipeline_version: 0.8.0
+    source_file: combined_document.md
+    source_language: sr-Cyrl
+    granularity: semantic_unit_with_od_lineage
+source_units:
+    - id: SU-001
+      kind: page_header
+      section: ""
+      location: combined_document.md#SU-001
+      relevance: ""
+      tags: []
+      text:
+        exact: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalized: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-002
+      kind: heading
+      section: ""
+      location: combined_document.md#SU-002
+      relevance: ""
+      tags: []
+      text:
+        exact: Пројекат из предмета Програмирање Интернет апликација за септембарски и октобарски рок школске 2017/18. године
+        normalized: Пројекат из предмета Програмирање Интернет апликација за септембарски и октобарски рок школске 2017/18. године
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-003
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-003
+      relevance: ""
+      tags: []
+      text:
+        exact: Реализовати веб систем који служи за претрагу, резервацију и куповину аутобуских карата.
+        normalized: Реализовати веб систем који служи за претрагу, резервацију и куповину аутобуских карата.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-004
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-004
+      relevance: ""
+      tags: []
+      text:
+        exact: 'У систему постоје две врсте корисника: администратор и регистровани корисници.'
+        normalized: 'У систему постоје две врсте корисника: администратор и регистровани корисници.'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-005
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-005
+      relevance: ""
+      tags: []
+      text:
+        exact: Постоје и гости, корисници који се не региструју и немају кориснички налог у оквиру система.
+        normalized: Постоје и гости, корисници који се не региструју и немају кориснички налог у оквиру система.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-006
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-006
+      relevance: ""
+      tags: []
+      text:
+        exact: Са почетне стране апликације, путем форме, треба омогућити пријављивање корисника на систем.
+        normalized: Са почетне стране апликације, путем форме, треба омогућити пријављивање корисника на систем.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-007
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-007
+      relevance: ""
+      tags: []
+      text:
+        exact: Корисник има могућност да након исправно унетих података настави рад са остатком система.
+        normalized: Корисник има могућност да након исправно унетих података настави рад са остатком система.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-008
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-008
+      relevance: ""
+      tags: []
+      text:
+        exact: У случају погрешно унетих података приказати одговарајућу поруку.
+        normalized: У случају погрешно унетих података приказати одговарајућу поруку.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-009
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-009
+      relevance: ""
+      tags: []
+      text:
+        exact: Поред пријављивања на систем, кориснику на почетном екрану треба омогућити и линк ка форми за регистрацију, у случају да је корисник у систему нови.
+        normalized: Поред пријављивања на систем, кориснику на почетном екрану треба омогућити и линк ка форми за регистрацију, у случају да је корисник у систему нови.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-010
+      kind: list
+      section: ""
+      location: combined_document.md#SU-010
+      relevance: ""
+      tags: []
+      text:
+        exact: 'Регистрација треба да омогући унос следећих података: - име, - презиме, - корисничко име1 , - лозинка2 , - потврда лозинке, - адреса становања (град, општина, адреса), - датум рођења, - контакт телефон, - категорија запослења (незапослен, запослен, студент, лице са инвалидитетом, пензионер), - електронска пошта (опционо).'
+        normalized: 'Регистрација треба да омогући унос следећих података: - име, - презиме, - корисничко име1 , - лозинка2 , - потврда лозинке, - адреса становања (град, општина, адреса), - датум рођења, - контакт телефон, - категорија запослења (незапослен, запослен, студент, лице са инвалидитетом, пензионер), - електронска пошта (опционо).'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-011
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-011
+      relevance: ""
+      tags: []
+      text:
+        exact: Ако су подаци исправно унети (извршити неке основне провере код осталих поља, која нису означена фуснотом) треба креирати нови захтев за регистрацију.
+        normalized: Ако су подаци исправно унети (извршити неке основне провере код осталих поља, која нису означена фуснотом) треба креирати нови захтев за регистрацију.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-012
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-012
+      relevance: ""
+      tags: []
+      text:
+        exact: Администратор је задужен за разматрање пристиглих регистрација, а исход може да буде прихватање или одбацивање захтева.
+        normalized: Администратор је задужен за разматрање пристиглих регистрација, а исход може да буде прихватање или одбацивање захтева.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-013
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-013
+      relevance: ""
+      tags: []
+      text:
+        exact: Када прихвати захтев тај корисник постаје обичан корисник (администратор је јединствен на нивоу базе).
+        normalized: Када прихвати захтев тај корисник постаје обичан корисник (администратор је јединствен на нивоу базе).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-014
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-014
+      relevance: ""
+      tags: []
+      text:
+        exact: Код регистрације новог корисничког налога, осим коректног уноса свих наведених података, потребно је имплементирати и додатно поље за проверу помоћу додатне графичке шифре у облику сличице (енг. Captcha) како би се спречило аутоматско генерисање корисничких налога.
+        normalized: Код регистрације новог корисничког налога, осим коректног уноса свих наведених података, потребно је имплементирати и додатно поље за проверу помоћу додатне графичке шифре у облику сличице (енг. Captcha) како би се спречило аутоматско генерисање корисничких налога.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-015
+      kind: footnote
+      section: ""
+      location: combined_document.md#SU-015
+      relevance: ""
+      tags: []
+      text:
+        exact: 1 Корисничко име мора бити јединствено у овом систему.
+        normalized: 1 Корисничко име мора бити јединствено у овом систему.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-016
+      kind: footnote
+      section: ""
+      location: combined_document.md#SU-016
+      relevance: ""
+      tags: []
+      text:
+        exact: '2 Правила за креирање лозинке: треба да има најмање 6 карактера, а највише 12 карактера. Минималан број великих слова је 1, минималан број малих слова је 3, минималан број нумерика и специјалних знакова је 1. Почетни карактер мора бити слово мало или велико. Максималан број узастопних карактера је два.'
+        normalized: '2 Правила за креирање лозинке: треба да има најмање 6 карактера, а највише 12 карактера. Минималан број великих слова је 1, минималан број малих слова је 3, минималан број нумерика и специјалних знакова је 1. Почетни карактер мора бити слово мало или велико. Максималан број узастопних карактера је два.'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-017
+      kind: page_header
+      section: ""
+      location: combined_document.md#SU-017
+      relevance: ""
+      tags: []
+      text:
+        exact: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalized: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-018
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-018
+      relevance: ""
+      tags: []
+      text:
+        exact: Могуће је прескочити логовање и регистровање и у том случају корисник наставља као нерегистровани корисник система - гост.
+        normalized: Могуће је прескочити логовање и регистровање и у том случају корисник наставља као нерегистровани корисник система - гост.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-019
+      kind: heading
+      section: ""
+      location: combined_document.md#SU-019
+      relevance: ""
+      tags: []
+      text:
+        exact: Гост (нерегистровани корисник)
+        normalized: Гост (нерегистровани корисник)
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-020
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-020
+      relevance: ""
+      tags: []
+      text:
+        exact: 'Корисник, који се није регистровао (нема кориснички налог у систему), може да претражује међуградске аутобуске линије по: називу превозника, временском интервалу од-до (времена када полази аутобус), по месту полазишта и месту одредишта (треба претраживати и по међустаницама), без могућности да види детаље о линији и да резервише карте.'
+        normalized: 'Корисник, који се није регистровао (нема кориснички налог у систему), може да претражује међуградске аутобуске линије по: називу превозника, временском интервалу од-до (времена када полази аутобус), по месту полазишта и месту одредишта (треба претраживати и по међустаницама), без могућности да види детаље о линији и да резервише карте.'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-021
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-021
+      relevance: ""
+      tags: []
+      text:
+        exact: За претрагу по било ком од ових критеријума, неопходно је унети тачан датум поласка (помоћу календар компоненте) и бар информацију о полазишту или одредишту (могу се унети и оба).
+        normalized: За претрагу по било ком од ових критеријума, неопходно је унети тачан датум поласка (помоћу календар компоненте) и бар информацију о полазишту или одредишту (могу се унети и оба).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-022
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-022
+      relevance: ""
+      tags: []
+      text:
+        exact: 'Међустанице се такође сматрају ваљаним полазиштима и одредиштима и треба их приказати у резултатима (нпр. за релацију Суботица-Димитровград са међустаницама у Новом Саду, Београду, Јагодини и Нишу, претрага треба да омогући успешан резултат и за све релације на тој рути, на пример: Београд-Јагодина или Нови Сад-Ниш).'
+        normalized: 'Међустанице се такође сматрају ваљаним полазиштима и одредиштима и треба их приказати у резултатима (нпр. за релацију Суботица-Димитровград са међустаницама у Новом Саду, Београду, Јагодини и Нишу, претрага треба да омогући успешан резултат и за све релације на тој рути, на пример: Београд-Јагодина или Нови Сад-Ниш).'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-023
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-023
+      relevance: ""
+      tags: []
+      text:
+        exact: У резултатима треба приказати само назив превозника, са датумом и временом поласка и са свим међустаницама, табеларно са пагинацијом резултата.
+        normalized: У резултатима треба приказати само назив превозника, са датумом и временом поласка и са свим међустаницама, табеларно са пагинацијом резултата.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-024
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-024
+      relevance: ""
+      tags: []
+      text:
+        exact: Нерегистровани корисник осим ове претраге има могућност прегледа листе која садржи 10 најскоријих међуградских полазака између било која два града.
+        normalized: Нерегистровани корисник осим ове претраге има могућност прегледа листе која садржи 10 најскоријих међуградских полазака између било која два града.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-025
+      kind: heading
+      section: ""
+      location: combined_document.md#SU-025
+      relevance: ""
+      tags: []
+      text:
+        exact: Регистровани корисник
+        normalized: Регистровани корисник
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-026
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-026
+      relevance: ""
+      tags: []
+      text:
+        exact: Након успешног пријављивања на систем, регистровани корисник може да изабере да ли жели да претражује градске линије, међуградске линије или жели да купи месечне картице (препоручено коришћење табова).
+        normalized: Након успешног пријављивања на систем, регистровани корисник може да изабере да ли жели да претражује градске линије, међуградске линије или жели да купи месечне картице (препоручено коришћење табова).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-027
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-027
+      relevance: ""
+      tags: []
+      text:
+        exact: Приликом претраге градских линија корисник на почетку може да види све линије (приказати број линије, полазно стајалиште и крајње стајалиште и омогућити кориснику да филтрира садржај по тим колонама) или да унесе назив аутобуског стајалишта до кога жели да стигне, након чега ће систем да пронађе све линије које стају на том стајалишту.
+        normalized: Приликом претраге градских линија корисник на почетку може да види све линије (приказати број линије, полазно стајалиште и крајње стајалиште и омогућити кориснику да филтрира садржај по тим колонама) или да унесе назив аутобуског стајалишта до кога жели да стигне, након чега ће систем да пронађе све линије које стају на том стајалишту.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-028
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-028
+      relevance: ""
+      tags: []
+      text:
+        exact: У оба случаја претраге резултате дати табеларно, са пагинацијом, уз приказ највише 10 резултата по страни.
+        normalized: У оба случаја претраге резултате дати табеларно, са пагинацијом, уз приказ највише 10 резултата по страни.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-029
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-029
+      relevance: ""
+      tags: []
+      text:
+        exact: Када одабере одређену линију из приказане табеле, корисник може да погледа детаље о тој линији.
+        normalized: Када одабере одређену линију из приказане табеле, корисник може да погледа детаље о тој линији.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-030
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-030
+      relevance: ""
+      tags: []
+      text:
+        exact: У детаљном прегледу линије корисник види ред вожње, као и информације о возачима који возе ту линију.
+        normalized: У детаљном прегледу линије корисник види ред вожње, као и информације о возачима који возе ту линију.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-031
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-031
+      relevance: ""
+      tags: []
+      text:
+        exact: Приликом претраге међуградских линија корисник на почетку види све линије, табеларно са пагинацијом уз иницијални приказ 20 резултата по страни (приказати назив превозника, град поласка и град одласка, датум и време поласка и све међустанице на тој линији).
+        normalized: Приликом претраге међуградских линија корисник на почетку види све линије, табеларно са пагинацијом уз иницијални приказ 20 резултата по страни (приказати назив превозника, град поласка и град одласка, датум и време поласка и све међустанице на тој линији).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-032
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-032
+      relevance: ""
+      tags: []
+      text:
+        exact: Корисник може да претражује линије по свим параметрима (омогућити филтере у заглављу табеле).
+        normalized: Корисник може да претражује линије по свим параметрима (омогућити филтере у заглављу табеле).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-033
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-033
+      relevance: ""
+      tags: []
+      text:
+        exact: Корисник одабиром одређене линије из табеле, може детаљно да прегледа сваку линију, види информације о аутобусу и возачу, види слике аутобуса у виду галерије и мапу линије са уцртаним местом полазишта, местом одредишта и свим међустаницама (плавим пином означити полазиште, жутим пиновима међустанице, а зеленим пином означити одредиште).
+        normalized: Корисник одабиром одређене линије из табеле, може детаљно да прегледа сваку линију, види информације о аутобусу и возачу, види слике аутобуса у виду галерије и мапу линије са уцртаним местом полазишта, местом одредишта и свим међустаницама (плавим пином означити полазиште, жутим пиновима међустанице, а зеленим пином означити одредиште).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-034
+      kind: page_header
+      section: ""
+      location: combined_document.md#SU-034
+      relevance: ""
+      tags: []
+      text:
+        exact: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalized: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-035
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-035
+      relevance: ""
+      tags: []
+      text:
+        exact: Корисник може да резервише карту/е за одређену линију (и на веб страни са резултатима претраге и на веб страни са детаљима о линији) или да откаже резервацију уколико се предомисли (на посебној веб страни са свим резервацијама тог корисника).
+        normalized: Корисник може да резервише карту/е за одређену линију (и на веб страни са резултатима претраге и на веб страни са детаљима о линији) или да откаже резервацију уколико се предомисли (на посебној веб страни са свим резервацијама тог корисника).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-036
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-036
+      relevance: ""
+      tags: []
+      text:
+        exact: Линије које су почеле у неком претходном периоду не треба да се приказују у резултатима претраживања.
+        normalized: Линије које су почеле у неком претходном периоду не треба да се приказују у резултатима претраживања.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-037
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-037
+      relevance: ""
+      tags: []
+      text:
+        exact: Корисник може да купи месечне картице.
+        normalized: Корисник може да купи месечне картице.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-038
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-038
+      relevance: ""
+      tags: []
+      text:
+        exact: На основу категорије запослења коју је ставио приликом регистрације нуде му се месечна и годишња опција.
+        normalized: На основу категорије запослења коју је ставио приликом регистрације нуде му се месечна и годишња опција.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-039
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-039
+      relevance: ""
+      tags: []
+      text:
+        exact: За сваку опцију треба да пише колико траје и колика је цена такве картице.
+        normalized: За сваку опцију треба да пише колико траје и колика је цена такве картице.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-040
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-040
+      relevance: ""
+      tags: []
+      text:
+        exact: Куповину треба да одобри администратор система.
+        normalized: Куповину треба да одобри администратор система.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-041
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-041
+      relevance: ""
+      tags: []
+      text:
+        exact: Регистровани корисник има могућност прегледа свих карата које је резервисао (за оне линије који су прошле, резервисане карте треба да буду означене другом бојом).
+        normalized: Регистровани корисник има могућност прегледа свих карата које је резервисао (за оне линије који су прошле, резервисане карте треба да буду означене другом бојом).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-042
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-042
+      relevance: ""
+      tags: []
+      text:
+        exact: Уколико је остало више од сат времена пред полазак линије, корисник може да откаже резервацију, а након тога није могуће отказивање.
+        normalized: Уколико је остало више од сат времена пред полазак линије, корисник може да откаже резервацију, а након тога није могуће отказивање.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-043
+      kind: heading
+      section: ""
+      location: combined_document.md#SU-043
+      relevance: ""
+      tags: []
+      text:
+        exact: Администратор
+        normalized: Администратор
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-044
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-044
+      relevance: ""
+      tags: []
+      text:
+        exact: Администратор је корисник са посебним привилегијама.
+        normalized: Администратор је корисник са посебним привилегијама.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-045
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-045
+      relevance: ""
+      tags: []
+      text:
+        exact: На почетној страни може да бира да ли жели да ради са градским линијама, међуградским линијама или жели да одобрава захтеве корисника за регистрацијом, за резервацијама карата или месечним/годишњим картицама за градски превоз.
+        normalized: На почетној страни може да бира да ли жели да ради са градским линијама, међуградским линијама или жели да одобрава захтеве корисника за регистрацијом, за резервацијама карата или месечним/годишњим картицама за градски превоз.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-046
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-046
+      relevance: ""
+      tags: []
+      text:
+        exact: При раду са градским линијама администратор може да додаје нове линије и нове возаче.
+        normalized: При раду са градским линијама администратор може да додаје нове линије и нове возаче.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-047
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-047
+      relevance: ""
+      tags: []
+      text:
+        exact: За сваку линију чува се број линије, полазиште и одредиште, међустанице, ред вожње и возачи који возе ту линију.
+        normalized: За сваку линију чува се број линије, полазиште и одредиште, међустанице, ред вожње и возачи који возе ту линију.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-048
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-048
+      relevance: ""
+      tags: []
+      text:
+        exact: Приликом додавања возача чува се његово име, презиме, датум рођења и година када је почео да вози, на основу чега се израчунавају године искуства у вожњи.
+        normalized: Приликом додавања возача чува се његово име, презиме, датум рођења и година када је почео да вози, на основу чега се израчунавају године искуства у вожњи.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-049
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-049
+      relevance: ""
+      tags: []
+      text:
+        exact: Администратор може да откаже неку линију за одређени период након чега ће сваком регистрованом кориснику да се прикаже порука када се улогује на систем која линија и за који период је отказана.
+        normalized: Администратор може да откаже неку линију за одређени период након чега ће сваком регистрованом кориснику да се прикаже порука када се улогује на систем која линија и за који период је отказана.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-050
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-050
+      relevance: ""
+      tags: []
+      text:
+        exact: Омогућити администратору унос градских линија помоћу CSV и JSON фајлова, датих у прилогу овог пројектног задатка.
+        normalized: Омогућити администратору унос градских линија помоћу CSV и JSON фајлова, датих у прилогу овог пројектног задатка.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-051
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-051
+      relevance: ""
+      tags: []
+      text:
+        exact: При раду са међуградским линијама може да додаје нове линије, нове превознике, нове аутобусе и нове возаче.
+        normalized: При раду са међуградским линијама може да додаје нове линије, нове превознике, нове аутобусе и нове возаче.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-052
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-052
+      relevance: ""
+      tags: []
+      text:
+        exact: За сваку линију чувају се подаци о превознику, полазишту и одредишту и свим међустаницама.
+        normalized: За сваку линију чувају се подаци о превознику, полазишту и одредишту и свим међустаницама.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-053
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-053
+      relevance: ""
+      tags: []
+      text:
+        exact: Линијама које су креиране у систему, администратор накнадно треба да унесе датум и време поласка те линије, датум и време доласка у одредиште (крајње), додељени аутобус из листе постојећих и возача који вози.
+        normalized: Линијама које су креиране у систему, администратор накнадно треба да унесе датум и време поласка те линије, датум и време доласка у одредиште (крајње), додељени аутобус из листе постојећих и возача који вози.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-054
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-054
+      relevance: ""
+      tags: []
+      text:
+        exact: Додељени аутобус и додељени возач треба да буду слободни у том тренутку.
+        normalized: Додељени аутобус и додељени возач треба да буду слободни у том тренутку.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-055
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-055
+      relevance: ""
+      tags: []
+      text:
+        exact: Додавање међуградске линије реализовати у најмање 3 корака (компонента Steps).
+        normalized: Додавање међуградске линије реализовати у најмање 3 корака (компонента Steps).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-056
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-056
+      relevance: ""
+      tags: []
+      text:
+        exact: За сваки аутобус у систему се чувају се марка, модел, број расположивих седишта (само за путнике) и могу да се додају слике (највише 5 слика).
+        normalized: За сваки аутобус у систему се чувају се марка, модел, број расположивих седишта (само за путнике) и могу да се додају слике (највише 5 слика).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-057
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-057
+      relevance: ""
+      tags: []
+      text:
+        exact: 'Приликом додавања превозника треба да се чува његов назив, адреса превозника и контакт телефон, уз опционо додавање логоа превозника (подржани формати слика: JPG, PNG, GIF).'
+        normalized: 'Приликом додавања превозника треба да се чува његов назив, адреса превозника и контакт телефон, уз опционо додавање логоа превозника (подржани формати слика: JPG, PNG, GIF).'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-058
+      kind: page_header
+      section: ""
+      location: combined_document.md#SU-058
+      relevance: ""
+      tags: []
+      text:
+        exact: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalized: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-059
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-059
+      relevance: ""
+      tags: []
+      text:
+        exact: Администратор може да одобрава и одбија захтеве за регистрацијом корисника, за резервацијом карата (обавестити корисника о исходу) и за издавањем месечних и годишњих карата (обавестити корисника о исходу).
+        normalized: Администратор може да одобрава и одбија захтеве за регистрацијом корисника, за резервацијом карата (обавестити корисника о исходу) и за издавањем месечних и годишњих карата (обавестити корисника о исходу).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-060
+      kind: heading
+      section: ""
+      location: combined_document.md#SU-060
+      relevance: ""
+      tags: []
+      text:
+        exact: Остале карактеристике апликације
+        normalized: Остале карактеристике апликације
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-061
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-061
+      relevance: ""
+      tags: []
+      text:
+        exact: Апликација треба да буде отпорна на унос некоректних података.
+        normalized: Апликација треба да буде отпорна на унос некоректних података.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-062
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-062
+      relevance: ""
+      tags: []
+      text:
+        exact: Потребно је направити и униформни изглед апликације користећи CSS - Cascading Style Sheets, као и Facelets технологију.
+        normalized: Потребно је направити и униформни изглед апликације користећи CSS - Cascading Style Sheets, као и Facelets технологију.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-063
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-063
+      relevance: ""
+      tags: []
+      text:
+        exact: Свака страница треба да садржи мени и заглавља (header и footer).
+        normalized: Свака страница треба да садржи мени и заглавља (header и footer).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-064
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-064
+      relevance: ""
+      tags: []
+      text:
+        exact: На свим екранима где је приказан жељени садржај треба омогућити опцију за повратак на почетни екран са корисничким опцијама (ово само уколико немате мени који је увек видљив).
+        normalized: На свим екранима где је приказан жељени садржај треба омогућити опцију за повратак на почетни екран са корисничким опцијама (ово само уколико немате мени који је увек видљив).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-065
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-065
+      relevance: ""
+      tags: []
+      text:
+        exact: 'Такође на свим екранима је потребан и линк који води на почетни екран за пријављивање (опција: Излогуј се).'
+        normalized: 'Такође на свим екранима је потребан и линк који води на почетни екран за пријављивање (опција: Излогуј се).'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-066
+      kind: heading
+      section: ""
+      location: combined_document.md#SU-066
+      relevance: ""
+      tags: []
+      text:
+        exact: 'Напомене:'
+        normalized: 'Напомене:'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-067
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-067
+      relevance: ""
+      tags: []
+      text:
+        exact: Пројекат из предмета Програмирање Интернет апликација се ради самостално и услов је за полагање испита.
+        normalized: Пројекат из предмета Програмирање Интернет апликација се ради самостално и услов је за полагање испита.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-068
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-068
+      relevance: ""
+      tags: []
+      text:
+        exact: Пројекат се може бранити у испитном року у коме се ради писмени испит или у неком од наредних рокова.
+        normalized: Пројекат се може бранити у испитном року у коме се ради писмени испит или у неком од наредних рокова.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-069
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-069
+      relevance: ""
+      tags: []
+      text:
+        exact: Пројекат вреди 30 поена (без додатних поена).
+        normalized: Пројекат вреди 30 поена (без додатних поена).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-070
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-070
+      relevance: ""
+      tags: []
+      text:
+        exact: На усменој обрани кандидат мора самостално да инсталира све програме неопходне за исправан рад приложеног решења (уколико не постоје у рачунарској лабораторији).
+        normalized: На усменој обрани кандидат мора самостално да инсталира све програме неопходне за исправан рад приложеног решења (уколико не постоје у рачунарској лабораторији).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-071
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-071
+      relevance: ""
+      tags: []
+      text:
+        exact: Кандидат мора да поседује потребан ниво знања о пројектном задатку, мора да буде свестан недостатака приложеног решења и могућности да те недостатке реши.
+        normalized: Кандидат мора да поседује потребан ниво знања о пројектном задатку, мора да буде свестан недостатака приложеног решења и могућности да те недостатке реши.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-072
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-072
+      relevance: ""
+      tags: []
+      text:
+        exact: Кандидат мора тачно да одговори и на одређен број питања која се баве тематиком пројекта.
+        normalized: Кандидат мора тачно да одговори и на одређен број питања која се баве тематиком пројекта.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-073
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-073
+      relevance: ""
+      tags: []
+      text:
+        exact: За израду задатка потребно је користити JavaServerFaces 2.x framework.
+        normalized: За израду задатка потребно је користити JavaServerFaces 2.x framework.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-074
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-074
+      relevance: ""
+      tags: []
+      text:
+        exact: Освежавање сваке странице треба бити што ефикасније применом AJAX технологије.
+        normalized: Освежавање сваке странице треба бити што ефикасније применом AJAX технологије.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-075
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-075
+      relevance: ""
+      tags: []
+      text:
+        exact: Као развојно окружење препоручује се NetBeans 8.x или Eclipse 4.x, а као веб сервер може се користити Tomcat 8.x или GlassFish 4.x.
+        normalized: Као развојно окружење препоручује се NetBeans 8.x или Eclipse 4.x, а као веб сервер може се користити Tomcat 8.x или GlassFish 4.x.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-076
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-076
+      relevance: ""
+      tags: []
+      text:
+        exact: Обавезно је коришћење библиотеке Primefaces 6.x (http://primefaces.org/) или неке друге библиотеке са готовим компонентама.
+        normalized: Обавезно је коришћење библиотеке Primefaces 6.x (http://primefaces.org/) или неке друге библиотеке са готовим компонентама.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-077
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-077
+      relevance: ""
+      tags: []
+      text:
+        exact: Треба користити библиотеку Bootstrap (за responsive дизајн веб апликација).
+        normalized: Треба користити библиотеку Bootstrap (за responsive дизајн веб апликација).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-078
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-078
+      relevance: ""
+      tags: []
+      text:
+        exact: Сваки вид серверске валидације потребно је што ефикасније реализовати.
+        normalized: Сваки вид серверске валидације потребно је што ефикасније реализовати.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-079
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-079
+      relevance: ""
+      tags: []
+      text:
+        exact: При развоју је потребно користити MySQL базу података.
+        normalized: При развоју је потребно користити MySQL базу података.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-080
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-080
+      relevance: ""
+      tags: []
+      text:
+        exact: Подразумевати да се база података иницијално креира и попуњава независно од ове апликације (тј. табеле у бази не треба креирати из саме апликације, већ независно од ње).
+        normalized: Подразумевати да се база података иницијално креира и попуњава независно од ове апликације (тј. табеле у бази не треба креирати из саме апликације, већ независно од ње).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-081
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-081
+      relevance: ""
+      tags: []
+      text:
+        exact: Треба користити ORM фрејмворк Hibernate ORM 5.x.
+        normalized: Треба користити ORM фрејмворк Hibernate ORM 5.x.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-082
+      kind: page_header
+      section: ""
+      location: combined_document.md#SU-082
+      relevance: ""
+      tags: []
+      text:
+        exact: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalized: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-083
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-083
+      relevance: ""
+      tags: []
+      text:
+        exact: '[Опционо, студенти могу да реализују алгоритам претраживања који ће код претраге међуградских линија обухватити и опцију повезивања више линија на релацији од места А до места Б.'
+        normalized: '[Опционо, студенти могу да реализују алгоритам претраживања који ће код претраге међуградских линија обухватити и опцију повезивања више линија на релацији од места А до места Б.'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-084
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-084
+      relevance: ""
+      tags: []
+      text:
+        exact: Резултујућа траса треба да обухвати линије које садрже једно и два преседања (односно резултујућа траса треба да се састоји од тачно две или три подлиније).
+        normalized: Резултујућа траса треба да обухвати линије које садрже једно и два преседања (односно резултујућа траса треба да се састоји од тачно две или три подлиније).
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-085
+      kind: example
+      section: ""
+      location: combined_document.md#SU-085
+      relevance: ""
+      tags: []
+      text:
+        exact: 'На пример: ако неко тражи превоз од Београда до Лесковца, резултујућа траса треба да прикаже и (1) Београд-Крагујевац + Крагујевац-Лесковац, као трасу са две линије и (2) Београд-Крагујевац + Крагујевац-Ниш + Ниш-Лесковац, као трасу која се састоји од три линије.'
+        normalized: 'На пример: ако неко тражи превоз од Београда до Лесковца, резултујућа траса треба да прикаже и (1) Београд-Крагујевац + Крагујевац-Лесковац, као трасу са две линије и (2) Београд-Крагујевац + Крагујевац-Ниш + Ниш-Лесковац, као трасу која се састоји од три линије.'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-086
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-086
+      relevance: ""
+      tags: []
+      text:
+        exact: Студент ће за ову функционалност добити додатне поене ☺].
+        normalized: Студент ће за ову функционалност добити додатне поене ☺].
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-087
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-087
+      relevance: ""
+      tags: []
+      text:
+        exact: На одбрану је потребно донети базу података која је попуњена подацима који омогућавају преглед свих функционалности апликације, у супротном се добија -5 поена.
+        normalized: На одбрану је потребно донети базу података која је попуњена подацима који омогућавају преглед свих функционалности апликације, у супротном се добија -5 поена.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-088
+      kind: sentence
+      section: ""
+      location: combined_document.md#SU-088
+      relevance: ""
+      tags: []
+      text:
+        exact: Одбрана ће бити организована у септембарском и октобарском року, након писменог дела испита, тачан дан и сатница ће бити објављени након истека рока за пријаву одбране пројекта.
+        normalized: Одбрана ће бити организована у септембарском и октобарском року, након писменог дела испита, тачан дан и сатница ће бити објављени након истека рока за пријаву одбране пројекта.
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-089
+      kind: page_header
+      section: ""
+      location: combined_document.md#SU-089
+      relevance: ""
+      tags: []
+      text:
+        exact: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalized: Електротехнички факултет Универзитета у Београду - Катедра за РТИ
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-090
+      kind: heading
+      section: ""
+      location: combined_document.md#SU-090
+      relevance: ""
+      tags: []
+      text:
+        exact: Прилог 1 - CSV формат
+        normalized: Прилог 1 - CSV формат
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-091
+      kind: example
+      section: ""
+      location: combined_document.md#SU-091
+      relevance: ""
+      tags: []
+      text:
+        exact: 'CSV фајл који се учитава треба да изгледа овако: BrojLinije, Polaziste, Odrediste, Medjustanice, RedVoznje, Vozaci "BGD-7", "Ustanicka", "Blok 45", "Pijaca Zvezdara, Lion, Pijaca Djeram, Vukov spomenik, Pravni fakultet Beograd, SKC, Zeleznicka stanica Beograd, Sava Centar, Pijaca Novi Beograd, Belvil, Gandijeva, Nehruova", "4:00,4:15,4:30,4:45,5:05,5:15,5:35,5:50,6:05,6:20,6:40,7:00,7:15,7:30, 7:45,8:00,8:12,8:24,8:36,8:48,9:00,9:10,9:24,9:35,9:45,10:00", "Petar Petrovic, Jovan Jovanovic" "NS-3", "Petrovaradin", "Detelinara", "Zeleznicka stanica Petrovaradin, Marina Drzica, Dunavski park, Pozorisni trg, Bulevar Jase Tomica, Autobuska stanica Novi Sad", "5:00,5:15,5:30,5:45,6:00,6:20,6:40,7:11,7:22,7:33,7:44,7:55,8:06,8:12, 8:32,8:54,9:11,9:24,9:37,9:50,10:03,10:16,10:29,10:41,10:55", "Milan Jovanovic, Nikola Nikolic"'
+        normalized: 'CSV фајл који се учитава треба да изгледа овако: BrojLinije, Polaziste, Odrediste, Medjustanice, RedVoznje, Vozaci "BGD-7", "Ustanicka", "Blok 45", "Pijaca Zvezdara, Lion, Pijaca Djeram, Vukov spomenik, Pravni fakultet Beograd, SKC, Zeleznicka stanica Beograd, Sava Centar, Pijaca Novi Beograd, Belvil, Gandijeva, Nehruova", "4:00,4:15,4:30,4:45,5:05,5:15,5:35,5:50,6:05,6:20,6:40,7:00,7:15,7:30, 7:45,8:00,8:12,8:24,8:36,8:48,9:00,9:10,9:24,9:35,9:45,10:00", "Petar Petrovic, Jovan Jovanovic" "NS-3", "Petrovaradin", "Detelinara", "Zeleznicka stanica Petrovaradin, Marina Drzica, Dunavski park, Pozorisni trg, Bulevar Jase Tomica, Autobuska stanica Novi Sad", "5:00,5:15,5:30,5:45,6:00,6:20,6:40,7:11,7:22,7:33,7:44,7:55,8:06,8:12, 8:32,8:54,9:11,9:24,9:37,9:50,10:03,10:16,10:29,10:41,10:55", "Milan Jovanovic, Nikola Nikolic"'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-092
+      kind: heading
+      section: ""
+      location: combined_document.md#SU-092
+      relevance: ""
+      tags: []
+      text:
+        exact: Прилог 2 - JSON формат
+        normalized: Прилог 2 - JSON формат
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []
+    - id: SU-093
+      kind: example
+      section: ""
+      location: combined_document.md#SU-093
+      relevance: ""
+      tags: []
+      text:
+        exact: 'JSON фајл који се учитава треба да изгледа овако: [ { "BrojLinije": "BGD-7", "Polaziste": "Ustanicka", "Odrediste": "Blok 45", "Medjustanice": ["Pijaca Zvezdara", "Lion", "Pijaca Djeram"], "RedVoznje": ["4:00","4:15","4:30","4:45","5:05","5:15","5:35","5:50","6:05"], "Vozaci": ["Petar Petrovic", "Jovan Jovanovic"] }, { "BrojLinije": "NS-3", "Polaziste": "Petrovaradin", "Odrediste": "Detelinara", "Medjustanice": ["Pijaca Zvezdara", "Lion", "Pijaca Djeram"], "RedVoznje": ["4:00","4:15","4:30"], "Vozaci": ["Milan Jovanovic", "Nikola Nikolic"] } ]'
+        normalized: 'JSON фајл који се учитава треба да изгледа овако: [ { "BrojLinije": "BGD-7", "Polaziste": "Ustanicka", "Odrediste": "Blok 45", "Medjustanice": ["Pijaca Zvezdara", "Lion", "Pijaca Djeram"], "RedVoznje": ["4:00","4:15","4:30","4:45","5:05","5:15","5:35","5:50","6:05"], "Vozaci": ["Petar Petrovic", "Jovan Jovanovic"] }, { "BrojLinije": "NS-3", "Polaziste": "Petrovaradin", "Odrediste": "Detelinara", "Medjustanice": ["Pijaca Zvezdara", "Lion", "Pijaca Djeram"], "RedVoznje": ["4:00","4:15","4:30"], "Vozaci": ["Milan Jovanovic", "Nikola Nikolic"] } ]'
+        normalization:
+            version: none
+            strategy: none
+            exact_hash: ""
+            normalized_hash: ""
+            changed: false
+            operations: []

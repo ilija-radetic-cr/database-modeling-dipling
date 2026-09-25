@@ -68,21 +68,15 @@ func bundleFromText(taskText, outDir string, options Options, sourcePath string)
 
 	taskFileName := "TASK.md"
 	files := map[string]any{
-		taskFileName:                    taskText + "\n",
-		"source_units.yaml":             buildSourceUnitsFile(taskFileName, title, units),
-		"requirement_atoms.yaml":        buildRequirementAtomsFile(units),
-		"functional_decomposition.yaml": buildFunctionalDecompositionFile(units),
-		"crud_matrix.yaml":              buildCRUDMatrixFile(units),
-		"review_decisions.yaml":         buildReviewDecisionsFile(),
-		"db_model.dsl.yaml":             buildModelDocument(modelID, title, taskFileName, units),
+		taskFileName:            taskText + "\n",
+		"source_units.yaml":     buildSourceUnitsFile(taskFileName, title, units),
+		"review_decisions.yaml": buildReviewDecisionsFile(),
+		"db_model.dsl.yaml":     buildModelDocument(modelID, title, taskFileName, units),
 	}
 
 	names := []string{
 		taskFileName,
 		"source_units.yaml",
-		"requirement_atoms.yaml",
-		"functional_decomposition.yaml",
-		"crud_matrix.yaml",
 		"review_decisions.yaml",
 		"db_model.dsl.yaml",
 	}
@@ -107,12 +101,12 @@ func bundleFromText(taskText, outDir string, options Options, sourcePath string)
 	return result, nil
 }
 
-func buildSourceUnitsFile(taskFileName, title string, units []sourceUnitDraft) dsl.V05SourceUnitsFile {
-	out := dsl.V05SourceUnitsFile{
-		Document: dsl.V05SourceUnitsDocument{
+func buildSourceUnitsFile(taskFileName, title string, units []sourceUnitDraft) dsl.SourceUnitsFile {
+	out := dsl.SourceUnitsFile{
+		Document: dsl.SourceUnitsDocument{
 			ID:              slug(title) + "_source_units",
 			Title:           title + " source units",
-			PipelineVersion: "0.5",
+			PipelineVersion: "0.6",
 			SourceFile:      taskFileName,
 			SourceLanguage:  "unknown",
 			Granularity:     "sentence",
@@ -135,143 +129,12 @@ func buildSourceUnitsFile(taskFileName, title string, units []sourceUnitDraft) d
 	return out
 }
 
-func buildRequirementAtomsFile(units []sourceUnitDraft) dsl.V05RequirementAtomsFile {
-	out := dsl.V05RequirementAtomsFile{
-		Document: map[string]any{
-			"id":                  "raw_task_requirement_atoms",
-			"title":               "Raw task requirement atoms",
-			"pipeline_version":    "0.5",
-			"source_units_file":   "source_units.yaml",
-			"generation_strategy": "deterministic_scaffold",
-		},
-		CoverageChecks: []map[string]any{{
-			"id":     "all_source_units_have_atoms",
-			"status": "passed",
-			"note":   "Each extracted source unit has one scaffold requirement atom.",
-		}},
-	}
-	for i, unit := range units {
-		out.RequirementAtoms = append(out.RequirementAtoms, dsl.RequirementAtom{
-			ID:                fmt.Sprintf("RAW-RA-%03d", i+1),
-			Statement:         "Represent source statement: " + unit.Normalized,
-			AtomType:          "data_requirement",
-			ModelingRelevance: "direct_db",
-			SourceUnits:       []string{unit.ID},
-			FunctionalArea:    "source_analysis",
-			FunctionalPattern: "requirement_capture",
-			SupportLevel:      "explicit",
-			Confidence:        "medium",
-			RequiresReview:    false,
-			ReviewDecisions:   []string{},
-			ModelImpacts: dsl.RequirementModelImpacts{
-				Entities:      []string{"RequirementItem"},
-				Attributes:    []string{"RequirementItem.source_unit_id", "RequirementItem.statement", "RequirementItem.modeling_relevance", "RequirementItem.review_status"},
-				Relationships: []string{"RequirementItemDocument"},
-				Constraints:   []string{"requirement_item_source_unit_unique"},
-			},
-			ModelingOutcome: dsl.RequirementOutcome{Status: "represented"},
-		})
-	}
-	return out
-}
-
-func buildFunctionalDecompositionFile(units []sourceUnitDraft) dsl.V05FunctionalDecompositionFile {
-	return dsl.V05FunctionalDecompositionFile{
-		Document: map[string]any{
-			"id":                      "raw_task_functional_decomposition",
-			"title":                   "Raw task functional decomposition",
-			"pipeline_version":        "0.5",
-			"source_units_file":       "source_units.yaml",
-			"requirement_atoms_file":  "requirement_atoms.yaml",
-			"crud_matrix_file":        "crud_matrix.yaml",
-			"generation_strategy":     "deterministic_scaffold",
-			"requires_domain_review":  true,
-			"domain_modeling_quality": "scaffold_only",
-			"recommended_next_action": "Replace generic RequirementItem model with domain entities after review.",
-		},
-		FunctionalAreas: []dsl.FunctionalArea{{
-			ID:            "source_analysis",
-			Label:         "Source analysis",
-			Purpose:       "Capture extracted source statements as reviewable requirement records.",
-			MainActors:    []string{"analyst"},
-			Atoms:         atomIDs(units),
-			ModelingFocus: []string{"SourceDocument", "RequirementItem"},
-		}},
-		CoverageSummary: map[string]any{
-			"total_atoms":                     len(units),
-			"represented_atoms":               len(units),
-			"unsupported_atoms":               0,
-			"intentionally_not_in_db_atoms":   0,
-			"scaffold_requires_domain_review": true,
-		},
-	}
-}
-
-func buildCRUDMatrixFile(units []sourceUnitDraft) dsl.V05CRUDMatrixFile {
-	return dsl.V05CRUDMatrixFile{
-		Document: map[string]any{
-			"id":                            "raw_task_crud_matrix",
-			"title":                         "Raw task CRUD matrix",
-			"description":                   "Scaffold CRUD matrix for captured source requirements.",
-			"pipeline_version":              "0.5",
-			"source_units_file":             "source_units.yaml",
-			"requirement_atoms_file":        "requirement_atoms.yaml",
-			"functional_decomposition_file": "functional_decomposition.yaml",
-		},
-		Notation: map[string]string{
-			"C": "create/insert",
-			"R": "read/select",
-			"U": "update",
-			"D": "delete",
-		},
-		Actors: []dsl.CRUDActor{{
-			ID:          "analyst",
-			Label:       "Analyst",
-			Description: "Human reviewer who turns the scaffold into a domain model.",
-		}},
-		Operations: []dsl.CRUDOperation{{
-			ID:                "manage_requirement_scaffold",
-			Label:             "Manage requirement scaffold",
-			FunctionalArea:    "source_analysis",
-			FunctionalPattern: "requirement_capture",
-			Actor:             "analyst",
-			SourceAtoms:       atomIDs(units),
-			SourceUnits:       sourceUnitIDs(units),
-			Description:       "Create, inspect and refine requirement records extracted from the raw task.",
-		}},
-		Matrix: []dsl.CRUDRow{
-			{
-				Entity: "SourceDocument",
-				Table:  "source_documents",
-				Operations: map[string][]string{
-					"manage_requirement_scaffold": {"C", "R", "U"},
-				},
-				Rationale: "The source document groups captured requirement records.",
-			},
-			{
-				Entity: "RequirementItem",
-				Table:  "requirement_items",
-				Operations: map[string][]string{
-					"manage_requirement_scaffold": {"C", "R", "U"},
-				},
-				Rationale: "Each extracted source statement becomes a reviewable requirement item.",
-			},
-		},
-		CoverageChecks: []map[string]any{{
-			"id":     "all_scaffold_entities_have_rows",
-			"status": "passed",
-			"note":   "Each scaffold entity has one CRUD matrix row.",
-		}},
-	}
-}
-
-func buildReviewDecisionsFile() dsl.V05ReviewDecisionsFile {
-	return dsl.V05ReviewDecisionsFile{
+func buildReviewDecisionsFile() dsl.ReviewDecisionsFile {
+	return dsl.ReviewDecisionsFile{
 		Document: map[string]any{
 			"id":                      "raw_task_review_decisions",
 			"title":                   "Raw task review decisions",
-			"pipeline_version":        "0.5",
-			"requirement_atoms_file":  "requirement_atoms.yaml",
+			"pipeline_version":        "0.6",
 			"generation_strategy":     "deterministic_scaffold",
 			"requires_domain_review":  true,
 			"domain_review_completed": false,
@@ -281,7 +144,7 @@ func buildReviewDecisionsFile() dsl.V05ReviewDecisionsFile {
 			"all_required_reviews_resolved":    true,
 			"unresolved_requires_review_flags": 0,
 		},
-		ReviewDecisions: []dsl.V05ReviewDecision{},
+		ReviewDecisions: []dsl.ReviewDecision{},
 		CoverageChecks: []map[string]any{{
 			"id":     "scaffold_has_no_blocking_reviews",
 			"status": "passed",
@@ -292,31 +155,27 @@ func buildReviewDecisionsFile() dsl.V05ReviewDecisionsFile {
 
 func buildModelDocument(modelID, title, taskFileName string, units []sourceUnitDraft) dsl.Document {
 	allSources := sourceUnitIDs(units)
-	allAtoms := atomIDs(units)
 	requireTrue := true
 	requireFalse := false
 	return dsl.Document{
 		DSL: dsl.DSLMeta{
 			Name:    "DB-DSL",
-			Version: "0.5",
+			Version: "0.6",
 		},
 		Model: dsl.ModelInfo{
 			ID:          modelID,
 			Name:        title + " Scaffold",
 			DomainSlice: modelID,
 			Status:      "scaffold_requires_review",
-			Description: "Importable v0.5 scaffold generated from raw task text. Replace the generic requirement-capture schema with domain entities before treating DBML as final.",
+			Description: "Importable v0.6 scaffold generated from raw task text. Replace the generic requirement-capture schema with domain entities before treating DBML as final.",
 		},
 		Source: dsl.SourceInfo{
-			PipelineVersion:             "0.5",
-			TaskTextFile:                taskFileName,
-			SourceUnitsFile:             "source_units.yaml",
-			RequirementAtomsFile:        "requirement_atoms.yaml",
-			FunctionalDecompositionFile: "functional_decomposition.yaml",
-			CRUDMatrixFile:              "crud_matrix.yaml",
-			ReviewDecisionsFile:         "review_decisions.yaml",
-			ReviewState:                 "scaffold_review_not_started",
-			DerivationStrategy:          "deterministic_scaffold_from_raw_task_text",
+			PipelineVersion:     "0.6",
+			TaskTextFile:        taskFileName,
+			SourceUnitsFile:     "source_units.yaml",
+			ReviewDecisionsFile: "review_decisions.yaml",
+			ReviewState:         "scaffold_review_not_started",
+			DerivationStrategy:  "deterministic_scaffold_from_raw_task_text",
 		},
 		Entities: []dsl.Entity{
 			{
@@ -325,11 +184,11 @@ func buildModelDocument(modelID, title, taskFileName string, units []sourceUnitD
 				Description: "Raw PIA task document captured for traceability.",
 				TableName:   "source_documents",
 				Kind:        "regular",
-				Evidence:    evidence(allSources, allAtoms),
+				Evidence:    evidence(allSources),
 				Attributes: []dsl.Attribute{
-					attribute("slug", "Slug", "Stable source document slug.", "string", true, allSources, allAtoms),
-					attribute("title", "Title", "Source document title.", "string", true, allSources, allAtoms),
-					attribute("source_file", "Source File", "Original task file path inside the bundle.", "string", true, allSources, allAtoms),
+					attribute("slug", "Slug", "Stable source document slug.", "string", true, allSources),
+					attribute("title", "Title", "Source document title.", "string", true, allSources),
+					attribute("source_file", "Source File", "Original task file path inside the bundle.", "string", true, allSources),
 				},
 			},
 			{
@@ -338,11 +197,11 @@ func buildModelDocument(modelID, title, taskFileName string, units []sourceUnitD
 				Description: "Reviewable source-derived requirement statement.",
 				TableName:   "requirement_items",
 				Kind:        "regular",
-				Evidence:    evidence(allSources, allAtoms),
+				Evidence:    evidence(allSources),
 				Attributes: []dsl.Attribute{
-					attribute("source_unit_id", "Source Unit ID", "Source unit that produced the requirement item.", "string", true, allSources, allAtoms),
-					attribute("statement", "Statement", "Normalized requirement statement.", "text", true, allSources, allAtoms),
-					attribute("modeling_relevance", "Modeling Relevance", "Initial modeling relevance assigned by the scaffold.", "string", true, allSources, allAtoms),
+					attribute("source_unit_id", "Source Unit ID", "Source unit that produced the requirement item.", "string", true, allSources),
+					attribute("statement", "Statement", "Normalized requirement statement.", "text", true, allSources),
+					attribute("modeling_relevance", "Modeling Relevance", "Initial modeling relevance assigned by the scaffold.", "string", true, allSources),
 					{
 						ID:          "review_status",
 						Label:       "Review Status",
@@ -350,7 +209,7 @@ func buildModelDocument(modelID, title, taskFileName string, units []sourceUnitD
 						Type:        "string",
 						Required:    &requireTrue,
 						EnumValues:  []string{"draft", "reviewed", "accepted"},
-						Evidence:    evidence(allSources, allAtoms),
+						Evidence:    evidence(allSources),
 					},
 				},
 			},
@@ -366,7 +225,7 @@ func buildModelDocument(modelID, title, taskFileName string, units []sourceUnitD
 			FKRequired:  &requireTrue,
 			OnDelete:    "cascade",
 			Identifying: &requireFalse,
-			Evidence:    evidence(allSources, allAtoms),
+			Evidence:    evidence(allSources),
 		}},
 		Constraints: []dsl.Constraint{
 			{
@@ -375,7 +234,7 @@ func buildModelDocument(modelID, title, taskFileName string, units []sourceUnitD
 				Owner:       "SourceDocument",
 				Field:       "slug",
 				Description: "Each captured source document has a unique slug.",
-				Evidence:    evidence(allSources, allAtoms),
+				Evidence:    evidence(allSources),
 			},
 			{
 				ID:          "requirement_item_source_unit_unique",
@@ -383,7 +242,7 @@ func buildModelDocument(modelID, title, taskFileName string, units []sourceUnitD
 				Owner:       "RequirementItem",
 				Field:       "source_unit_id",
 				Description: "The scaffold creates at most one requirement item per source unit.",
-				Evidence:    evidence(allSources, allAtoms),
+				Evidence:    evidence(allSources),
 			},
 		},
 		ImportSpecs:   []dsl.ImportSpec{},
@@ -393,24 +252,23 @@ func buildModelDocument(modelID, title, taskFileName string, units []sourceUnitD
 	}
 }
 
-func attribute(id, label, description, typ string, required bool, sourceUnits, atoms []string) dsl.Attribute {
+func attribute(id, label, description, typ string, required bool, sourceUnits []string) dsl.Attribute {
 	return dsl.Attribute{
 		ID:          id,
 		Label:       label,
 		Description: description,
 		Type:        typ,
 		Required:    &required,
-		Evidence:    evidence(sourceUnits, atoms),
+		Evidence:    evidence(sourceUnits),
 	}
 }
 
-func evidence(sourceUnits, atoms []string) dsl.Evidence {
+func evidence(sourceUnits []string) dsl.Evidence {
 	return dsl.Evidence{
-		SourceUnits:      append([]string(nil), sourceUnits...),
-		RequirementAtoms: append([]string(nil), atoms...),
-		ReviewDecisions:  []string{},
-		SupportLevel:     "explicit",
-		Confidence:       "medium",
+		SourceUnits:     append([]string(nil), sourceUnits...),
+		ReviewDecisions: []string{},
+		SupportLevel:    "explicit",
+		Confidence:      "medium",
 	}
 }
 
@@ -468,14 +326,6 @@ func titleFromTask(taskText, taskPath string) string {
 	}
 	base := strings.TrimSuffix(filepath.Base(taskPath), filepath.Ext(taskPath))
 	return strings.ReplaceAll(base, "_", " ")
-}
-
-func atomIDs(units []sourceUnitDraft) []string {
-	ids := make([]string, 0, len(units))
-	for i := range units {
-		ids = append(ids, fmt.Sprintf("RAW-RA-%03d", i+1))
-	}
-	return ids
 }
 
 func sourceUnitIDs(units []sourceUnitDraft) []string {

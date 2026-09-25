@@ -9,53 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
 	"dbdsl/internal/dsl"
-	"dbdsl/internal/generate"
-	"dbdsl/internal/lint"
 	"dbdsl/internal/llm"
-	"dbdsl/internal/scaffold"
-	"dbdsl/internal/validate"
-
-	"gopkg.in/yaml.v3"
 )
 
 var lowerSnakeIdentifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-type PlanOptions struct {
-	TaskPath          string
-	OutDir            string
-	ModelID           string
-	Name              string
-	Model             string
-	ReasoningEffort   string
-	Temperature       float64
-	MaxOutputTokens   int
-	MaxRepairAttempts int
-}
-
-type PlanResult struct {
-	OutDir           string
-	ModelPath        string
-	DBMLPath         string
-	TracePath        string
-	ValidationReport validate.Result
-	LintReport       lint.Result
-	GeneratedDBML    bool
-}
-
-type RepairOptions struct {
-	BundleDir       string
-	Issue           string
-	OutDir          string
-	Model           string
-	ReasoningEffort string
-	Temperature     float64
-	MaxOutputTokens int
-}
 
 type BaselineOptions struct {
 	TaskPath        string
@@ -140,274 +101,6 @@ type sourceUnitInput struct {
 	Tags       []string `json:"tags,omitempty"`
 	Exact      string   `json:"exact"`
 	Normalized string   `json:"normalized,omitempty"`
-}
-
-func RunPlan(ctx context.Context, client llm.Client, opts PlanOptions) (PlanResult, error) {
-	if client == nil {
-		return PlanResult{}, errors.New("LLM client is required")
-	}
-	opts = normalizePlanOptions(opts)
-	if opts.TaskPath == "" || opts.OutDir == "" {
-		return PlanResult{}, errors.New("task path and output directory are required")
-	}
-
-	taskTitle := strings.TrimSuffix(filepath.Base(opts.TaskPath), filepath.Ext(opts.TaskPath))
-	if strings.TrimSpace(opts.Name) != "" {
-		taskTitle = strings.TrimSpace(opts.Name)
-	}
-	taskBytes, err := os.ReadFile(opts.TaskPath)
-	if err != nil {
-		return PlanResult{}, fmt.Errorf("read task: %w", err)
-	}
-	if _, err := scaffold.BundleFromTask(opts.TaskPath, opts.OutDir, scaffold.Options{ModelID: opts.ModelID, Name: opts.Name}); err != nil {
-		return PlanResult{}, fmt.Errorf("create deterministic source scaffold: %w", err)
-	}
-	modelPath := filepath.Join(opts.OutDir, "db_model.dsl.yaml")
-	sourceBundle, err := dsl.LoadV05Bundle(modelPath)
-	if err != nil {
-		return PlanResult{}, fmt.Errorf("load source scaffold: %w", err)
-	}
-
-	sourceUnits := sourceBundle.SourceUnits.SourceUnits
-	sourceIDs := sourceUnitIDSet(sourceUnits)
-	sourceInput := sourceUnitInputs(sourceUnits)
-
-	extractionInput := mustJSON(map[string]any{
-		"task_file":        filepath.Base(opts.TaskPath),
-		"source_units":     sourceInput,
-		"pipeline_version": "0.5",
-		"output_contract":  "requirement_extraction",
-		"template_version": promptTemplateVersion,
-	})
-	var extraction RequirementExtractionProposal
-	if err := runStructuredStage(ctx, client, opts.OutDir, 1, llm.Request{
-		Stage:           "requirement_extraction",
-		Model:           opts.Model,
-		Instructions:    requirementExtractionInstructions,
-		Input:           extractionInput,
-		SchemaName:      "DBDSLRequirementExtraction",
-		Schema:          requirementExtractionSchema(),
-		ReasoningEffort: opts.ReasoningEffort,
-		Temperature:     opts.Temperature,
-		MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{
-			"template_version": promptTemplateVersion,
-			"task_file":        filepath.Base(opts.TaskPath),
-		},
-	}, &extraction, func() []string {
-		return validateExtractionProposal(extraction, sourceIDs)
-	}); err != nil {
-		return PlanResult{}, err
-	}
-	if err := writeJSONFile(filepath.Join(opts.OutDir, "requirement_atoms.proposed.json"), extraction); err != nil {
-		return PlanResult{}, err
-	}
-
-	atomIDs := atomIDSet(extraction.RequirementAtoms)
-	modelPlanInput := mustJSON(map[string]any{
-		"source_units":           sourceInput,
-		"requirement_extraction": extraction,
-		"output_contract":        "model_plan",
-		"template_version":       promptTemplateVersion,
-	})
-	var modelPlan ModelPlanProposal
-	if err := runStructuredStage(ctx, client, opts.OutDir, 2, llm.Request{
-		Stage:           "model_plan",
-		Model:           opts.Model,
-		Instructions:    modelPlanInstructions,
-		Input:           modelPlanInput,
-		SchemaName:      "DBDSLModelPlan",
-		Schema:          modelPlanSchema(),
-		ReasoningEffort: opts.ReasoningEffort,
-		Temperature:     opts.Temperature,
-		MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{
-			"template_version": promptTemplateVersion,
-			"task_file":        filepath.Base(opts.TaskPath),
-		},
-	}, &modelPlan, func() []string {
-		return validateModelPlanProposal(modelPlan, sourceIDs, atomIDs)
-	}); err != nil {
-		return PlanResult{}, err
-	}
-	if err := writeJSONFile(filepath.Join(opts.OutDir, "model_plan.proposed.json"), modelPlan); err != nil {
-		return PlanResult{}, err
-	}
-
-	patchInput := mustJSON(map[string]any{
-		"source_units":           sourceInput,
-		"requirement_extraction": extraction,
-		"model_plan":             modelPlan,
-		"output_contract":        "dbdsl_patch",
-		"template_version":       promptTemplateVersion,
-	})
-	var patch PatchProposal
-	if err := runStructuredStage(ctx, client, opts.OutDir, 3, llm.Request{
-		Stage:           "dbdsl_patch",
-		Model:           opts.Model,
-		Instructions:    patchInstructions,
-		Input:           patchInput,
-		SchemaName:      "DBDSLPatch",
-		Schema:          patchSchema(),
-		ReasoningEffort: opts.ReasoningEffort,
-		Temperature:     opts.Temperature,
-		MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{
-			"template_version": promptTemplateVersion,
-			"task_file":        filepath.Base(opts.TaskPath),
-		},
-	}, &patch, func() []string {
-		return validatePatchProposal(patch, sourceIDs, atomIDs)
-	}); err != nil {
-		return PlanResult{}, err
-	}
-	if err := writeJSONFile(filepath.Join(opts.OutDir, "dbdsl_patch.proposed.json"), patch); err != nil {
-		return PlanResult{}, err
-	}
-
-	diagnostics := &conversionDiagnostics{}
-	artifacts, err := buildArtifacts(string(taskBytes), taskTitle, sourceUnits, extraction, patch, diagnostics)
-	if err != nil {
-		return PlanResult{}, err
-	}
-	if err := writeArtifacts(opts.OutDir, artifacts); err != nil {
-		return PlanResult{}, err
-	}
-
-	validationReport := validate.ValidateFile(modelPath)
-	lintReport := lint.Result{Version: lint.VersionV05}
-	if validationReport.OK() {
-		lintReport = lint.LintFile(modelPath)
-	}
-	if opts.MaxRepairAttempts > 0 {
-		if issueID, issueText := firstRepairIssue(validationReport, lintReport); issueText != "" {
-			if err := writeRepairSuggestion(ctx, client, opts.OutDir, opts, modelPath, issueID, issueText, validationReport, lintReport); err != nil {
-				diagnostics.add("repair suggestion failed: " + err.Error())
-			}
-		}
-	}
-	if err := writeJSONFile(filepath.Join(opts.OutDir, "validation_report.json"), map[string]any{
-		"ok":       validationReport.OK(),
-		"errors":   validationReport.Errors,
-		"warnings": diagnostics.Warnings,
-	}); err != nil {
-		return PlanResult{}, err
-	}
-	if err := writeJSONFile(filepath.Join(opts.OutDir, "lint_report.json"), lintReport); err != nil {
-		return PlanResult{}, err
-	}
-
-	result := PlanResult{
-		OutDir:           opts.OutDir,
-		ModelPath:        modelPath,
-		ValidationReport: validationReport,
-		LintReport:       lintReport,
-	}
-	if validationReport.OK() && !lintReport.HasErrors() {
-		dbml, err := generate.DBMLFile(modelPath)
-		if err != nil {
-			return result, fmt.Errorf("generate DBML from LLM bundle: %w", err)
-		}
-		trace, err := generate.TraceFile(modelPath)
-		if err != nil {
-			return result, fmt.Errorf("generate trace report from LLM bundle: %w", err)
-		}
-		result.DBMLPath = filepath.Join(opts.OutDir, "model.dbml")
-		result.TracePath = filepath.Join(opts.OutDir, "traceability_report.md")
-		if err := os.WriteFile(result.DBMLPath, []byte(dbml), 0o644); err != nil {
-			return result, fmt.Errorf("write DBML: %w", err)
-		}
-		if err := os.WriteFile(result.TracePath, []byte(trace), 0o644); err != nil {
-			return result, fmt.Errorf("write trace report: %w", err)
-		}
-		result.GeneratedDBML = true
-	}
-	return result, nil
-}
-
-func RunRepair(ctx context.Context, client llm.Client, opts RepairOptions) error {
-	if client == nil {
-		return errors.New("LLM client is required")
-	}
-	opts = normalizeRepairOptions(opts)
-	if opts.BundleDir == "" || opts.Issue == "" || opts.OutDir == "" {
-		return errors.New("bundle directory, issue, and output directory are required")
-	}
-	modelPath := filepath.Join(opts.BundleDir, "db_model.dsl.yaml")
-	validationReport := validate.ValidateFile(modelPath)
-	lintReport := lint.Result{Version: lint.VersionV05}
-	if validationReport.OK() {
-		lintReport = lint.LintFile(modelPath)
-	}
-	issueText := findIssueText(opts.Issue, validationReport, lintReport)
-	if issueText == "" {
-		return fmt.Errorf("issue %s was not found in validation/lint reports", opts.Issue)
-	}
-	modelBytes, err := os.ReadFile(modelPath)
-	if err != nil {
-		return fmt.Errorf("read model: %w", err)
-	}
-	input := mustJSON(map[string]any{
-		"issue_id":          opts.Issue,
-		"issue_text":        issueText,
-		"db_model_fragment": string(modelBytes),
-		"validation_report": validationReport,
-		"lint_report":       lintReport,
-	})
-	var repair RepairProposal
-	if err := runStructuredStage(ctx, client, opts.OutDir, 1, llm.Request{
-		Stage:           "repair",
-		Model:           opts.Model,
-		Instructions:    repairInstructions,
-		Input:           input,
-		SchemaName:      "DBDSLRepair",
-		Schema:          repairSchema(),
-		ReasoningEffort: opts.ReasoningEffort,
-		Temperature:     opts.Temperature,
-		MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{
-			"template_version": promptTemplateVersion,
-			"issue_id":         opts.Issue,
-		},
-	}, &repair, func() []string { return nil }); err != nil {
-		return err
-	}
-	return writeJSONFile(filepath.Join(opts.OutDir, "repair.proposed.json"), repair)
-}
-
-func writeRepairSuggestion(ctx context.Context, client llm.Client, outDir string, opts PlanOptions, modelPath, issueID, issueText string, validationReport validate.Result, lintReport lint.Result) error {
-	modelBytes, err := os.ReadFile(modelPath)
-	if err != nil {
-		return fmt.Errorf("read model for repair suggestion: %w", err)
-	}
-	input := mustJSON(map[string]any{
-		"issue_id":          issueID,
-		"issue_text":        issueText,
-		"db_model_fragment": string(modelBytes),
-		"validation_report": validationReport,
-		"lint_report":       lintReport,
-		"auto_apply":        false,
-	})
-	var repair RepairProposal
-	if err := runStructuredStage(ctx, client, outDir, 4, llm.Request{
-		Stage:           "repair",
-		Model:           opts.Model,
-		Instructions:    repairInstructions,
-		Input:           input,
-		SchemaName:      "DBDSLRepair",
-		Schema:          repairSchema(),
-		ReasoningEffort: opts.ReasoningEffort,
-		Temperature:     opts.Temperature,
-		MaxOutputTokens: opts.MaxOutputTokens,
-		Metadata: map[string]string{
-			"template_version": promptTemplateVersion,
-			"issue_id":         issueID,
-			"auto_apply":       "false",
-		},
-	}, &repair, func() []string { return nil }); err != nil {
-		return err
-	}
-	return writeJSONFile(filepath.Join(outDir, "repair.proposed.json"), repair)
 }
 
 func RunBaseline(ctx context.Context, client llm.Client, opts BaselineOptions) error {
@@ -619,9 +312,7 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 // Conceptual and logical stages are excluded because they run their own
 // scoped repair loops over the full model.
 var validationRetryStages = map[string]bool{
-	"source_segmentation": true, "source_unit_extraction": true, "requirement_atom_extraction": true,
-	"functional_analysis": true, "crud_mapping": true, "review_candidate_proposal": true,
-	"conceptual_description": true,
+	"source_segmentation": true, "conceptual_description": true,
 }
 
 func addUsage(a, b llm.Usage) llm.Usage {
@@ -814,51 +505,36 @@ func textHash(value string) string {
 }
 
 type artifacts struct {
-	RequirementAtoms        dsl.V05RequirementAtomsFile
-	FunctionalDecomposition dsl.V05FunctionalDecompositionFile
-	CRUDMatrix              dsl.V05CRUDMatrixFile
-	ReviewDecisions         dsl.V05ReviewDecisionsFile
-	Model                   dsl.Document
+	ReviewDecisions dsl.ReviewDecisionsFile
+	Model           dsl.Document
 }
 
 type conversionDiagnostics struct {
 	Warnings []string
 }
 
-func buildArtifacts(taskText, taskName string, sourceUnits []dsl.SourceUnit, extraction RequirementExtractionProposal, patch PatchProposal, diagnostics *conversionDiagnostics) (artifacts, error) {
-	_ = taskText
-	atoms := convertRequirementAtoms(extraction.RequirementAtoms)
-	if len(atoms) == 0 {
-		return artifacts{}, errors.New("requirement extraction produced no atoms")
+// buildArtifacts turns a validated patch into a DB-DSL v0.6 bundle: the model
+// document plus the review-decision record; evidence cites source units only.
+func buildArtifacts(taskName string, sourceUnits []dsl.SourceUnit, patch PatchProposal, diagnostics *conversionDiagnostics) (artifacts, error) {
+	if len(sourceUnits) == 0 {
+		return artifacts{}, errors.New("no source units to trace the model against")
 	}
-	atomByID := map[string]dsl.RequirementAtom{}
-	for _, atom := range atoms {
-		atomByID[atom.ID] = atom
-	}
-	areas := convertFunctionalAreas(extraction.FunctionalAreas, atoms)
-	actors := convertActors(extraction.Actors)
-	actors = ensureReferencedActors(actors, areas, extraction.Operations)
-	operations := convertOperations(extraction.Operations, atoms, sourceUnits, areas, actors)
-
 	model := dsl.Document{
-		DSL: dsl.DSLMeta{Name: "DB-DSL", Version: "0.5"},
+		DSL: dsl.DSLMeta{Name: "DB-DSL", Version: "0.6"},
 		Model: dsl.ModelInfo{
 			ID:          slug(strings.TrimSuffix(taskName, filepath.Ext(taskName))),
 			Name:        llmDraftName(strings.TrimSuffix(taskName, filepath.Ext(taskName))),
 			DomainSlice: slug(strings.TrimSuffix(taskName, filepath.Ext(taskName))),
 			Status:      "llm_draft_requires_review",
-			Description: "Offline LLM-assisted v0.5 logical database model draft. Validate, lint and review before treating as final.",
+			Description: "LLM-assisted v0.6 logical database model draft. Validate, lint and review before treating as final.",
 		},
 		Source: dsl.SourceInfo{
-			PipelineVersion:             "0.5",
-			TaskTextFile:                "TASK.md",
-			SourceUnitsFile:             "source_units.yaml",
-			RequirementAtomsFile:        "requirement_atoms.yaml",
-			FunctionalDecompositionFile: "functional_decomposition.yaml",
-			CRUDMatrixFile:              "crud_matrix.yaml",
-			ReviewDecisionsFile:         "review_decisions.yaml",
-			ReviewState:                 "llm_draft_requires_review",
-			DerivationStrategy:          "llm_assisted_offline_v0",
+			PipelineVersion:     PipelineVersion,
+			TaskTextFile:        "TASK.md",
+			SourceUnitsFile:     "source_units.yaml",
+			ReviewDecisionsFile: "review_decisions.yaml",
+			ReviewState:         "llm_draft_requires_review",
+			DerivationStrategy:  "segment_description_v1",
 		},
 		ImportSpecs:   []dsl.ImportSpec{},
 		StateMachines: []dsl.StateMachine{},
@@ -866,339 +542,43 @@ func buildArtifacts(taskText, taskName string, sourceUnits []dsl.SourceUnit, ext
 		FileSpecs:     []dsl.FileSpec{},
 	}
 
-	if err := applyPatch(&model, patch, atomByID, diagnostics); err != nil {
+	if err := applyPatch(&model, patch, diagnostics); err != nil {
 		return artifacts{}, err
 	}
 	normalizeModelReferences(&model, diagnostics)
-	fillModelImpacts(atoms, model)
-	for i := range atoms {
-		atomByID[atoms[i].ID] = atoms[i]
-	}
-	matrix := buildCRUDMatrix(actors, operations, model.Entities)
 
 	return artifacts{
-		RequirementAtoms: dsl.V05RequirementAtomsFile{
+		ReviewDecisions: dsl.ReviewDecisionsFile{
 			Document: map[string]any{
-				"id":                  model.Model.ID + "_requirement_atoms",
-				"title":               model.Model.Name + " requirement atoms",
-				"pipeline_version":    "0.5",
-				"source_units_file":   "source_units.yaml",
-				"generation_strategy": "llm_assisted_offline_v0",
-			},
-			RequirementAtoms: atoms,
-			CoverageChecks: []map[string]any{{
-				"id":     "llm_atoms_reference_source_units",
-				"status": "passed",
-				"note":   "Preflight checked source unit references before YAML emission.",
-			}},
-		},
-		FunctionalDecomposition: dsl.V05FunctionalDecompositionFile{
-			Document: map[string]any{
-				"id":                      model.Model.ID + "_functional_decomposition",
-				"title":                   model.Model.Name + " functional decomposition",
-				"pipeline_version":        "0.5",
-				"source_units_file":       "source_units.yaml",
-				"requirement_atoms_file":  "requirement_atoms.yaml",
-				"crud_matrix_file":        "crud_matrix.yaml",
-				"generation_strategy":     "llm_assisted_offline_v0",
-				"requires_domain_review":  true,
-				"domain_modeling_quality": "llm_draft",
-				"recommended_next_action": "Inspect review candidates, validation/lint reports and generated DBML before accepting.",
-			},
-			FunctionalAreas: areas,
-			CoverageSummary: map[string]any{
-				"total_atoms":         len(atoms),
-				"represented_atoms":   countRepresentedAtoms(atoms),
-				"llm_review_required": true,
-				"unresolved_warnings": len(extraction.Warnings) + len(patch.Warnings),
-			},
-		},
-		CRUDMatrix: dsl.V05CRUDMatrixFile{
-			Document: map[string]any{
-				"id":                            model.Model.ID + "_crud_matrix",
-				"title":                         model.Model.Name + " CRUD matrix",
-				"description":                   "CRUD matrix synthesized from LLM operations and model evidence.",
-				"pipeline_version":              "0.5",
-				"source_units_file":             "source_units.yaml",
-				"requirement_atoms_file":        "requirement_atoms.yaml",
-				"functional_decomposition_file": "functional_decomposition.yaml",
-			},
-			Notation: map[string]string{
-				"C": "create/insert",
-				"R": "read/select",
-				"U": "update",
-				"D": "delete",
-			},
-			Actors:     actors,
-			Operations: operations,
-			Matrix:     matrix,
-			CoverageChecks: []map[string]any{{
-				"id":     "all_entities_have_crud_rows",
-				"status": "passed",
-				"note":   "Each emitted entity has one CRUD matrix row.",
-			}},
-		},
-		ReviewDecisions: dsl.V05ReviewDecisionsFile{
-			Document: map[string]any{
-				"id":                     model.Model.ID + "_review_decisions",
-				"title":                  model.Model.Name + " review decisions",
-				"pipeline_version":       "0.5",
-				"requirement_atoms_file": "requirement_atoms.yaml",
-				"generation_strategy":    "llm_assisted_offline_v0",
-				"review_candidates_note": "Unresolved LLM review candidates are retained in proposed JSON logs, not committed as resolved decisions.",
+				"id":                  model.Model.ID + "_review_decisions",
+				"title":               model.Model.Name + " review decisions",
+				"pipeline_version":    PipelineVersion,
+				"generation_strategy": "segment_description_v1",
 			},
 			ReviewState: map[string]any{
 				"status":                           "llm_draft_requires_review",
 				"all_required_reviews_resolved":    true,
 				"unresolved_requires_review_flags": 0,
 			},
-			ReviewDecisions: []dsl.V05ReviewDecision{},
+			ReviewDecisions: []dsl.ReviewDecision{},
 			CoverageChecks: []map[string]any{{
 				"id":     "no_resolved_decisions_claimed",
 				"status": "passed",
-				"note":   "The offline v0 pipeline does not fabricate resolved human review decisions.",
+				"note":   "The pipeline does not fabricate resolved human review decisions.",
 			}},
 		},
 		Model: model,
 	}, nil
 }
 
-func writeArtifacts(outDir string, a artifacts) error {
-	files := map[string]any{
-		"requirement_atoms.yaml":        a.RequirementAtoms,
-		"functional_decomposition.yaml": a.FunctionalDecomposition,
-		"crud_matrix.yaml":              a.CRUDMatrix,
-		"review_decisions.yaml":         a.ReviewDecisions,
-		"db_model.dsl.yaml":             a.Model,
-	}
-	for name, value := range files {
-		data, err := yaml.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("marshal %s: %w", name, err)
-		}
-		if err := os.WriteFile(filepath.Join(outDir, name), data, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func convertRequirementAtoms(proposals []RequirementAtomProposal) []dsl.RequirementAtom {
-	atoms := make([]dsl.RequirementAtom, 0, len(proposals))
-	for i, proposal := range proposals {
-		id := proposal.ID
-		if id == "" {
-			id = fmt.Sprintf("LLM-RA-%03d", i+1)
-		}
-		area := nonEmpty(proposal.FunctionalArea, "core_model")
-		pattern := nonEmpty(proposal.FunctionalPattern, "domain_modeling")
-		outcome := nonEmpty(proposal.ModelingOutcome, "represented")
-		atoms = append(atoms, dsl.RequirementAtom{
-			ID:                id,
-			Statement:         nonEmpty(proposal.Statement, "LLM extracted requirement."),
-			Subject:           proposal.Subject,
-			Predicate:         proposal.Predicate,
-			Object:            proposal.Object,
-			Quantifier:        proposal.Quantifier,
-			Condition:         proposal.Condition,
-			TemporalSemantics: proposal.TemporalSemantics,
-			Ownership:         proposal.Ownership,
-			AtomType:          nonEmpty(proposal.AtomType, "data_requirement"),
-			ModelingRelevance: nonEmpty(proposal.ModelingRelevance, "direct_db"),
-			SourceUnits:       proposal.SourceUnits,
-			FunctionalArea:    area,
-			FunctionalPattern: pattern,
-			SupportLevel:      nonEmpty(proposal.SupportLevel, "inferred"),
-			Confidence:        nonEmpty(proposal.Confidence, "medium"),
-			RequiresReview:    proposal.RequiresReview,
-			ReviewClass:       proposal.ReviewClass,
-			ReviewTopic:       proposal.ReviewTopic,
-			ReviewGroup:       proposal.ReviewGroup,
-			ReviewDecisions:   append([]string(nil), proposal.ReviewDecisions...),
-			ModelingOutcome:   dsl.RequirementOutcome{Status: outcome},
-		})
-	}
-	return atoms
-}
-
-func convertFunctionalAreas(proposals []FunctionalAreaProposal, atoms []dsl.RequirementAtom) []dsl.FunctionalArea {
-	areasByID := map[string]dsl.FunctionalArea{}
-	for _, proposal := range proposals {
-		if proposal.ID == "" {
-			continue
-		}
-		areasByID[proposal.ID] = dsl.FunctionalArea{
-			ID:            proposal.ID,
-			Label:         nonEmpty(proposal.Label, titleFromID(proposal.ID)),
-			Purpose:       nonEmpty(proposal.Purpose, "Group related database modeling requirements."),
-			MainActors:    append([]string(nil), proposal.MainActors...),
-			Atoms:         append([]string(nil), proposal.Atoms...),
-			ModelingFocus: append([]string(nil), proposal.ModelingFocus...),
-		}
-	}
-	for _, atom := range atoms {
-		area := areasByID[atom.FunctionalArea]
-		if area.ID == "" {
-			area = dsl.FunctionalArea{
-				ID:            atom.FunctionalArea,
-				Label:         titleFromID(atom.FunctionalArea),
-				Purpose:       "Synthesized functional area for LLM extracted requirements.",
-				MainActors:    []string{"system"},
-				ModelingFocus: []string{},
-			}
-		}
-		if !contains(area.Atoms, atom.ID) {
-			area.Atoms = append(area.Atoms, atom.ID)
-		}
-		if len(area.MainActors) == 0 {
-			area.MainActors = []string{"system"}
-		}
-		areasByID[area.ID] = area
-	}
-	areas := make([]dsl.FunctionalArea, 0, len(areasByID))
-	for _, area := range areasByID {
-		sort.Strings(area.Atoms)
-		areas = append(areas, area)
-	}
-	sort.Slice(areas, func(i, j int) bool { return areas[i].ID < areas[j].ID })
-	return areas
-}
-
-func convertActors(proposals []ActorProposal) []dsl.CRUDActor {
-	actorsByID := map[string]dsl.CRUDActor{}
-	for _, proposal := range proposals {
-		if proposal.ID == "" {
-			continue
-		}
-		actorsByID[proposal.ID] = dsl.CRUDActor{
-			ID:          proposal.ID,
-			Label:       nonEmpty(proposal.Label, titleFromID(proposal.ID)),
-			Description: nonEmpty(proposal.Description, "Actor identified by the LLM proposal."),
-		}
-	}
-	if len(actorsByID) == 0 {
-		actorsByID["system"] = dsl.CRUDActor{ID: "system", Label: "System", Description: "System actor used by the offline LLM pipeline."}
-	}
-	actors := make([]dsl.CRUDActor, 0, len(actorsByID))
-	for _, actor := range actorsByID {
-		actors = append(actors, actor)
-	}
-	sort.Slice(actors, func(i, j int) bool { return actors[i].ID < actors[j].ID })
-	return actors
-}
-
-func ensureReferencedActors(actors []dsl.CRUDActor, areas []dsl.FunctionalArea, operations []OperationProposal) []dsl.CRUDActor {
-	actorsByID := map[string]dsl.CRUDActor{}
-	for _, actor := range actors {
-		actorsByID[actor.ID] = actor
-	}
-	for _, area := range areas {
-		for _, actorID := range area.MainActors {
-			if actorID == "" || actorsByID[actorID].ID != "" {
-				continue
-			}
-			actorsByID[actorID] = dsl.CRUDActor{
-				ID:          actorID,
-				Label:       titleFromID(actorID),
-				Description: "Actor referenced by an LLM functional area.",
-			}
-		}
-	}
-	for _, operation := range operations {
-		if operation.Actor == "" || actorsByID[operation.Actor].ID != "" {
-			continue
-		}
-		actorsByID[operation.Actor] = dsl.CRUDActor{
-			ID:          operation.Actor,
-			Label:       titleFromID(operation.Actor),
-			Description: "Actor referenced by an LLM CRUD operation.",
-		}
-	}
-	out := make([]dsl.CRUDActor, 0, len(actorsByID))
-	for _, actor := range actorsByID {
-		out = append(out, actor)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
-}
-
-func convertOperations(proposals []OperationProposal, atoms []dsl.RequirementAtom, sourceUnits []dsl.SourceUnit, areas []dsl.FunctionalArea, actors []dsl.CRUDActor) []dsl.CRUDOperation {
-	actorIDs := map[string]bool{}
-	for _, actor := range actors {
-		actorIDs[actor.ID] = true
-	}
-	areaIDs := map[string]bool{}
-	for _, area := range areas {
-		areaIDs[area.ID] = true
-	}
-	atomIDs := make([]string, 0, len(atoms))
-	sourceIDs := make([]string, 0, len(sourceUnits))
-	sourceByAtom := map[string][]string{}
-	for _, atom := range atoms {
-		atomIDs = append(atomIDs, atom.ID)
-		sourceByAtom[atom.ID] = atom.SourceUnits
-	}
-	for _, sourceUnit := range sourceUnits {
-		sourceIDs = append(sourceIDs, sourceUnit.ID)
-	}
-	var operations []dsl.CRUDOperation
-	for _, proposal := range proposals {
-		if proposal.ID == "" {
-			continue
-		}
-		sourceAtoms := proposal.SourceAtoms
-		if len(sourceAtoms) == 0 {
-			sourceAtoms = atomIDs
-		}
-		sourceUnitsForOp := proposal.SourceUnits
-		if len(sourceUnitsForOp) == 0 {
-			sourceUnitsForOp = unionSourcesForAtoms(sourceAtoms, sourceByAtom)
-		}
-		if len(sourceUnitsForOp) == 0 {
-			sourceUnitsForOp = sourceIDs
-		}
-		actor := proposal.Actor
-		if !actorIDs[actor] {
-			actor = actors[0].ID
-		}
-		area := proposal.FunctionalArea
-		if !areaIDs[area] {
-			area = areas[0].ID
-		}
-		operations = append(operations, dsl.CRUDOperation{
-			ID:                proposal.ID,
-			Label:             nonEmpty(proposal.Label, titleFromID(proposal.ID)),
-			FunctionalArea:    area,
-			FunctionalPattern: nonEmpty(proposal.FunctionalPattern, "domain_modeling"),
-			Actor:             actor,
-			SourceAtoms:       sourceAtoms,
-			SourceUnits:       sourceUnitsForOp,
-			Description:       nonEmpty(proposal.Description, "LLM proposed operation."),
-		})
-	}
-	if len(operations) == 0 {
-		operations = append(operations, dsl.CRUDOperation{
-			ID:                "inspect_llm_draft",
-			Label:             "Inspect LLM draft",
-			FunctionalArea:    areas[0].ID,
-			FunctionalPattern: "review",
-			Actor:             actors[0].ID,
-			SourceAtoms:       atomIDs,
-			SourceUnits:       sourceIDs,
-			Description:       "Inspect LLM-generated model draft.",
-		})
-	}
-	return operations
-}
-
-func applyPatch(model *dsl.Document, patch PatchProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) error {
+func applyPatch(model *dsl.Document, patch PatchProposal, diagnostics *conversionDiagnostics) error {
 	seenEntities := map[string]bool{}
 	for _, operation := range patch.Operations {
 		if operation.Operation == "add_entity" {
 			if operation.Entity == nil {
 				return errors.New("add_entity operation is missing entity")
 			}
-			entity := convertEntity(*operation.Entity, atomByID, diagnostics)
+			entity := convertEntity(*operation.Entity, diagnostics)
 			if entity.ID == "" {
 				return errors.New("add_entity operation produced empty entity id")
 			}
@@ -1220,32 +600,41 @@ func applyPatch(model *dsl.Document, patch PatchProposal, atomByID map[string]ds
 			if operation.Relationship == nil {
 				return errors.New("add_relationship operation is missing relationship")
 			}
-			model.Relationships = append(model.Relationships, convertRelationship(*operation.Relationship, atomByID, diagnostics))
+			model.Relationships = append(model.Relationships, convertRelationship(*operation.Relationship, diagnostics))
 		case "add_constraint":
 			if operation.Constraint == nil {
 				return errors.New("add_constraint operation is missing constraint")
 			}
-			model.Constraints = append(model.Constraints, convertConstraint(*operation.Constraint, atomByID, diagnostics))
+			model.Constraints = append(model.Constraints, convertConstraint(*operation.Constraint, diagnostics))
 		case "add_state_machine":
 			if operation.StateMachine == nil {
 				return errors.New("add_state_machine operation is missing state_machine")
 			}
-			model.StateMachines = append(model.StateMachines, convertStateMachine(*operation.StateMachine, atomByID, diagnostics))
+			model.StateMachines = append(model.StateMachines, convertStateMachine(*operation.StateMachine, diagnostics))
 		case "add_derived_view":
 			if operation.DerivedView == nil {
 				return errors.New("add_derived_view operation is missing derived_view")
 			}
-			model.DerivedViews = append(model.DerivedViews, convertDerivedView(*operation.DerivedView, atomByID, diagnostics))
+			model.DerivedViews = append(model.DerivedViews, convertDerivedView(*operation.DerivedView, diagnostics))
 		case "add_file_spec":
 			if operation.FileSpec == nil {
 				return errors.New("add_file_spec operation is missing file_spec")
 			}
-			model.FileSpecs = append(model.FileSpecs, convertFileSpec(*operation.FileSpec, atomByID, diagnostics))
+			model.FileSpecs = append(model.FileSpecs, convertFileSpec(*operation.FileSpec, diagnostics))
 		case "add_import_spec":
 			if operation.ImportSpec == nil {
 				return errors.New("add_import_spec operation is missing import_spec")
 			}
-			model.ImportSpecs = append(model.ImportSpecs, convertImportSpec(*operation.ImportSpec, atomByID, diagnostics))
+			model.ImportSpecs = append(model.ImportSpecs, convertImportSpec(*operation.ImportSpec, diagnostics))
+		case "add_index":
+			if operation.Index == nil {
+				return errors.New("add_index operation is missing index")
+			}
+			model.Indexes = append(model.Indexes, dsl.Index{
+				ID: operation.Index.ID, Owner: operation.Index.Owner, Fields: operation.Index.Fields,
+				Description: nonEmpty(operation.Index.Description, "Search index."),
+				Evidence:    convertEvidence(operation.Index.Evidence, diagnostics),
+			})
 		case "remove_operation":
 			return errors.New("remove_operation is repair-only and must be merged before artifact conversion")
 		default:
@@ -1255,8 +644,8 @@ func applyPatch(model *dsl.Document, patch PatchProposal, atomByID map[string]ds
 	return nil
 }
 
-func convertEntity(proposal EntityProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) dsl.Entity {
-	entityEvidence := convertEvidence(proposal.Evidence, atomByID, diagnostics)
+func convertEntity(proposal EntityProposal, diagnostics *conversionDiagnostics) dsl.Entity {
+	entityEvidence := convertEvidence(proposal.Evidence, diagnostics)
 	kind := nonEmpty(proposal.Kind, "regular")
 	attrs := make([]dsl.Attribute, 0, len(proposal.Attributes))
 	for _, attr := range proposal.Attributes {
@@ -1266,8 +655,8 @@ func convertEntity(proposal EntityProposal, atomByID map[string]dsl.RequirementA
 			continue
 		}
 		required := attr.Required
-		evidence := convertEvidence(attr.Evidence, atomByID, diagnostics)
-		if len(evidence.SourceUnits) == 0 && len(evidence.RequirementAtoms) == 0 {
+		evidence := convertEvidence(attr.Evidence, diagnostics)
+		if len(evidence.SourceUnits) == 0 {
 			evidence = entityEvidence
 		}
 		attrs = append(attrs, dsl.Attribute{
@@ -1342,7 +731,7 @@ func shouldDropGeneratedIDAttribute(entityKind, entityID string, attr AttributeP
 	return strings.HasSuffix(attrRef, "_id")
 }
 
-func convertRelationship(proposal RelationshipProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) dsl.Relationship {
+func convertRelationship(proposal RelationshipProposal, diagnostics *conversionDiagnostics) dsl.Relationship {
 	required := proposal.Required
 	fkRequired := proposal.FKRequired
 	identifying := proposal.Identifying
@@ -1359,11 +748,11 @@ func convertRelationship(proposal RelationshipProposal, atomByID map[string]dsl.
 		Identifying: &identifying,
 		Through:     proposal.Through,
 		Notes:       proposal.Notes,
-		Evidence:    convertEvidence(proposal.Evidence, atomByID, diagnostics),
+		Evidence:    convertEvidence(proposal.Evidence, diagnostics),
 	}
 }
 
-func convertConstraint(proposal ConstraintProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) dsl.Constraint {
+func convertConstraint(proposal ConstraintProposal, diagnostics *conversionDiagnostics) dsl.Constraint {
 	return dsl.Constraint{
 		ID:          proposal.ID,
 		Type:        proposal.Type,
@@ -1376,11 +765,11 @@ func convertConstraint(proposal ConstraintProposal, atomByID map[string]dsl.Requ
 		Pattern:     proposal.Pattern,
 		Expression:  proposal.Expression,
 		Description: nonEmpty(proposal.Description, "LLM proposed constraint."),
-		Evidence:    convertEvidence(proposal.Evidence, atomByID, diagnostics),
+		Evidence:    convertEvidence(proposal.Evidence, diagnostics),
 	}
 }
 
-func convertStateMachine(proposal StateMachineProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) dsl.StateMachine {
+func convertStateMachine(proposal StateMachineProposal, diagnostics *conversionDiagnostics) dsl.StateMachine {
 	return dsl.StateMachine{
 		ID:          proposal.ID,
 		Owner:       proposal.Owner,
@@ -1390,11 +779,11 @@ func convertStateMachine(proposal StateMachineProposal, atomByID map[string]dsl.
 		Terminal:    proposal.Terminal,
 		Transitions: proposal.Transitions,
 		Notes:       proposal.Notes,
-		Evidence:    convertEvidence(proposal.Evidence, atomByID, diagnostics),
+		Evidence:    convertEvidence(proposal.Evidence, diagnostics),
 	}
 }
 
-func convertDerivedView(proposal DerivedViewProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) dsl.DerivedView {
+func convertDerivedView(proposal DerivedViewProposal, diagnostics *conversionDiagnostics) dsl.DerivedView {
 	return dsl.DerivedView{
 		ID:          proposal.ID,
 		Label:       nonEmpty(proposal.Label, titleFromID(proposal.ID)),
@@ -1405,11 +794,11 @@ func convertDerivedView(proposal DerivedViewProposal, atomByID map[string]dsl.Re
 		Metrics:     proposal.Metrics,
 		Filters:     proposal.Filters,
 		Notes:       proposal.Notes,
-		Evidence:    convertEvidence(proposal.Evidence, atomByID, diagnostics),
+		Evidence:    convertEvidence(proposal.Evidence, diagnostics),
 	}
 }
 
-func convertFileSpec(proposal FileSpecProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) dsl.FileSpec {
+func convertFileSpec(proposal FileSpecProposal, diagnostics *conversionDiagnostics) dsl.FileSpec {
 	return dsl.FileSpec{
 		ID:                proposal.ID,
 		Owner:             proposal.Owner,
@@ -1419,11 +808,11 @@ func convertFileSpec(proposal FileSpecProposal, atomByID map[string]dsl.Requirem
 		MIMETypes:         proposal.MIMETypes,
 		Storage:           nonEmpty(proposal.Storage, "external_reference"),
 		Notes:             proposal.Notes,
-		Evidence:          convertEvidence(proposal.Evidence, atomByID, diagnostics),
+		Evidence:          convertEvidence(proposal.Evidence, diagnostics),
 	}
 }
 
-func convertImportSpec(proposal ImportSpecProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) dsl.ImportSpec {
+func convertImportSpec(proposal ImportSpecProposal, diagnostics *conversionDiagnostics) dsl.ImportSpec {
 	mappings := make([]dsl.ImportMapping, 0, len(proposal.Mappings))
 	for _, mapping := range proposal.Mappings {
 		mappings = append(mappings, dsl.ImportMapping{
@@ -1445,21 +834,17 @@ func convertImportSpec(proposal ImportSpecProposal, atomByID map[string]dsl.Requ
 		},
 		Root:     proposal.Root,
 		Mappings: mappings,
-		Evidence: convertEvidence(proposal.Evidence, atomByID, diagnostics),
+		Evidence: convertEvidence(proposal.Evidence, diagnostics),
 	}
 }
 
-func convertEvidence(proposal EvidenceProposal, atomByID map[string]dsl.RequirementAtom, diagnostics *conversionDiagnostics) dsl.Evidence {
+func convertEvidence(proposal EvidenceProposal, diagnostics *conversionDiagnostics) dsl.Evidence {
 	evidence := dsl.Evidence{
-		SourceUnits:      append([]string(nil), proposal.SourceUnits...),
-		RequirementAtoms: append([]string(nil), proposal.RequirementAtoms...),
-		ReviewDecisions:  append([]string(nil), proposal.ReviewDecisions...),
-		SupportLevel:     nonEmpty(proposal.SupportLevel, "inferred"),
-		Confidence:       nonEmpty(proposal.Confidence, "medium"),
-		Notes:            append([]string(nil), proposal.Notes...),
-	}
-	if len(evidence.SourceUnits) == 0 && len(evidence.RequirementAtoms) > 0 {
-		evidence.SourceUnits = unionSourcesForAtoms(evidence.RequirementAtoms, atomSources(atomByID))
+		SourceUnits:     append([]string(nil), proposal.SourceUnits...),
+		ReviewDecisions: append([]string(nil), proposal.ReviewDecisions...),
+		SupportLevel:    nonEmpty(proposal.SupportLevel, "inferred"),
+		Confidence:      nonEmpty(proposal.Confidence, "medium"),
+		Notes:           append([]string(nil), proposal.Notes...),
 	}
 	if evidence.SupportLevel == "assumption" && len(evidence.ReviewDecisions) == 0 {
 		evidence.SupportLevel = "inferred"
@@ -1467,99 +852,6 @@ func convertEvidence(proposal EvidenceProposal, atomByID map[string]dsl.Requirem
 		diagnostics.add("assumption evidence without resolved review decision was downgraded to inferred")
 	}
 	return evidence
-}
-
-func fillModelImpacts(atoms []dsl.RequirementAtom, model dsl.Document) {
-	impacts := map[string]*dsl.RequirementModelImpacts{}
-	for i := range atoms {
-		impacts[atoms[i].ID] = &dsl.RequirementModelImpacts{}
-	}
-	for _, entity := range model.Entities {
-		for _, atomID := range entity.Evidence.RequirementAtoms {
-			if impacts[atomID] != nil {
-				impacts[atomID].Entities = appendUnique(impacts[atomID].Entities, entity.ID)
-			}
-		}
-		for _, attribute := range entity.Attributes {
-			ref := entity.ID + "." + attribute.ID
-			for _, atomID := range attribute.Evidence.RequirementAtoms {
-				if impacts[atomID] != nil {
-					impacts[atomID].Attributes = appendUnique(impacts[atomID].Attributes, ref)
-				}
-			}
-		}
-	}
-	for _, relationship := range model.Relationships {
-		for _, atomID := range relationship.Evidence.RequirementAtoms {
-			if impacts[atomID] != nil {
-				impacts[atomID].Relationships = appendUnique(impacts[atomID].Relationships, relationship.ID)
-			}
-		}
-	}
-	for _, constraint := range model.Constraints {
-		for _, atomID := range constraint.Evidence.RequirementAtoms {
-			if impacts[atomID] != nil {
-				impacts[atomID].Constraints = appendUnique(impacts[atomID].Constraints, constraint.ID)
-			}
-		}
-	}
-	for _, spec := range model.ImportSpecs {
-		for _, atomID := range spec.Evidence.RequirementAtoms {
-			if impacts[atomID] != nil {
-				impacts[atomID].ImportSpecs = appendUnique(impacts[atomID].ImportSpecs, spec.ID)
-			}
-		}
-	}
-	for _, machine := range model.StateMachines {
-		for _, atomID := range machine.Evidence.RequirementAtoms {
-			if impacts[atomID] != nil {
-				impacts[atomID].StateMachines = appendUnique(impacts[atomID].StateMachines, machine.ID)
-			}
-		}
-	}
-	for _, view := range model.DerivedViews {
-		for _, atomID := range view.Evidence.RequirementAtoms {
-			if impacts[atomID] != nil {
-				impacts[atomID].DerivedViews = appendUnique(impacts[atomID].DerivedViews, view.ID)
-			}
-		}
-	}
-	for _, spec := range model.FileSpecs {
-		for _, atomID := range spec.Evidence.RequirementAtoms {
-			if impacts[atomID] != nil {
-				impacts[atomID].FileSpecs = appendUnique(impacts[atomID].FileSpecs, spec.ID)
-			}
-		}
-	}
-	for i := range atoms {
-		if impact := impacts[atoms[i].ID]; impact != nil {
-			sortImpact(impact)
-			atoms[i].ModelImpacts = *impact
-		}
-	}
-}
-
-func buildCRUDMatrix(actors []dsl.CRUDActor, operations []dsl.CRUDOperation, entities []dsl.Entity) []dsl.CRUDRow {
-	rows := make([]dsl.CRUDRow, 0, len(entities))
-	for _, entity := range entities {
-		ops := map[string][]string{}
-		entityAtoms := set(entity.Evidence.RequirementAtoms...)
-		for _, operation := range operations {
-			if intersectsSet(entityAtoms, operation.SourceAtoms) {
-				ops[operation.ID] = inferActions(operation.ID, operation.Label)
-			}
-		}
-		if len(ops) == 0 && len(operations) > 0 {
-			ops[operations[0].ID] = []string{"R"}
-		}
-		rows = append(rows, dsl.CRUDRow{
-			Entity:     entity.ID,
-			Table:      entity.TableName,
-			Operations: ops,
-			Rationale:  "CRUD row synthesized from LLM operation and model evidence overlap.",
-		})
-	}
-	return rows
 }
 
 func normalizeModelReferences(model *dsl.Document, diagnostics *conversionDiagnostics) {
@@ -1704,200 +996,6 @@ func looseSlug(value string) string {
 	return strings.Trim(string(out), "_")
 }
 
-func validateExtractionProposal(proposal RequirementExtractionProposal, sourceIDs map[string]bool) []string {
-	var errors []string
-	seenAtoms := map[string]bool{}
-	for _, atom := range proposal.RequirementAtoms {
-		if atom.ID == "" {
-			errors = append(errors, "requirement atom id is required")
-		}
-		if seenAtoms[atom.ID] {
-			errors = append(errors, "duplicate requirement atom id "+atom.ID)
-		}
-		seenAtoms[atom.ID] = true
-		errors = append(errors, validateSourceRefs("requirement atom "+atom.ID, atom.SourceUnits, sourceIDs)...)
-	}
-	for _, op := range proposal.Operations {
-		errors = append(errors, validateSourceRefs("operation "+op.ID, op.SourceUnits, sourceIDs)...)
-		for _, atomID := range op.SourceAtoms {
-			if atomID != "" && !seenAtoms[atomID] {
-				errors = append(errors, "operation "+op.ID+" references unknown atom "+atomID)
-			}
-		}
-	}
-	for _, review := range proposal.ReviewCandidates {
-		for _, atomID := range review.AffectedAtoms {
-			if atomID != "" && !seenAtoms[atomID] {
-				errors = append(errors, "review candidate "+review.ID+" references unknown atom "+atomID)
-			}
-		}
-	}
-	return errors
-}
-
-func validateModelPlanProposal(proposal ModelPlanProposal, sourceIDs, atomIDs map[string]bool) []string {
-	var errors []string
-	check := func(label string, elements []PlanElementProposal) {
-		for _, element := range elements {
-			errors = append(errors, validateSourceRefs(label+" "+element.ID, element.SourceUnits, sourceIDs)...)
-			errors = append(errors, validateAtomRefs(label+" "+element.ID, element.RequirementAtoms, atomIDs)...)
-		}
-	}
-	check("candidate entity", proposal.CandidateEntities)
-	check("candidate relationship", proposal.CandidateRelationships)
-	check("candidate constraint", proposal.CandidateConstraints)
-	check("candidate state machine", proposal.CandidateStateMachines)
-	check("candidate derived view", proposal.CandidateDerivedViews)
-	check("candidate file spec", proposal.CandidateFileSpecs)
-	return errors
-}
-
-func validatePatchProposal(proposal PatchProposal, sourceIDs, atomIDs map[string]bool) []string {
-	var errors []string
-	for _, op := range proposal.Operations {
-		switch op.Operation {
-		case "add_entity":
-			if op.Entity == nil {
-				errors = append(errors, "add_entity operation is missing entity")
-				continue
-			}
-			errors = append(errors, validateEvidenceRefs("entity "+op.Entity.ID, op.Entity.Evidence, sourceIDs, atomIDs)...)
-			for _, attr := range op.Entity.Attributes {
-				errors = append(errors, validateEvidenceRefs("attribute "+op.Entity.ID+"."+attr.ID, attr.Evidence, sourceIDs, atomIDs)...)
-			}
-		case "add_relationship":
-			if op.Relationship == nil {
-				errors = append(errors, "add_relationship operation is missing relationship")
-				continue
-			}
-			errors = append(errors, validateEvidenceRefs("relationship "+op.Relationship.ID, op.Relationship.Evidence, sourceIDs, atomIDs)...)
-		case "add_constraint":
-			if op.Constraint == nil {
-				errors = append(errors, "add_constraint operation is missing constraint")
-				continue
-			}
-			errors = append(errors, validateEvidenceRefs("constraint "+op.Constraint.ID, op.Constraint.Evidence, sourceIDs, atomIDs)...)
-		case "add_state_machine":
-			if op.StateMachine == nil {
-				errors = append(errors, "add_state_machine operation is missing state_machine")
-				continue
-			}
-			errors = append(errors, validateEvidenceRefs("state_machine "+op.StateMachine.ID, op.StateMachine.Evidence, sourceIDs, atomIDs)...)
-		case "add_derived_view":
-			if op.DerivedView == nil {
-				errors = append(errors, "add_derived_view operation is missing derived_view")
-				continue
-			}
-			errors = append(errors, validateEvidenceRefs("derived_view "+op.DerivedView.ID, op.DerivedView.Evidence, sourceIDs, atomIDs)...)
-		case "add_file_spec":
-			if op.FileSpec == nil {
-				errors = append(errors, "add_file_spec operation is missing file_spec")
-				continue
-			}
-			errors = append(errors, validateEvidenceRefs("file_spec "+op.FileSpec.ID, op.FileSpec.Evidence, sourceIDs, atomIDs)...)
-		case "add_import_spec":
-			if op.ImportSpec == nil {
-				errors = append(errors, "add_import_spec operation is missing import_spec")
-				continue
-			}
-			errors = append(errors, validateEvidenceRefs("import_spec "+op.ImportSpec.ID, op.ImportSpec.Evidence, sourceIDs, atomIDs)...)
-		case "remove_operation":
-			if op.TargetOperation == "" || op.TargetID == "" {
-				errors = append(errors, "remove_operation requires target_operation and target_id")
-			} else if !strings.HasPrefix(op.TargetOperation, "add_") {
-				errors = append(errors, "remove_operation target_operation must identify an add operation")
-			}
-		default:
-			errors = append(errors, "unsupported patch operation "+op.Operation)
-		}
-	}
-	return errors
-}
-
-func validateEvidenceRefs(label string, evidence EvidenceProposal, sourceIDs, atomIDs map[string]bool) []string {
-	var errors []string
-	errors = append(errors, validateSourceRefs(label, evidence.SourceUnits, sourceIDs)...)
-	errors = append(errors, validateAtomRefs(label, evidence.RequirementAtoms, atomIDs)...)
-	return errors
-}
-
-func validateSourceRefs(label string, refs []string, known map[string]bool) []string {
-	var errors []string
-	for _, ref := range refs {
-		if ref == "" {
-			errors = append(errors, label+" references empty source unit")
-			continue
-		}
-		if !known[ref] {
-			errors = append(errors, label+" references unknown source unit "+ref)
-		}
-	}
-	return errors
-}
-
-func validateAtomRefs(label string, refs []string, known map[string]bool) []string {
-	var errors []string
-	for _, ref := range refs {
-		if ref == "" {
-			errors = append(errors, label+" references empty requirement atom")
-			continue
-		}
-		if !known[ref] {
-			errors = append(errors, label+" references unknown requirement atom "+ref)
-		}
-	}
-	return errors
-}
-
-func findIssueText(issue string, validationReport validate.Result, lintReport lint.Result) string {
-	for i, err := range validationReport.Errors {
-		id := fmt.Sprintf("validation:%d", i+1)
-		if issue == id || strings.Contains(err, issue) {
-			return err
-		}
-	}
-	for i, item := range lintReport.Issues {
-		id := fmt.Sprintf("lint:%s:%d", item.Code, i+1)
-		if issue == id || issue == item.Code || strings.Contains(item.Message, issue) {
-			return fmt.Sprintf("[%s] %s %s: %s", item.Severity, item.Code, item.Element, item.Message)
-		}
-	}
-	return ""
-}
-
-func firstRepairIssue(validationReport validate.Result, lintReport lint.Result) (string, string) {
-	if len(validationReport.Errors) > 0 {
-		return "validation:1", validationReport.Errors[0]
-	}
-	for i, item := range lintReport.Issues {
-		if item.Severity == lint.SeverityError {
-			return fmt.Sprintf("lint:%s:%d", item.Code, i+1), fmt.Sprintf("[%s] %s %s: %s", item.Severity, item.Code, item.Element, item.Message)
-		}
-	}
-	return "", ""
-}
-
-func normalizePlanOptions(opts PlanOptions) PlanOptions {
-	opts.Model = nonEmpty(opts.Model, llm.DefaultModel)
-	opts.ReasoningEffort = nonEmpty(opts.ReasoningEffort, llm.DefaultReasoningEffort)
-	if opts.MaxOutputTokens <= 0 {
-		opts.MaxOutputTokens = llm.DefaultMaxOutputTokens
-	}
-	if opts.MaxRepairAttempts < 0 {
-		opts.MaxRepairAttempts = 0
-	}
-	return opts
-}
-
-func normalizeRepairOptions(opts RepairOptions) RepairOptions {
-	opts.Model = nonEmpty(opts.Model, llm.DefaultModel)
-	opts.ReasoningEffort = nonEmpty(opts.ReasoningEffort, llm.DefaultReasoningEffort)
-	if opts.MaxOutputTokens <= 0 {
-		opts.MaxOutputTokens = llm.DefaultMaxOutputTokens
-	}
-	return opts
-}
-
 func normalizeBaselineOptions(opts BaselineOptions) BaselineOptions {
 	opts.Model = nonEmpty(opts.Model, llm.DefaultModel)
 	opts.ReasoningEffort = nonEmpty(opts.ReasoningEffort, llm.DefaultReasoningEffort)
@@ -1932,31 +1030,6 @@ func providerName(client llm.Client) string {
 	default:
 		return "unknown"
 	}
-}
-
-func sourceUnitInputs(units []dsl.SourceUnit) []sourceUnitInput {
-	out := make([]sourceUnitInput, 0, len(units))
-	for _, unit := range units {
-		out = append(out, sourceUnitInput{
-			ID:         unit.ID,
-			Kind:       unit.Kind,
-			Section:    unit.Section,
-			Relevance:  unit.Relevance,
-			Tags:       unit.Tags,
-			Exact:      unit.Text.Exact,
-			Normalized: normalizedIfDifferent(unit.Text.Exact, unit.Text.Normalized),
-		})
-	}
-	return out
-}
-
-// normalizedIfDifferent avoids sending the same sentence twice; the backend
-// normalizer changes only whitespace/punctuation, so most units are identical.
-func normalizedIfDifferent(exact, normalized string) string {
-	if strings.TrimSpace(exact) == strings.TrimSpace(normalized) {
-		return ""
-	}
-	return normalized
 }
 
 // compactLLMInput removes indentation and empty values ("" / [] / {} / null)
@@ -2018,96 +1091,10 @@ func pruneEmptyJSON(value any) any {
 	}
 }
 
-func sourceUnitIDSet(units []dsl.SourceUnit) map[string]bool {
-	out := map[string]bool{}
-	for _, unit := range units {
-		out[unit.ID] = true
-	}
-	return out
-}
-
-func atomIDSet(atoms []RequirementAtomProposal) map[string]bool {
-	out := map[string]bool{}
-	for _, atom := range atoms {
-		out[atom.ID] = true
-	}
-	return out
-}
-
-func atomSources(atoms map[string]dsl.RequirementAtom) map[string][]string {
-	out := map[string][]string{}
-	for id, atom := range atoms {
-		out[id] = atom.SourceUnits
-	}
-	return out
-}
-
-func unionSourcesForAtoms(atomIDs []string, sourceByAtom map[string][]string) []string {
-	seen := map[string]bool{}
-	for _, atomID := range atomIDs {
-		for _, sourceID := range sourceByAtom[atomID] {
-			seen[sourceID] = true
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for sourceID := range seen {
-		out = append(out, sourceID)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func inferActions(id, label string) []string {
-	text := strings.ToLower(id + " " + label)
-	for _, token := range []string{"create", "add", "insert", "register", "submit", "import"} {
-		if strings.Contains(text, token) {
-			return []string{"C", "R"}
-		}
-	}
-	for _, token := range []string{"manage", "update", "edit", "approve", "process", "confirm"} {
-		if strings.Contains(text, token) {
-			return []string{"C", "R", "U"}
-		}
-	}
-	for _, token := range []string{"delete", "remove", "cancel"} {
-		if strings.Contains(text, token) {
-			return []string{"R", "U", "D"}
-		}
-	}
-	return []string{"R"}
-}
-
-func countRepresentedAtoms(atoms []dsl.RequirementAtom) int {
-	count := 0
-	for _, atom := range atoms {
-		if atom.ModelingOutcome.Status == "represented" {
-			count++
-		}
-	}
-	return count
-}
-
 func (d *conversionDiagnostics) add(message string) {
 	if d != nil {
 		d.Warnings = append(d.Warnings, message)
 	}
-}
-
-func intersectsSet(values map[string]bool, candidates []string) bool {
-	for _, candidate := range candidates {
-		if values[candidate] {
-			return true
-		}
-	}
-	return false
-}
-
-func set(values ...string) map[string]bool {
-	out := map[string]bool{}
-	for _, value := range values {
-		out[value] = true
-	}
-	return out
 }
 
 func appendUnique(values []string, value string) []string {
@@ -2126,17 +1113,6 @@ func contains(values []string, value string) bool {
 	return false
 }
 
-func sortImpact(impact *dsl.RequirementModelImpacts) {
-	sort.Strings(impact.Entities)
-	sort.Strings(impact.Attributes)
-	sort.Strings(impact.Relationships)
-	sort.Strings(impact.Constraints)
-	sort.Strings(impact.ImportSpecs)
-	sort.Strings(impact.StateMachines)
-	sort.Strings(impact.DerivedViews)
-	sort.Strings(impact.FileSpecs)
-}
-
 func writeTextFile(path, value string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -2151,22 +1127,6 @@ func writeJSONFile(path string, value any) error {
 	}
 	data = append(data, '\n')
 	return writeTextFile(path, string(data))
-}
-
-func mustJSON(value any) string {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		panic(err)
-	}
-	return string(data)
-}
-
-func mustCompactJSON(value any) string {
-	data, err := json.Marshal(value)
-	if err != nil {
-		panic(err)
-	}
-	return string(data)
 }
 
 func nonEmpty(value, fallback string) string {

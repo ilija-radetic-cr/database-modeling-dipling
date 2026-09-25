@@ -6,7 +6,6 @@ type Step = { id: string; label: string; done: boolean; blocked?: boolean };
 // The segment-based flow: segmentation and segment IDs, the conceptual model
 // (the only other LLM step), then the deterministic model and its outputs.
 export function PipelineStepper({ health }: { health: ArtifactHealth }) {
-	const semanticDone = ["passed", "not_applicable", "legacy_not_applicable"].includes(health.semantic_verification_status);
 	const steps: Step[] = [
 		{
 			id: "sources",
@@ -22,7 +21,7 @@ export function PipelineStepper({ health }: { health: ArtifactHealth }) {
 		{
 			id: "model",
 			label: "Logical Model",
-			done: health.model_status === "ready" && semanticDone && health.final_model_accepted,
+			done: health.model_status === "ready" && health.final_model_accepted,
 			blocked: health.conceptual_model_status !== "ready",
 		},
 		{
