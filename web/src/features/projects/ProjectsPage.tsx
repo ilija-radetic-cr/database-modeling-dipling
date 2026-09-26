@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FolderOpen, Plus, Search, Trash2 } from "lucide-react";
+import { FolderOpen, Plus, Search, Trash2 } from "lucide-react";
 import { api, projectDefaultPath } from "@/shared/api/client";
 import type { ProjectSummary } from "@/shared/api/types";
 import { Badge, Button, LoadingState, Metric, Panel, StatusBadge } from "@/shared/components/ui";
 import { useRouter } from "@/shared/lib/router";
+import { ExportButton } from "@/shared/components/ExportButton";
 
 export function ProjectsPage() {
   const { navigate } = useRouter();
@@ -32,7 +33,10 @@ export function ProjectsPage() {
 
   const items = projects.data?.items ?? [];
   const everything = allProjects.data?.items ?? [];
-  const active = activeProjects.data?.items.length ?? 0;
+  // Older workbench state and partially upgraded servers can expose an empty
+  // Go slice as `null`. Keep the first screen usable while the API normalizes
+  // the contract to an empty JSON array.
+  const active = activeProjects.data?.items?.length ?? 0;
   const completed = everything.filter((project) => project.lifecycle_status === "completed").length;
   // Projects stopped at a human gate: source review, conceptual review or final-model review.
   const awaitingReview = everything.filter((project) => ["source_review", "conceptual_review", "model_generated"].includes(project.lifecycle_status)).length;
@@ -148,10 +152,7 @@ function ProjectsTable({
                   Open
                 </Button>
                 {project.lifecycle_status === "completed" && (
-                  <Button onClick={() => window.open(api.exportURL(project.id, "dbml"), "_blank")}>
-                    <Download size={16} />
-                    DBML
-                  </Button>
+                  <ExportButton projectId={project.id} kind="dbml" iconSize={16}>DBML</ExportButton>
                 )}
                 <Button
                   variant="ghost"

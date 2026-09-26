@@ -13,12 +13,66 @@ func TestDBMLIncludesDerivedFKsAndIndexes(t *testing.T) {
 	got := DBML(doc)
 
 	assertContains(t, got, "Table products {")
-	assertContains(t, got, "print_shop_id int [not null]")
+	assertContains(t, got, "id bigint [pk, increment]")
+	assertContains(t, got, "print_shop_id bigint [not null]")
 	assertContains(t, got, "(print_shop_id, code) [unique, name: 'product_code_unique_per_print_shop']")
 	assertContains(t, got, "Table product_colors {")
 	assertContains(t, got, "(product_id, color_id) [pk]")
 	assertContains(t, got, "Ref: product_colors.product_id > products.id")
 	assertContains(t, got, "Ref: product_colors.color_id > colors.id")
+}
+
+func TestDBMLPreservesExplicitOnDeleteActions(t *testing.T) {
+	yes, no := true, false
+	doc := &dsl.Document{
+		DSL: dsl.DSLMeta{Name: "DB-DSL", Version: "0.6"}, Model: dsl.ModelInfo{ID: "delete_actions"},
+		Entities: []dsl.Entity{
+			{ID: "ENT-ORDER", TableName: "orders", Kind: "regular"},
+			{ID: "ENT-CUSTOMER", TableName: "customers", Kind: "regular"},
+			{ID: "ENT-ADDRESS", TableName: "addresses", Kind: "regular"},
+			{ID: "ENT-INVOICE", TableName: "invoices", Kind: "regular"},
+			{ID: "ENT-NOTE", TableName: "notes", Kind: "regular"},
+		},
+		Relationships: []dsl.Relationship{
+			{ID: "REL-CASCADE", From: "ENT-ORDER", To: "ENT-CUSTOMER", Cardinality: "many_to_one", Required: &yes, FKRequired: &yes, OnDelete: "cascade"},
+			{ID: "REL-RESTRICT", From: "ENT-INVOICE", To: "ENT-CUSTOMER", Cardinality: "many_to_one", Required: &yes, FKRequired: &yes, OnDelete: "restrict"},
+			{ID: "REL-SET-NULL", From: "ENT-ADDRESS", To: "ENT-CUSTOMER", Cardinality: "many_to_one", Required: &no, FKRequired: &no, OnDelete: "set_null"},
+			{ID: "REL-ABSENT", From: "ENT-NOTE", To: "ENT-CUSTOMER", Cardinality: "many_to_one", Required: &no, FKRequired: &no},
+		},
+	}
+	got := DBML(doc)
+	for _, want := range []string{
+		"Ref: orders.customer_id > customers.id [delete: cascade]",
+		"Ref: invoices.customer_id > customers.id [delete: restrict]",
+		"Ref: addresses.customer_id > customers.id [delete: set null]",
+		"Ref: notes.customer_id > customers.id\n",
+	} {
+		assertContains(t, got, want)
+	}
+	if strings.Contains(got, "Ref: notes.customer_id > customers.id [delete:") {
+		t.Fatalf("absent on_delete must stay absent:\n%s", got)
+	}
+}
+
+func TestDBMLEnumValuesUseParserCompatibleQuotedIdentifiers(t *testing.T) {
+	yes := true
+	doc := &dsl.Document{
+		DSL: dsl.DSLMeta{Name: "DB-DSL", Version: "0.6"}, Model: dsl.ModelInfo{ID: "enum_values"},
+		Entities: []dsl.Entity{{
+			ID: "ENT-ITEM", TableName: "items", Kind: "regular",
+			Attributes: []dsl.Attribute{{
+				ID: "status", Type: "string", Required: &yes,
+				EnumValues: []string{"active", "активна", "with space", `it"s`, `path\value`},
+			}},
+		}},
+	}
+	got := DBML(doc)
+	for _, want := range []string{`  "active"`, `  "активна"`, `  "with space"`, `  "it\u0022s"`, `  "path\\value"`} {
+		assertContains(t, got, want)
+	}
+	if strings.Contains(got, "`активна`") {
+		t.Fatalf("enum labels must not use backtick identifiers:\n%s", got)
+	}
 }
 
 func TestFKNameNormalizesNamespacedLogicalEntityID(t *testing.T) {
@@ -100,7 +154,7 @@ func TestDBMLV02UsesNullableFKsAndNewTypes(t *testing.T) {
 
 	got := DBML(doc)
 
-	assertContains(t, got, "print_shop_id int\n")
+	assertContains(t, got, "print_shop_id bigint\n")
 	assertContains(t, got, "unit_price decimal(12,2) [not null]")
 	assertContains(t, got, "created_at datetime [not null]")
 	assertContains(t, got, "image_path varchar(255)")
@@ -144,7 +198,7 @@ func TestDBMLV06RegularJoinEntityKeepsScalarID(t *testing.T) {
 
 	got := DBML(doc)
 
-	assertContains(t, got, "Table product_print_services {\n  id int [pk, increment]")
+	assertContains(t, got, "Table product_print_services {\n  id bigint [pk, increment]")
 	assertContains(t, got, "Ref: cart_items.product_print_service_id > product_print_services.id")
 }
 

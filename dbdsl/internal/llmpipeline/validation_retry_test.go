@@ -32,7 +32,7 @@ func (c *scriptedClient) GenerateText(context.Context, llm.TextRequest) (llm.Tex
 func TestRunStructuredStageRetriesOnceWithValidationFeedback(t *testing.T) {
 	client := &scriptedClient{responses: []string{`{"covered":["RA-1"]}`, `{"covered":["RA-1","RA-2"]}`}}
 	var target struct{ Covered []string }
-	validate := func() []string {
+	validate := func(bool) []string {
 		if len(target.Covered) < 2 {
 			return []string{"functional analysis does not cover atoms: RA-2"}
 		}

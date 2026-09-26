@@ -1,16 +1,36 @@
 package jobs
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
+func TestWaitReturnsAfterTerminalStateIsPersisted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	m := NewPersistentManager(path)
+	job := m.StartWithRevision("project_1", "source_units", 4, nil, func(_ string, _ string, _ int, _ StepEmitter) (int, []string, error) {
+		return 5, []string{"source_units"}, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	got, err := m.Wait(ctx, job.ID)
+	if err != nil || got.Status != StatusCompleted {
+		t.Fatalf("wait: job=%+v err=%v", got, err)
+	}
+	reloaded := NewPersistentManager(path)
+	persisted, ok := reloaded.Get(job.ID)
+	if !ok || persisted.Status != StatusCompleted || persisted.OutputRevision != 5 {
+		t.Fatalf("terminal state was not persisted before Wait returned: %+v found=%v", persisted, ok)
+	}
+}
+
 func TestManagerPersistsCompletedTimeline(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jobs.json")
 	m := NewPersistentManager(path)
-	job := m.StartWithRevision("project_1", "source_units", 4, []string{"extract"}, func(_ string, _ string, emit StepEmitter) (int, []string, error) {
+	job := m.StartWithRevision("project_1", "source_units", 4, []string{"extract"}, func(_ string, _ string, _ int, emit StepEmitter) (int, []string, error) {
 		emit("extract", "Extracting.", 45, nil)
 		return 5, []string{"source_units"}, nil
 	})
@@ -30,7 +50,9 @@ func TestManagerPersistsCompletedTimeline(t *testing.T) {
 func TestManagerFailureCanRetryWithoutMutatingFirstJob(t *testing.T) {
 	m := NewPersistentManager("")
 	attempt := 0
-	runner := func(_ string, _ string, _ StepEmitter) (int, []string, error) {
+	seenRevisions := make(chan int, 2)
+	runner := func(_ string, _ string, inputRevision int, _ StepEmitter) (int, []string, error) {
+		seenRevisions <- inputRevision
 		attempt++
 		if attempt == 1 {
 			return 0, nil, errors.New("schema mismatch")
@@ -39,7 +61,7 @@ func TestManagerFailureCanRetryWithoutMutatingFirstJob(t *testing.T) {
 	}
 	first := m.StartWithRevision("project_1", "requirement_atoms", 2, nil, runner)
 	waitForStatus(t, m, first.ID, StatusFailed)
-	second, err := m.Retry(first.ID, 2)
+	second, err := m.Retry(first.ID, 7)
 	if err != nil {
 		t.Fatalf("retry: %v", err)
 	}
@@ -48,13 +70,17 @@ func TestManagerFailureCanRetryWithoutMutatingFirstJob(t *testing.T) {
 	if original.Status != StatusFailed || second.ID == first.ID {
 		t.Fatalf("retry must create a distinct job; first=%#v second=%#v", original, second)
 	}
+	firstRevision, secondRevision := <-seenRevisions, <-seenRevisions
+	if firstRevision != 2 || secondRevision != 7 {
+		t.Fatalf("runner did not receive each job's declared input revision: %d, %d", firstRevision, secondRevision)
+	}
 }
 
 func TestManagerMarksInflightJobInterruptedOnRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jobs.json")
 	m := NewPersistentManager(path)
 	block := make(chan struct{})
-	job := m.StartWithRevision("project_1", "logical_model", 8, nil, func(_ string, _ string, _ StepEmitter) (int, []string, error) {
+	job := m.StartWithRevision("project_1", "logical_model", 8, nil, func(_ string, _ string, _ int, _ StepEmitter) (int, []string, error) {
 		<-block
 		return 9, nil, nil
 	})

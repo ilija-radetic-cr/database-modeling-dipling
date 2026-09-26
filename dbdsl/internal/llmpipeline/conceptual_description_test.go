@@ -119,13 +119,197 @@ func TestConceptualDescriptionValidationAndCoverage(t *testing.T) {
 	}
 	broken := testDescription()
 	broken.Things[1].Links[0].To = "nepostoji"
-	if qa := ValidateConceptualDescription(&broken, acceptedUnits(t)); qa.OK {
-		t.Fatalf("a link to an unknown thing must be an error")
+	if issues := ConceptualDescriptionIssues(broken, acceptedUnits(t)); !strings.Contains(strings.Join(issues, " "), `links to "nepostoji"`) {
+		t.Fatalf("a link to an unknown thing must be reported for the feedback round: %v", issues)
+	}
+	if qa := ValidateConceptualDescription(&broken, acceptedUnits(t)); !qa.OK || len(broken.Things[1].Links) != 0 {
+		t.Fatalf("after the feedback round the link is removed with a warning, not a failure: %+v %+v", qa, broken.Things[1].Links)
 	}
 	uncovered := testDescription()
 	uncovered.Excluded = nil
 	if qa := ValidateConceptualDescription(&uncovered, acceptedUnits(t)); qa.Coverage["uncovered_segments"] != 1 {
 		t.Fatalf("SU-010 should be reported uncovered: %v", qa.Coverage)
+	}
+}
+
+func TestConceptualDescriptionReportsThenDropsTransitionsOutsideDeclaredStates(t *testing.T) {
+	description := testDescription()
+	description.Things[1].Transitions = append(description.Things[1].Transitions, DescriptionTransition{
+		From: "на чекању или прихваћен", To: "отказан", Evidence: DescriptionEvidence{Segments: []string{"SU-007"}, Mode: "direct"},
+	})
+	joined := strings.Join(ConceptualDescriptionIssues(description, acceptedUnits(t)), "\n")
+	if !strings.Contains(joined, `from "на чекању или прихваћен" is not one declared state`) ||
+		!strings.Contains(joined, `to "отказан" is not one declared state`) {
+		t.Fatalf("the feedback round must name both undeclared ends: %v", joined)
+	}
+	qa := ValidateConceptualDescription(&description, acceptedUnits(t))
+	if !qa.OK || len(description.Things[1].Transitions) != 2 || !strings.Contains(strings.Join(qa.Warnings, "\n"), "ends are not declared states") {
+		t.Fatalf("after the feedback round an undeclared transition is dropped with a warning: %+v %+v", qa, description.Things[1].Transitions)
+	}
+}
+
+func TestConceptualDescriptionComparisonSemanticsValidateAndPropagate(t *testing.T) {
+	units := acceptedUnits(t)
+	description := testDescription()
+	description.Rules = append(description.Rules, DescriptionRule{
+		ID: "korisnicko_ime_bez_velicine_slova", Kind: "uniqueness",
+		Statement: "Корисничко име је јединствено без обзира на величину слова.",
+		AppliesTo: []string{"korisnik.korisnicko_ime"}, Comparison: "case_insensitive",
+		Evidence: DescriptionEvidence{Segments: []string{"SU-008"}, Mode: "direct"},
+	})
+	if qa := ValidateConceptualDescription(&description, units); !qa.OK {
+		t.Fatalf("typed comparison description rejected: %v", qa.Errors)
+	}
+	model := ConceptualDescriptionToModel(description, units)
+	var identity *ConceptualConstraintProposal
+	for i := range model.ConstraintConcepts {
+		constraint := &model.ConstraintConcepts[i]
+		if constraint.ID == "CON-ID-KORISNIK" {
+			identity = constraint
+			break
+		}
+	}
+	if identity == nil || identity.Comparison != "case_insensitive" || !containsString(identity.Evidence.SourceUnits, "SU-008") {
+		t.Fatalf("explicit rule semantics were not merged into identified_by uniqueness: %+v", identity)
+	}
+	patch, _, err := MapConceptualToLogical(model, LogicalMappingOptions{Language: LanguageSerbianCyrillic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := BuildLogicalArtifacts("test", units, patch, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logical *dsl.Constraint
+	for i := range artifacts.Model.Constraints {
+		if artifacts.Model.Constraints[i].ID == identity.ID {
+			logical = &artifacts.Model.Constraints[i]
+			break
+		}
+	}
+	if logical == nil || logical.Comparison != "case_insensitive" {
+		t.Fatalf("comparison semantics did not reach DB-DSL: %+v", logical)
+	}
+}
+
+func TestConceptualTransformPreservesRuleParametersAndTransitionSemantics(t *testing.T) {
+	units := acceptedUnits(t)
+	description := testDescription()
+	description.Things[1].Transitions[0].Trigger = "само пре почетка"
+	description.Things[1].Transitions[0].By = "администратор"
+	description.Things[1].Transitions[0].Effects = "чува се време одлуке"
+	description.Rules = append(description.Rules, DescriptionRule{
+		ID: "poluotvoren_interval", Kind: "time", Statement: "Захтев важи у задатом интервалу.",
+		AppliesTo:  []string{"zahtev.vreme_podnosenja"},
+		Parameters: []string{"почетак је укључен", "крај није укључен"},
+		Evidence:   DescriptionEvidence{Segments: []string{"SU-007"}, Mode: "direct"},
+	})
+	if qa := ValidateConceptualDescription(&description, units); !qa.OK {
+		t.Fatalf("semantic description rejected: %v", qa.Errors)
+	}
+	model := ConceptualDescriptionToModel(description, units)
+	if len(model.LifecycleConcepts) != 1 || len(model.LifecycleConcepts[0].Transitions) == 0 {
+		t.Fatalf("lifecycle was not normalized: %+v", model.LifecycleConcepts)
+	}
+	transition := model.LifecycleConcepts[0].Transitions[0]
+	// Validation writes the description in ASCII Serbian, so the text arrives
+	// transliterated, with nothing lost.
+	if transition.Trigger != "samo pre pocetka" || transition.By != "administrator" || transition.Effects != "cuva se vreme odluke" {
+		t.Fatalf("normalized transition lost trigger/actor/effects: %+v", transition)
+	}
+	var intervalRule *ConceptualConstraintProposal
+	for i := range model.ConstraintConcepts {
+		if model.ConstraintConcepts[i].ID == "CON-POLUOTVOREN-INTERVAL" {
+			intervalRule = &model.ConstraintConcepts[i]
+			break
+		}
+	}
+	if intervalRule == nil || !strings.Contains(intervalRule.Description, "pocetak je ukljucen") || !strings.Contains(intervalRule.Description, "kraj nije ukljucen") {
+		t.Fatalf("normalized constraint lost rule parameters: %+v", intervalRule)
+	}
+	patch, _, err := MapConceptualToLogical(model, LogicalMappingOptions{Language: LanguageSerbianCyrillic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := BuildLogicalArtifacts("test", units, patch, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts.Model.StateMachines) != 1 {
+		t.Fatalf("logical lifecycle missing: %+v", artifacts.Model.StateMachines)
+	}
+	lifecycleNotes := strings.Join(artifacts.Model.StateMachines[0].Notes, "\n")
+	for _, want := range []string{"na cekanju", "prihvacen", "trigger/guard: samo pre pocetka", "actor: administrator", "effects: cuva se vreme odluke"} {
+		if !strings.Contains(lifecycleNotes, want) {
+			t.Fatalf("logical lifecycle note lost %q: %s", want, lifecycleNotes)
+		}
+	}
+	var timeAttribute *dsl.Attribute
+	for i := range artifacts.Model.Entities {
+		if artifacts.Model.Entities[i].ID != "ENT-ZAHTEV" {
+			continue
+		}
+		for j := range artifacts.Model.Entities[i].Attributes {
+			if artifacts.Model.Entities[i].Attributes[j].ID == "vreme_podnosenja" {
+				timeAttribute = &artifacts.Model.Entities[i].Attributes[j]
+			}
+		}
+	}
+	if timeAttribute == nil || !strings.Contains(strings.Join(timeAttribute.Notes, "\n"), "pocetak je ukljucen; kraj nije ukljucen") {
+		t.Fatalf("logical application-rule note lost interval parameters: %+v", timeAttribute)
+	}
+}
+
+func TestConceptualDescriptionReportsThenClearsInvalidComparisonUsage(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		kind       string
+		comparison string
+		want       string
+	}{
+		{name: "unknown value", kind: "uniqueness", comparison: "locale_folded", want: "invalid comparison"},
+		{name: "wrong rule kind", kind: "access", comparison: "case_insensitive", want: "valid only for uniqueness"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			description := testDescription()
+			description.Rules[0].Kind = test.kind
+			description.Rules[0].Comparison = test.comparison
+			if issues := ConceptualDescriptionIssues(description, acceptedUnits(t)); !strings.Contains(strings.Join(issues, "\n"), test.want) {
+				t.Fatalf("invalid comparison usage must be reported for the feedback round: %v", issues)
+			}
+			qa := ValidateConceptualDescription(&description, acceptedUnits(t))
+			if !qa.OK || description.Rules[0].Comparison != "" {
+				t.Fatalf("after the feedback round invalid comparison is cleared with a warning: %+v", qa)
+			}
+		})
+	}
+
+	model := ConceptualDescriptionToModel(testDescription(), acceptedUnits(t))
+	model.ConstraintConcepts = append(model.ConstraintConcepts, ConceptualConstraintProposal{
+		ID: "CON-INVALID-COMPARISON", Kind: "check", Targets: []string{"ENT-KORISNIK"},
+		Expression: "1 = 1", Comparison: "case_sensitive", Evidence: EvidenceProposal{SourceUnits: []string{"SU-003"}},
+	})
+	if qa := ValidateConceptualModel(model, acceptedUnits(t), nil); qa.OK || !strings.Contains(strings.Join(qa.Errors, "\n"), "valid only for uniqueness") {
+		t.Fatalf("non-uniqueness conceptual comparison was not rejected: %+v", qa)
+	}
+}
+
+func TestDescriptionRuleComparisonKeepsOldJSONCompatible(t *testing.T) {
+	legacy := []byte(`{"id":"unique_name","kind":"uniqueness","statement":"Unique name.","applies_to":["thing.name"],"parameters":[],"evidence":{"segments":["SU-1"],"mode":"direct"}}`)
+	var rule DescriptionRule
+	if err := json.Unmarshal(legacy, &rule); err != nil || rule.Comparison != "" {
+		t.Fatalf("legacy rule did not load with empty comparison: rule=%+v err=%v", rule, err)
+	}
+	encoded, err := json.Marshal(rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "comparison") {
+		t.Fatalf("empty comparison changed legacy artifact serialization: %s", encoded)
+	}
+	ruleSchema := conceptualDescriptionSchema()["properties"].(map[string]any)["rules"].(map[string]any)["items"].(map[string]any)
+	if !containsString(ruleSchema["required"].([]string), "comparison") {
+		t.Fatal("structured generation schema must require an explicit comparison field")
 	}
 }
 
@@ -374,5 +558,120 @@ func TestConceptualTransformResolvesLinksAndLifecycles(t *testing.T) {
 		if lifecycle.Owner == "ENT-PREDMET" {
 			t.Fatalf("a single state is not a lifecycle: %+v", lifecycle)
 		}
+	}
+}
+
+func TestTransformAndMapperKeepModelStructureGeneral(t *testing.T) {
+	units := acceptedUnits(t)
+	ev := DescriptionEvidence{Segments: []string{"SU-003"}, Mode: "direct"}
+	prop := func(name, valueType string, allowed ...string) DescriptionProperty {
+		return DescriptionProperty{Name: name, ValueType: valueType, Shape: "single", Presence: "required", Origin: "entered", AllowedValues: allowed, Evidence: ev}
+	}
+	link := func(to string) DescriptionLink {
+		return DescriptionLink{To: to, PerThis: "1", PerOther: "0..N", Evidence: ev}
+	}
+	photos := prop("fotografije", "file", "JPG", "PNG")
+	photos.Shape = "multiple"
+	description := ConceptualDescription{
+		Things: []DescriptionThing{
+			{ID: "grad", Name: "Град", Kind: "classification", IdentifiedBy: DescriptionRefs{"naziv"}, Evidence: ev, Properties: []DescriptionProperty{prop("naziv", "text")}},
+			{ID: "opstina", Name: "Општина", Kind: "classification", IdentifiedBy: DescriptionRefs{"naziv", "grad"}, Evidence: ev,
+				Properties: []DescriptionProperty{prop("naziv", "text")}, Links: []DescriptionLink{link("grad")}},
+			{ID: "mikro", Name: "Микро локација", Kind: "classification", IdentifiedBy: DescriptionRefs{"naziv", "opstina"}, Evidence: ev,
+				Properties: []DescriptionProperty{prop("naziv", "text")}, Links: []DescriptionLink{link("opstina")}},
+			{ID: "nekretnina", Name: "Некретнина", Kind: "object", Evidence: ev,
+				Properties: []DescriptionProperty{prop("tip", "text", "стан", "кућа"), prop("opis", "long_text"), prop("cena", "money"),
+					prop("logo", "file", "JPG"), photos, prop("stanje", "text", "оглашена", "продата")},
+				Links:  []DescriptionLink{link("mikro"), link("opstina"), link("grad")},
+				States: []string{"оглашена", "продата"}, Transitions: []DescriptionTransition{{From: "оглашена", To: "продата", Evidence: ev}}},
+			{ID: "nalog", Name: "Налог", Kind: "object", Evidence: ev, Properties: []DescriptionProperty{prop("uloga", "text", "купац", "администратор")}},
+			{ID: "ponuda", Name: "Понуда", Kind: "classification", IdentifiedBy: DescriptionRefs{"vrsta", "kategorija"}, Evidence: ev,
+				Properties: []DescriptionProperty{prop("vrsta", "text", "месечна", "годишња"), prop("kategorija", "text", "студент", "пензионер")}},
+			{ID: "racun", Name: "Рачун", Kind: "record", Evidence: ev, Properties: []DescriptionProperty{prop("broj", "text")}},
+			{ID: "stavka", Name: "Ставка", Kind: "record", IdentifiedBy: DescriptionRefs{"broj", "racun_id"}, Evidence: ev,
+				Properties: []DescriptionProperty{prop("broj", "text"), prop("racun_id", "integer")}, Links: []DescriptionLink{link("racun")}},
+			{ID: "projekat", Name: "Пројекат", Kind: "object", Evidence: ev, Properties: []DescriptionProperty{prop("naziv", "text")}},
+			{ID: "vlasnik", Name: "Власник", Kind: "object", Evidence: ev, Properties: []DescriptionProperty{prop("ime", "text")}, Links: []DescriptionLink{link("grad")}},
+			{ID: "oglas", Name: "Оглас", Kind: "record", Evidence: ev, Properties: []DescriptionProperty{prop("naslov", "text")}, Links: []DescriptionLink{link("vlasnik"), link("grad")}},
+			{ID: "snimak", Name: "Снимак", Kind: "record", IdentifiedBy: DescriptionRefs{"projekat"}, Evidence: ev,
+				Properties: []DescriptionProperty{prop("vreme", "datetime")}, Links: []DescriptionLink{{To: "projekat", PerThis: "1", PerOther: "0..1", Evidence: ev}}},
+		},
+		Rules:   []DescriptionRule{{ID: "jedan_admin", Kind: "uniqueness", Statement: "Један администратор.", AppliesTo: []string{"nalog.uloga"}, Evidence: ev}},
+		Queries: []DescriptionQuery{{ID: "pretraga", Description: "Претрага.", Criteria: []string{"nekretnina.tip", "nekretnina.opis", "nekretnina.cena"}, Evidence: ev}},
+	}
+	model := ConceptualDescriptionToModel(description, units)
+
+	keys := map[string]bool{}
+	for _, constraint := range model.ConstraintConcepts {
+		if constraint.Kind == "uniqueness" {
+			keys[constraint.ID] = true
+		}
+	}
+	if keys["CON-JEDAN-ADMIN"] || !keys["CON-ID-PONUDA"] {
+		t.Fatalf("a uniqueness rule over one closed-set value is a count limit, but an identity over closed sets is a key: %v", keys)
+	}
+	for _, lifecycle := range model.LifecycleConcepts {
+		if lifecycle.Owner == "ENT-NEKRETNINA" && lifecycle.Field != "stanje" {
+			t.Fatalf("the property that holds the states is the lifecycle column: %+v", lifecycle)
+		}
+	}
+
+	patch, report, err := MapConceptualToLogical(model, LogicalMappingOptions{Language: LanguageSerbianCyrillic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := BuildLogicalArtifacts("test", units, patch, []dsl.ReviewDecision{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := artifacts.Model
+	tables := map[string]dsl.Entity{}
+	for _, entity := range doc.Entities {
+		tables[entity.ID] = entity
+	}
+	for _, attribute := range tables["ENT-NEKRETNINA"].Attributes {
+		if attribute.ID == "status" {
+			t.Fatalf("no second state column next to stanje")
+		}
+		if attribute.ID == "logo" && (attribute.Type != "file_path" || len(attribute.EnumValues) != 0) {
+			t.Fatalf("a file with allowed formats is still a file: %+v", attribute)
+		}
+	}
+	if !strings.Contains(tables["ENT-NEKRETNINA-FOTOGRAFIJE"].TableName, "nekretnin") {
+		t.Fatalf("the table of a repeating value names its owner: %q", tables["ENT-NEKRETNINA-FOTOGRAFIJE"].TableName)
+	}
+	references := map[string]bool{}
+	for _, rel := range doc.Relationships {
+		references[rel.From+">"+rel.To] = true
+	}
+	if !references["ENT-NEKRETNINA>ENT-MIKRO"] || references["ENT-NEKRETNINA>ENT-OPSTINA"] || references["ENT-NEKRETNINA>ENT-GRAD"] {
+		t.Fatalf("references derivable through mandatory keys must be dropped: %v", references)
+	}
+	if !references["ENT-OPSTINA>ENT-GRAD"] {
+		t.Fatalf("a reference named by a key must stay: %v", references)
+	}
+	if !references["ENT-OGLAS>ENT-GRAD"] {
+		t.Fatalf("a path through an ordinary record (the owner's city) does not make the ad's own city redundant: %v", references)
+	}
+	indexed := []string{}
+	for _, index := range doc.Indexes {
+		indexed = append(indexed, strings.Join(index.Fields, ","))
+	}
+	if strings.Join(indexed, ";") != "cena" {
+		t.Fatalf("enum and long-text criteria are not indexed: %v", indexed)
+	}
+	for _, constraint := range doc.Constraints {
+		if constraint.Owner == "ENT-STAVKA" && constraint.Type == "unique" {
+			t.Fatalf("a key that lost a part must not become a narrower key: %+v", constraint)
+		}
+	}
+	if !strings.Contains(strings.Join(report.Warnings, "\n"), "key parts have no column") {
+		t.Fatalf("the lost key must be reported: %v", report.Warnings)
+	}
+	dbml := generate.DBML(&doc)
+	snapshot := dbml[strings.Index(dbml, "Table "+tables["ENT-SNIMAK"].TableName):]
+	snapshot = snapshot[:strings.Index(snapshot, "\n}\n")]
+	if strings.Count(snapshot, "unique") != 1 {
+		t.Fatalf("an identity and a one-to-one link on the same column need one unique index:\n%s", snapshot)
 	}
 }

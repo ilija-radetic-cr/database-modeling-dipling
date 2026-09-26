@@ -5,6 +5,10 @@ import type {
 	CombinedDocument,
 	ConceptualModel,
 	ConceptualDescription,
+	AdversarialReviewActor,
+	AdversarialReviewDecisionType,
+	AdversarialReviewFindingInput,
+	AdversarialReviewResponse,
   InputResource,
 	Job,
   JobEvent,
@@ -62,6 +66,18 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new HttpError(response.status, body);
   }
   return (await response.json()) as T;
+}
+
+function normalizeAdversarialReview(response: AdversarialReviewResponse): AdversarialReviewResponse {
+	return {
+		...response,
+		review: response.review
+			? { ...response.review, findings: Array.isArray(response.review.findings) ? response.review.findings : [] }
+			: null,
+		decisions: Array.isArray(response.decisions) ? response.decisions : [],
+		audit: Array.isArray(response.audit) ? response.audit : [],
+		finding_provenance: Array.isArray(response.finding_provenance) ? response.finding_provenance : [],
+	};
 }
 
 export const api = {
@@ -142,9 +158,42 @@ export const api = {
 		}),
 	conceptualModel: (projectId: string) =>
 		request<{ conceptual_model: ConceptualModel; accepted: boolean; diff: Record<string, unknown>; qa: { ok: boolean; errors: string[]; warnings: string[]; coverage: Record<string, number> }; description?: ConceptualDescription | null }>(`/projects/${projectId}/conceptual-model`),
-	acceptConceptualModel: (projectId: string, baseRevision: number) =>
+	adversarialReview: (projectId: string) =>
+		request<AdversarialReviewResponse>(`/projects/${projectId}/adversarial-review`).then(normalizeAdversarialReview),
+	runAdversarialReview: (projectId: string, baseRevision: number, scope: "conceptual" | "logical" = "conceptual") =>
+		request<JobRef>(`/projects/${projectId}/stages/adversarial_review/run`, {
+			method: "POST", body: JSON.stringify({ base_revision: baseRevision, scope }),
+		}),
+	decideAdversarialReview: (
+		projectId: string,
+		body: {
+			base_revision: number;
+			actor: AdversarialReviewActor;
+			decisions: Array<{ finding_id: string; decision: AdversarialReviewDecisionType; note: string }>;
+		},
+	) => request<AdversarialReviewResponse>(`/projects/${projectId}/adversarial-review/decisions`, {
+		method: "POST", body: JSON.stringify(body),
+	}).then(normalizeAdversarialReview),
+	appendAdversarialFinding: (
+		projectId: string,
+		body: {
+			base_revision: number;
+			actor: AdversarialReviewActor;
+			note: string;
+			finding: AdversarialReviewFindingInput;
+		},
+	) => request<AdversarialReviewResponse>(`/projects/${projectId}/adversarial-review/findings`, {
+		method: "POST", body: JSON.stringify(body),
+	}).then(normalizeAdversarialReview),
+	correctAdversarialReview: (
+		projectId: string,
+		body: { base_revision: number; actor: AdversarialReviewActor; note: string },
+	) => request<{ project_revision: number; job: Job }>(`/projects/${projectId}/adversarial-review/correct`, {
+		method: "POST", body: JSON.stringify(body),
+	}),
+	acceptConceptualModel: (projectId: string, baseRevision: number, actor: AdversarialReviewActor, note: string) =>
 		request<{ project_revision: number; message: string }>(`/projects/${projectId}/conceptual-model/accept`, {
-			method: "POST", body: JSON.stringify({ base_revision: baseRevision }),
+			method: "POST", body: JSON.stringify({ base_revision: baseRevision, actor, note }),
 		}),
 	logicalMappingReport: (projectId: string) =>
 		request<{ logical_mapping_report: LogicalMappingReport }>(`/projects/${projectId}/logical-mapping-report`),
@@ -171,7 +220,8 @@ export const api = {
 	retryJob: (projectId: string, jobId: string, baseRevision: number) =>
 		request<JobRef>(`/projects/${projectId}/jobs/${jobId}/retry`, { method: "POST", body: JSON.stringify({ base_revision: baseRevision }) }),
   postgresql: (projectId: string) => request<{ dialect: string; sql: string }>(`/projects/${projectId}/sql`),
-  exportURL: (projectId: string, kind: "dbml" | "sql" | "report" | "bundle") => `${baseURL}/projects/${projectId}/exports/${kind}`,
+  exportURL: (projectId: string, kind: "dbml" | "sql" | "report" | "bundle") =>
+    apiMode === "mock" ? mockApi.exportURL(kind) : `${baseURL}/projects/${projectId}/exports/${kind}`,
 };
 
 export function subscribeToJob(

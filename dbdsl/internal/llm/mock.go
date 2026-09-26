@@ -18,6 +18,7 @@ func NewDefaultMockClient() *MockClient {
 	return &MockClient{
 		Structured: map[string]json.RawMessage{
 			"source_segmentation": json.RawMessage(`{}`),
+			"adversarial_review":  json.RawMessage(`{"summary":"Mock review found no material source-grounded defects.","findings":[]}`),
 		},
 		Text: map[string]string{
 			"baseline_dbml": defaultBaselineDBML,
@@ -48,6 +49,14 @@ func (m *MockClient) GenerateStructured(ctx context.Context, req Request) (Respo
 		}
 		ok = true
 	}
+	if req.Stage == "conceptual_correction" && !ok {
+		var err error
+		payload, err = dynamicConceptualCorrectionPayload(req.Input)
+		if err != nil {
+			return Response{}, err
+		}
+		ok = true
+	}
 	if !ok {
 		return Response{}, fmt.Errorf("mock LLM has no structured response for stage %s", req.Stage)
 	}
@@ -59,6 +68,91 @@ func (m *MockClient) GenerateStructured(ctx context.Context, req Request) (Respo
 		Text:     string(payload),
 		Parsed:   payload,
 	}, nil
+}
+
+// dynamicConceptualCorrectionPayload returns a correction patch that replaces
+// one selected existing thing with a copy carrying one more source-cited
+// property. Real corrections remain entirely model-produced and user-driven;
+// this fixture only lets offline stage wiring exercise the schema and QA.
+func dynamicConceptualCorrectionPayload(input string) (json.RawMessage, error) {
+	var envelope struct {
+		CurrentDescription map[string]any `json:"current_description"`
+		SourceUnits        []struct {
+			ID string `json:"id"`
+		} `json:"source_units"`
+		ReviewFindings []struct {
+			SourceUnitIDs   []string `json:"source_unit_ids"`
+			DescriptionRefs []string `json:"description_refs"`
+		} `json:"review_findings"`
+		UserFeedback string `json:"user_feedback"`
+	}
+	if err := json.Unmarshal([]byte(input), &envelope); err != nil {
+		return nil, fmt.Errorf("parse mock conceptual correction input: %w", err)
+	}
+	if envelope.CurrentDescription == nil || len(envelope.SourceUnits) == 0 {
+		return nil, errors.New("mock conceptual correction needs a current description and source units")
+	}
+	things, _ := envelope.CurrentDescription["things"].([]any)
+	if len(things) == 0 {
+		return nil, errors.New("mock conceptual correction needs at least one current thing")
+	}
+	target := 0
+	if len(envelope.ReviewFindings) > 0 {
+		wanted := map[string]bool{}
+		// A reference names a thing ("zapis") or a part of it ("zapis.naziv").
+		for _, ref := range envelope.ReviewFindings[0].DescriptionRefs {
+			thingID, _, _ := strings.Cut(ref, ".")
+			wanted[thingID] = true
+		}
+		for i, item := range things {
+			thing, _ := item.(map[string]any)
+			id, _ := thing["id"].(string)
+			if wanted[id] {
+				target = i
+				break
+			}
+		}
+	}
+	thing, _ := things[target].(map[string]any)
+	properties, _ := thing["properties"].([]any)
+	id := "mock_correction"
+	for suffix := 2; mockPropertyNameExists(properties, id); suffix++ {
+		id = fmt.Sprintf("mock_correction_%d", suffix)
+	}
+	note := strings.TrimSpace(envelope.UserFeedback)
+	if note == "" {
+		note = "Apply the explicit user correction decision."
+	}
+	sourceID := envelope.SourceUnits[0].ID
+	if len(envelope.ReviewFindings) > 0 && len(envelope.ReviewFindings[0].SourceUnitIDs) > 0 {
+		sourceID = envelope.ReviewFindings[0].SourceUnitIDs[0]
+	}
+	properties = append(properties, map[string]any{
+		"name": id, "meaning": note, "value_type": "text", "shape": "single", "parts": []string{},
+		"presence": "optional", "condition": "", "variant": "", "allowed_values": []string{},
+		"origin": "entered", "source": "",
+		"evidence": map[string]any{"segments": []string{sourceID}, "mode": "direct"},
+	})
+	thing["properties"] = properties
+	patch := map[string]any{
+		"upsert": map[string]any{
+			"actors": []any{}, "things": []any{thing}, "rules": []any{}, "queries": []any{},
+			"imports": []any{}, "excluded": []any{}, "open_questions": []any{},
+		},
+		"remove": []string{},
+	}
+	data, err := json.Marshal(patch)
+	return json.RawMessage(data), err
+}
+
+func mockPropertyNameExists(properties []any, wanted string) bool {
+	for _, item := range properties {
+		property, _ := item.(map[string]any)
+		if property["name"] == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 var mockSegmentLine = regexp.MustCompile(`^\s*(SU-[0-9]+(?:\.[0-9]+)?) \[([^\]]+)\]`)

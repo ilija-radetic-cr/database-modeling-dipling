@@ -163,7 +163,12 @@ func RunBaseline(ctx context.Context, client llm.Client, opts BaselineOptions) e
 	return writeJSONFile(filepath.Join(runDir, "validation_report.json"), stageReport{OK: true, Stage: req.Stage})
 }
 
-func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir string, number int, req llm.Request, target *T, validateTarget func() []string) error {
+// runStructuredStage calls validateTarget with final=false before deciding on
+// the one feedback round, and with final=true on the response it keeps (a
+// cached response, the retried one, or the first one when no retry happens).
+// A validator can therefore ask for corrections first and repair what is left
+// on the final call.
+func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir string, number int, req llm.Request, target *T, validateTarget func(final bool) []string) error {
 	runName := req.Stage
 	if key := strings.TrimSpace(req.Metadata["run_key"]); key != "" {
 		runName += "_" + strings.NewReplacer("/", "_", "\\", "_", "..", "_").Replace(key)
@@ -200,7 +205,7 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 			if json.Unmarshal(cached, target) == nil {
 				errors := []string{}
 				if validateTarget != nil {
-					errors = validateTarget()
+					errors = validateTarget(true)
 				}
 				if len(errors) == 0 {
 					summary.Cached = true
@@ -215,6 +220,12 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 	}
 	var zero T
 	*target = zero
+	if client == nil {
+		err := errors.New("LLM client is required on structured-stage cache miss")
+		finishRunSummary(runDir, &summary, "failed", false, llm.Usage{}, []string{err.Error()})
+		_ = writeJSONFile(filepath.Join(runDir, "validation_report.json"), stageReport{OK: false, Stage: req.Stage, Errors: []string{err.Error()}})
+		return err
+	}
 	attemptStarted := time.Now()
 	initialAttempts := 2
 	if req.Metadata["retry_policy"] == "none" {
@@ -266,7 +277,7 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 	if validateTarget != nil && validationRetryStages[req.Stage] && ctx.Err() == nil {
 		// One feedback round: the model gets the exact backend errors instead of
 		// failing the whole job on a single missed reference or coverage gap.
-		if errors := validateTarget(); len(errors) > 0 {
+		if errors := validateTarget(false); len(errors) > 0 {
 			_ = writeTextFile(filepath.Join(runDir, "response.attempt_invalid.raw.txt"), resp.Raw)
 			retryReq := req
 			retryReq.Instructions += "\nYour previous response failed backend validation with these errors:\n- " + strings.Join(errors, "\n- ") +
@@ -289,7 +300,7 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 		}
 	}
 	if validateTarget != nil {
-		if errors := validateTarget(); len(errors) > 0 {
+		if errors := validateTarget(true); len(errors) > 0 {
 			finishRunSummary(runDir, &summary, "failed", false, resp.Usage, errors)
 			_ = writeJSONFile(filepath.Join(runDir, "validation_report.json"), stageReport{OK: false, Stage: req.Stage, Errors: errors})
 			return fmt.Errorf("%s proposal failed preflight validation: %s", req.Stage, strings.Join(errors, "; "))
@@ -309,8 +320,6 @@ func runStructuredStage[T any](ctx context.Context, client llm.Client, outDir st
 }
 
 // validationRetryStages get one error-feedback retry inside runStructuredStage.
-// Conceptual and logical stages are excluded because they run their own
-// scoped repair loops over the full model.
 var validationRetryStages = map[string]bool{
 	"source_segmentation": true, "conceptual_description": true,
 }
@@ -542,10 +551,11 @@ func buildArtifacts(taskName string, sourceUnits []dsl.SourceUnit, patch PatchPr
 		FileSpecs:     []dsl.FileSpec{},
 	}
 
+	// The patch comes from the deterministic mapper, whose references are exact;
+	// guessing at near matches here could silently point a key at another column.
 	if err := applyPatch(&model, patch, diagnostics); err != nil {
 		return artifacts{}, err
 	}
-	normalizeModelReferences(&model, diagnostics)
 
 	return artifacts{
 		ReviewDecisions: dsl.ReviewDecisionsFile{
@@ -736,6 +746,7 @@ func convertRelationship(proposal RelationshipProposal, diagnostics *conversionD
 	fkRequired := proposal.FKRequired
 	identifying := proposal.Identifying
 	return dsl.Relationship{
+		ForeignKey:  proposal.ForeignKey,
 		ID:          proposal.ID,
 		Label:       nonEmpty(proposal.Label, titleFromID(proposal.ID)),
 		Description: nonEmpty(proposal.Description, "LLM proposed relationship."),
@@ -764,6 +775,7 @@ func convertConstraint(proposal ConstraintProposal, diagnostics *conversionDiagn
 		Max:         proposal.Max,
 		Pattern:     proposal.Pattern,
 		Expression:  proposal.Expression,
+		Comparison:  proposal.Comparison,
 		Description: nonEmpty(proposal.Description, "LLM proposed constraint."),
 		Evidence:    convertEvidence(proposal.Evidence, diagnostics),
 	}
@@ -854,112 +866,6 @@ func convertEvidence(proposal EvidenceProposal, diagnostics *conversionDiagnosti
 	return evidence
 }
 
-func normalizeModelReferences(model *dsl.Document, diagnostics *conversionDiagnostics) {
-	entityByID := map[string]dsl.Entity{}
-	for _, entity := range model.Entities {
-		entityByID[entity.ID] = entity
-	}
-	for i := range model.Constraints {
-		constraint := &model.Constraints[i]
-		if constraint.Owner == "" || constraint.Owner == "model" {
-			continue
-		}
-		entity, ok := entityByID[constraint.Owner]
-		if !ok {
-			if normalizedOwner, found := findEntityID(entityByID, constraint.Owner); found {
-				diagnostics.add(fmt.Sprintf("normalized constraint %s owner from %s to %s", constraint.ID, constraint.Owner, normalizedOwner))
-				constraint.Owner = normalizedOwner
-				entity = entityByID[normalizedOwner]
-				ok = true
-			}
-		}
-		if !ok {
-			continue
-		}
-		if constraint.Field != "" {
-			if normalizedField, found := findAttributeID(entity, constraint.Field); found && normalizedField != constraint.Field {
-				diagnostics.add(fmt.Sprintf("normalized constraint %s field from %s to %s", constraint.ID, constraint.Field, normalizedField))
-				constraint.Field = normalizedField
-			}
-		}
-		for fieldIndex, field := range constraint.Fields {
-			if normalizedField, found := findAttributeID(entity, field); found && normalizedField != field {
-				diagnostics.add(fmt.Sprintf("normalized constraint %s fields[%d] from %s to %s", constraint.ID, fieldIndex, field, normalizedField))
-				constraint.Fields[fieldIndex] = normalizedField
-			}
-		}
-	}
-	applyRequiredConstraintsToAttributes(model, diagnostics)
-}
-
-func applyRequiredConstraintsToAttributes(model *dsl.Document, diagnostics *conversionDiagnostics) {
-	for _, constraint := range model.Constraints {
-		if constraint.Type != "required" || constraint.Owner == "" || constraint.Owner == "model" || constraint.Field == "" {
-			continue
-		}
-		attribute := modelAttribute(model, constraint.Owner, constraint.Field)
-		if attribute == nil || (attribute.Required != nil && *attribute.Required) {
-			continue
-		}
-		required := true
-		attribute.Required = &required
-		diagnostics.add(fmt.Sprintf("set attribute %s.%s required=true from required constraint %s", constraint.Owner, constraint.Field, constraint.ID))
-	}
-}
-
-func modelAttribute(model *dsl.Document, entityID, attributeID string) *dsl.Attribute {
-	for entityIndex := range model.Entities {
-		if model.Entities[entityIndex].ID != entityID {
-			continue
-		}
-		for attrIndex := range model.Entities[entityIndex].Attributes {
-			if model.Entities[entityIndex].Attributes[attrIndex].ID == attributeID {
-				return &model.Entities[entityIndex].Attributes[attrIndex]
-			}
-		}
-	}
-	return nil
-}
-
-func findEntityID(entityByID map[string]dsl.Entity, ref string) (string, bool) {
-	var matches []string
-	refNorm := normalizeRef(ref)
-	for id, entity := range entityByID {
-		if normalizeRef(id) == refNorm || normalizeRef(entity.TableName) == refNorm || normalizeRef(entity.Label) == refNorm {
-			matches = append(matches, id)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], true
-	}
-	return "", false
-}
-
-func findAttributeID(entity dsl.Entity, ref string) (string, bool) {
-	var matches []string
-	refNorm := normalizeRef(ref)
-	refLoose := looseSlug(ref)
-	for _, attribute := range entity.Attributes {
-		attributeNorm := normalizeRef(attribute.ID)
-		attributeLoose := looseSlug(attribute.ID)
-		if attributeNorm == refNorm ||
-			normalizeRef(attribute.SourceField) == refNorm ||
-			normalizeRef(attribute.Label) == refNorm ||
-			strings.HasSuffix(attributeNorm, "_"+refNorm) ||
-			strings.HasSuffix(refNorm, "_"+attributeNorm) ||
-			(refLoose != "" && attributeLoose != "" && attributeLoose == refLoose) ||
-			(refLoose != "" && attributeLoose != "" && strings.HasSuffix(refLoose, "_"+attributeLoose)) ||
-			(refLoose != "" && looseSlug(attribute.SourceField) == refLoose) ||
-			(refLoose != "" && looseSlug(attribute.Label) == refLoose) {
-			matches = append(matches, attribute.ID)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], true
-	}
-	return "", false
-}
-
 func normalizeRef(value string) string {
 	return strings.Trim(slug(value), "_")
 }
@@ -1022,6 +928,9 @@ func stageRunDir(outDir string, number int, stage string) string {
 }
 
 func providerName(client llm.Client) string {
+	if client == nil {
+		return "none"
+	}
 	switch client.(type) {
 	case *llm.OpenAIClient:
 		return "openai"

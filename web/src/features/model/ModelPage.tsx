@@ -18,9 +18,12 @@ import { useRouter } from "@/shared/lib/router";
 	import { JobProgress } from "@/features/jobs/JobProgress";
 	import { PipelineStepper } from "@/features/analysis/PipelineStepper";
 	import { finalModelAction } from "@/shared/lib/pipeline";
-import { finalizePath, requestAutoRun } from "@/shared/lib/autopilot";
+import { finalizePath } from "@/shared/lib/autopilot";
+import { consumeTraceFocus, requestTraceFocus } from "@/shared/lib/traceFocus";
 import { normalizeConceptualModelForView } from "./conceptualModel";
 import { layoutGraph } from "@/shared/lib/graphLayout";
+import { filterTraceSourceUnits, modelElementLabel } from "./traceView";
+import { AdversarialReviewView, adversarialReviewLabel } from "./AdversarialReview";
 
 const nodeTypes = { tableNode: memo(TableNode) };
 
@@ -66,7 +69,7 @@ export function ModelPage({ projectId, mode }: { projectId: string; mode: string
       <div className="page-header">
         <div>
           <h1 className="page-title">{project.data?.project.name ?? "Project"} | Model Workspace</h1>
-          <p className="page-subtitle">Read-only model inspection, bidirectional traceability and quality issues.</p>
+          <p className="page-subtitle">Inspect the proposal, challenge it against the source task, then record a human decision.</p>
         </div>
 		<div className="toolbar">{action}</div>
       </div>
@@ -78,6 +81,9 @@ export function ModelPage({ projectId, mode }: { projectId: string; mode: string
 		<button className={`tab ${mode === "conceptual" ? "active" : ""}`} onClick={() => navigate(`/projects/${projectId}/model/conceptual`)}>
 			Conceptual
 		</button>
+		<button className={`tab ${mode === "review" ? "active" : ""}`} onClick={() => navigate(`/projects/${projectId}/model/review`)}>
+			Review vs task
+		</button>
         <button className={`tab ${mode === "trace" ? "active" : ""}`} onClick={() => navigate(`/projects/${projectId}/model/trace`)}>
           Trace View
         </button>
@@ -86,7 +92,7 @@ export function ModelPage({ projectId, mode }: { projectId: string; mode: string
         </button>
       </div>
 
-		{mode === "conceptual" ? <ConceptualView projectId={projectId} /> : mode === "quality" ? <QualityView projectId={projectId} /> : <TraceView projectId={projectId} />}
+			{mode === "conceptual" ? <ConceptualView projectId={projectId} /> : mode === "review" ? <AdversarialReviewView projectId={projectId} /> : mode === "quality" ? <QualityView projectId={projectId} /> : <TraceView projectId={projectId} />}
     </div>
   );
 }
@@ -94,16 +100,10 @@ export function ModelPage({ projectId, mode }: { projectId: string; mode: string
 function ConceptualView({ projectId }: { projectId: string }) {
 	const { navigate } = useRouter();
 	const queryClient = useQueryClient();
-	const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
 	const conceptual = useQuery({ queryKey: ["conceptual-model", projectId], queryFn: () => api.conceptualModel(projectId), retry: false });
-	const accept = useMutation({
-		mutationFn: () => api.acceptConceptualModel(projectId, project.data?.project.current_revision ?? 0),
-		onSuccess: async () => {
-			await queryClient.invalidateQueries();
-			requestAutoRun(projectId);
-			navigate(`/projects/${projectId}/analysis/overview`);
-		},
-	});
+	const review = useQuery({ queryKey: ["adversarial-review", projectId], queryFn: () => api.adversarialReview(projectId), retry: false });
+	const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
+	const locked = project.data?.project.lifecycle_status === "completed";
 	// Regeneration runs the conceptual LLM step again from the same segments,
 	// e.g. after a prompt change; it replaces the proposal and any later model.
 	const [regenerateJob, setRegenerateJob] = useState<Job | null>(null);
@@ -136,8 +136,8 @@ function ConceptualView({ projectId }: { projectId: string }) {
 		<div className="page">
 			<Panel title="Conceptual decision gate" action={
 				<div className="toolbar">
-					<Button disabled={regenerate.isPending} onClick={() => regenerate.mutate()}><RotateCcw size={16} />Regenerate</Button>
-					{!conceptual.data?.accepted ? <Button variant="primary" disabled={accept.isPending || !conceptual.data?.qa.ok} onClick={() => accept.mutate()}><CheckCircle2 size={18} />Accept Conceptual Model</Button> : <StatusBadge value="accepted" />}
+					<Button disabled={regenerate.isPending || locked} title={locked ? "Completed projects are locked; reopen to change the model." : undefined} onClick={() => regenerate.mutate()}><RotateCcw size={16} />Regenerate</Button>
+					{!conceptual.data?.accepted ? <Button variant="primary" disabled={!conceptual.data?.qa.ok} onClick={() => navigate(`/projects/${projectId}/model/review`)}>Open Review vs task<ArrowRight size={18} /></Button> : <StatusBadge value="accepted" />}
 				</div>
 			}>
 				{regenerate.isError && <p className="error-text">{regenerate.error instanceof Error ? regenerate.error.message : "Regeneration could not be started."}</p>}
@@ -146,15 +146,15 @@ function ConceptualView({ projectId }: { projectId: string }) {
 					<Badge>{model.relationships.length} relationships</Badge>
 					<Badge>{model.entity_concepts.reduce((sum, entity) => sum + entity.attributes.length, 0)} attributes</Badge>
 					<Badge tone={conceptual.data?.qa.ok ? "good" : "bad"}>{conceptual.data?.qa.ok ? "QA passed" : "QA errors"}</Badge>
+					{review.data && <Badge tone={conceptual.data?.accepted ? "good" : "warn"}>Adversarial: {adversarialReviewLabel(review.data.status, review.data.can_accept)}</Badge>}
 					{conceptual.data?.qa.coverage?.description_segments !== undefined && (
 						<Badge tone={conceptual.data.qa.coverage.description_uncovered_segments ? "warn" : "good"}>
 							{conceptual.data.qa.coverage.description_covered_segments}/{conceptual.data.qa.coverage.description_segments} segments covered
 						</Badge>
 					)}
 				</div>
-				<p className="muted">Review identities, attributes and cardinalities. After acceptance the model is projected into DB-DSL and validated automatically.</p>
+				<p className="muted">Inspect identities, attributes and cardinalities here. Use Review vs task to challenge the proposal, record per-finding human decisions, and accept the current revision.</p>
 				{!conceptual.data?.qa.ok && <ul className="plain-list error-text">{conceptual.data?.qa.errors.map((error) => <li key={error}>{error}</li>)}</ul>}
-				{accept.isError && <p className="error-text">{accept.error instanceof Error ? accept.error.message : "Acceptance failed."}</p>}
 			</Panel>
 			<Panel title="Conceptual ER diagram">
 				<ConceptualDiagram projectId={projectId} model={model} />
@@ -335,10 +335,12 @@ function ConceptualDiagram({ projectId, model }: { projectId: string; model: Ret
 }
 
 function TraceView({ projectId }: { projectId: string }) {
+  const [initialFocus] = useState(() => consumeTraceFocus(projectId));
   const [hoveredSource, setHoveredSource] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [selectedElement, setSelectedElement] = useState<string | null>(null);
-  const [drawerElement, setDrawerElement] = useState<string | null>(null);
+  const [selectedElement, setSelectedElement] = useState<string | null>(initialFocus);
+  const [drawerElement, setDrawerElement] = useState<string | null>(initialFocus);
+  const [sourceSearch, setSourceSearch] = useState("");
   const sourceUnitRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const lastScrolledSource = useRef<string | null>(null);
   const graph = useQuery({ queryKey: ["model-graph", projectId], queryFn: () => api.modelGraph(projectId), retry: false });
@@ -428,6 +430,9 @@ function TraceView({ projectId }: { projectId: string }) {
 
   const graphNodes = graph.data?.model_graph.nodes ?? [];
   const graphEdges = graph.data?.model_graph.edges ?? [];
+  const visibleSourceUnits = filterTraceSourceUnits(sources.data?.items ?? [], sourceSearch, selectedSourcesSet);
+  const drawerTitle = drawerElement ? modelElementLabel(graphNodes, graphEdges, drawerElement) : "Model element";
+  const drawerNode = drawerElement ? graphNodes.find((node) => node.id === drawerElement) : undefined;
 
   const selectedElementID = selectedElement;
 
@@ -447,9 +452,20 @@ function TraceView({ projectId }: { projectId: string }) {
 
   return (
     <div className="split-workspace">
-      <Panel title="Source Units" action={<Badge>{selectedInfo}</Badge>}>
+      <Panel title="Source Units" action={
+        <div className="toolbar">
+          <input
+            className="input compact trace-search"
+            aria-label="Search source units"
+            placeholder="Search source evidence"
+            value={sourceSearch}
+            onChange={(event) => setSourceSearch(event.target.value)}
+          />
+          <Badge>{selectedInfo}</Badge>
+        </div>
+      }>
         <div className="source-pane">
-          {(sources.data?.items ?? []).map((unit) => (
+          {visibleSourceUnits.map((unit) => (
             <SourceUnitRow
               key={unit.id}
               unit={unit}
@@ -461,6 +477,7 @@ function TraceView({ projectId }: { projectId: string }) {
               }}
             />
           ))}
+          {visibleSourceUnits.length === 0 && <p className="muted">No source evidence matches this search.</p>}
         </div>
       </Panel>
 
@@ -468,11 +485,11 @@ function TraceView({ projectId }: { projectId: string }) {
         <div className="diagram-pane">
           <ReactFlow
             key={layout.data ? "laid-out" : "grid"}
-            nodes={toFlowNodes(graphNodes, [...highlightedElementsSet], selectedElementID, layout.data)}
+            nodes={toFlowNodes(graphNodes, [...highlightedElementsSet], selectedElementID, layout.data, handleElementSelect)}
             edges={toFlowEdges(graphEdges, [...highlightedElementsSet])}
             nodeTypes={nodeTypes}
             onNodeClick={(_, node) => handleElementSelect(node.id)}
-            onEdgeClick={(_, edge) => handleElementSelect(edge.id)}
+            onEdgeClick={(_, edge) => handleElementSelect(String(edge.data?.elementId ?? edge.id))}
             fitView
             fitViewOptions={{ padding: 0.04 }}
             minZoom={0.2}
@@ -484,13 +501,29 @@ function TraceView({ projectId }: { projectId: string }) {
       </Panel>
 
       {drawerElement && (
-        <Drawer title={drawerElement} onClose={() => setDrawerElement(null)}>
+        <Drawer title={drawerTitle} onClose={() => setDrawerElement(null)}>
           {details.isLoading ? (
             <LoadingState />
+          ) : details.isError ? (
+            <p className="error-text">{details.error instanceof Error ? details.error.message : "Model element details could not be loaded."}</p>
           ) : (
             <>
-              <StatusBadge value={details.data?.model_element.kind ?? "element"} />
+              <div className="toolbar">
+                <StatusBadge value={details.data?.model_element.kind ?? "element"} />
+                <Badge>{drawerElement}</Badge>
+              </div>
               <p>{details.data?.model_element.description || details.data?.model_element.expression}</p>
+              {(drawerNode?.fields?.length ?? 0) > 0 && (
+                <Panel title={`Fields · ${drawerNode!.fields!.length}`}>
+                  <div className="field-list">
+                    {drawerNode!.fields!.map((field) => (
+                      <button className="field-focus-button" key={field.element_id} onClick={() => handleElementSelect(field.element_id)}>
+                        <span>{field.label || field.id}</span><span className="muted">{field.type}</span>
+                      </button>
+                    ))}
+                  </div>
+                </Panel>
+              )}
               <Panel title="Evidence">
                 <div className="toolbar">
                   {(details.data?.model_element.evidence.source_units ?? []).map((id) => (
@@ -543,7 +576,7 @@ function SourceUnitRow({
   );
 }
 
-function TableNode({ data, selected }: NodeProps<{ model: ModelNode; highlighted: string[] }>) {
+function TableNode({ data, selected }: NodeProps<{ model: ModelNode; highlighted: string[]; onElementSelect: (elementId: string) => void }>) {
   const model = data.model;
   const highlighted = data.highlighted;
   return (
@@ -551,10 +584,17 @@ function TableNode({ data, selected }: NodeProps<{ model: ModelNode; highlighted
       <Handle type="target" position={Position.Left} />
       <div className="table-node-title">{model.label}</div>
       {(model.fields ?? []).slice(0, visibleFields).map((field) => (
-        <div className={`field-row ${highlighted.includes(field.element_id) ? "highlighted" : ""}`} key={field.element_id}>
+        <button
+          className={`field-row model-field-button ${highlighted.includes(field.element_id) ? "highlighted" : ""}`}
+          key={field.element_id}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onElementSelect(field.element_id);
+          }}
+        >
           <span className="truncate">{field.id}</span>
           <span className="muted">{field.type}</span>
-        </div>
+        </button>
       ))}
       {(model.fields?.length ?? 0) > visibleFields && <div className="field-row muted">+ {(model.fields?.length ?? 0) - visibleFields} more</div>}
       <Handle type="source" position={Position.Right} />
@@ -570,13 +610,19 @@ function tableNodeHeight(model: ModelNode) {
 	return 40 + 28 * Math.min(fields, visibleFields) + (fields > visibleFields ? 28 : 0);
 }
 
-function toFlowNodes(models: ModelNode[], highlighted: string[], selected: string | null, positions?: Record<string, { x: number; y: number }>): Node[] {
+function toFlowNodes(
+  models: ModelNode[],
+  highlighted: string[],
+  selected: string | null,
+  positions: Record<string, { x: number; y: number }> | undefined,
+  onElementSelect: (elementId: string) => void,
+): Node[] {
   const columns = 4;
   return models.map((model, index) => ({
     id: model.id,
     type: "tableNode",
     position: positions?.[model.id] ?? { x: (index % columns) * 300, y: Math.floor(index / columns) * 280 },
-    data: { model, highlighted },
+    data: { model, highlighted, onElementSelect },
     selected: selected === model.id,
     draggable: true,
     selectable: true,
@@ -586,20 +632,25 @@ function toFlowNodes(models: ModelNode[], highlighted: string[], selected: strin
 
 const cardinalityLabels: Record<string, string> = { one_to_one: "1 : 1", one_to_many: "1 : N", many_to_one: "N : 1", many_to_many: "M : N" };
 
-function toFlowEdges(models: { id: string; from: string; to: string; cardinality: string }[], highlighted: string[]): Edge[] {
-  return models.map((edge) => ({
-    id: edge.id,
-    source: edge.from,
-    target: edge.to,
-    label: cardinalityLabels[edge.cardinality] ?? edge.cardinality,
-    type: "smoothstep",
-    labelBgPadding: [6, 3] as [number, number],
-    labelBgBorderRadius: 4,
-    labelStyle: { fontSize: 11, fontWeight: 600 },
-    markerEnd: { type: MarkerType.ArrowClosed },
-    animated: highlighted.includes(edge.id),
-    style: { stroke: highlighted.includes(edge.id) ? "#0f766e" : "#94a3b8", strokeWidth: highlighted.includes(edge.id) ? 2.5 : 1.5 },
-  }));
+function toFlowEdges(models: { id: string; element_id?: string; from: string; to: string; cardinality: string }[], highlighted: string[]): Edge[] {
+  return models.map((edge) => {
+    const elementId = edge.element_id ?? edge.id;
+    const active = highlighted.includes(elementId);
+    return {
+      id: edge.id,
+      data: { elementId },
+      source: edge.from,
+      target: edge.to,
+      label: cardinalityLabels[edge.cardinality] ?? edge.cardinality,
+      type: "smoothstep",
+      labelBgPadding: [6, 3] as [number, number],
+      labelBgBorderRadius: 4,
+      labelStyle: { fontSize: 11, fontWeight: 600 },
+      markerEnd: { type: MarkerType.ArrowClosed },
+      animated: active,
+      style: { stroke: active ? "#0f766e" : "#94a3b8", strokeWidth: active ? 2.5 : 1.5 },
+    };
+  });
 }
 
 function QualityView({ projectId }: { projectId: string }) {
@@ -661,7 +712,10 @@ function QualityView({ projectId }: { projectId: string }) {
                 <td>
                   <div className="toolbar">
                     {issue.element_id && (
-                      <Button onClick={() => navigate(`/projects/${projectId}/model/trace`)}>
+                      <Button onClick={() => {
+                        requestTraceFocus(projectId, issue.element_id!);
+                        navigate(`/projects/${projectId}/model/trace`);
+                      }}>
                         <Search size={16} />
                         Inspect
                       </Button>

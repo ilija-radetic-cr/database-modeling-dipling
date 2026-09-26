@@ -12,7 +12,7 @@ import (
 
 // DescriptionTransformVersion identifies the deterministic rules that turn a
 // conceptual description into the conceptual model read by the logical mapper.
-const DescriptionTransformVersion = "conceptual_description_to_model_v4"
+const DescriptionTransformVersion = "conceptual_description_to_model_v7_contract_and_review_semantics"
 
 type descriptionTransformer struct {
 	description ConceptualDescription
@@ -25,6 +25,17 @@ type descriptionTransformer struct {
 	usedIDs     map[string]bool
 }
 
+// Roots name a part of a description at the finest level a correction is
+// bounded by: a thing's header, one property, the links to one other thing,
+// the lifecycle, a rule, a query or an import.
+func thingRoot(thingID string) string  { return "thing:" + thingID }
+func headerRoot(thingID string) string { return thingRoot(thingID) + ".header" }
+func propertyRoot(thingID, name string) string {
+	return thingRoot(thingID) + ".property:" + name
+}
+func linkRoot(thingID, to string) string  { return thingRoot(thingID) + ".link:" + to }
+func lifecycleRoot(thingID string) string { return thingRoot(thingID) + ".lifecycle" }
+
 // ConceptualDescriptionToModel applies the formal transformations the
 // description leaves to the backend:
 //   - every thing becomes an entity (classifications become lookups);
@@ -32,7 +43,8 @@ type descriptionTransformer struct {
 //     attribute per part, and multiple properties a child entity with a 1:N link;
 //   - derived properties and queries become derived concepts instead of columns;
 //   - links become relationships whose cardinality follows from per_this/per_other;
-//   - states become a lifecycle with a status column;
+//   - states become a lifecycle on the property that holds them, or on a state
+//     attribute added for them when no property does;
 //   - rules become constraint concepts on the elements they apply to.
 func ConceptualDescriptionToModel(description ConceptualDescription, units []dsl.SourceUnit) ConceptualModelProposal {
 	t := &descriptionTransformer{
@@ -151,6 +163,7 @@ func (t *descriptionTransformer) mapThing(thing DescriptionThing) {
 		}
 		key := snakeIdentifier(property.Name)
 		evidence := t.evidence(property.Evidence, thing.Evidence, t.fallback[thing.ID])
+
 		switch {
 		case property.Origin == "derived":
 			t.addDerivedProperty(thing, entityID, property, evidence)
@@ -168,6 +181,7 @@ func (t *descriptionTransformer) mapThing(thing DescriptionThing) {
 			entity.Attributes = append(entity.Attributes, attribute)
 			t.rememberAttribute(entityID, key, attribute.ID)
 		}
+
 	}
 	t.model.EntityConcepts = append(t.model.EntityConcepts, entity)
 }
@@ -186,6 +200,12 @@ func (t *descriptionTransformer) attribute(entityID, name, label string, propert
 	}
 	attribute.ValueType = descriptionValueType(property.ValueType)
 	values := trimmedUniqueStrings(property.AllowedValues)
+	if property.ValueType == "file" && len(values) > 0 {
+		// The allowed values of a file are its formats: the column still holds
+		// the file, and the formats are a rule on it, not an enum.
+		attribute.Description = strings.TrimSpace(attribute.Description + " Dozvoljeni formati: " + strings.Join(values, ", ") + ".")
+		values = nil
+	}
 	if property.ValueType == "boolean" || ((property.ValueType == "" || property.ValueType == "text") && isYesNo(values)) {
 		// A yes/no choice is a flag, not a two-value enum.
 		attribute.ValueType, values = "boolean", nil
@@ -247,8 +267,10 @@ func (t *descriptionTransformer) rememberAttribute(entityID, key, attributeID st
 // normal form): one row per value, owned by the thing through a 1:N link.
 func (t *descriptionTransformer) addMultipleProperty(thing DescriptionThing, ownerID string, property DescriptionProperty, evidence EvidenceProposal) {
 	childID := t.uniqueID(ownerID + "-" + upperID(property.Name))
+	// The label names the owner too, so the table of a repeating value reads as
+	// whose values it holds.
 	child := ConceptualEntityProposal{
-		ID: childID, Label: shortLabel(property.Name, property.Name), Description: propertyDescription(property),
+		ID: childID, Label: shortLabel(thing.Name+": "+property.Name, property.Name), Description: propertyDescription(property),
 		Kind: "regular", Attributes: []ConceptualAttributeProposal{}, Evidence: evidence,
 	}
 	columns := map[string]bool{}
@@ -265,7 +287,7 @@ func (t *descriptionTransformer) addMultipleProperty(thing DescriptionThing, own
 	required := true
 	t.model.Relationships = append(t.model.Relationships, ConceptualRelationshipProposal{
 		ID: t.uniqueID("REL-" + strings.TrimPrefix(childID, "ENT-")), Label: shortLabel(property.Name, property.Name),
-		Description: fmt.Sprintf("%s: više vrednosti za jedan zapis %s.", property.Name, thing.Name),
+		Description: fmt.Sprintf("%s: vise vrednosti za jedan zapis %s.", property.Name, thing.Name),
 		From:        ownerID, To: childID, Cardinality: "one_to_many", Required: &required, Evidence: evidence,
 	})
 }
@@ -315,7 +337,7 @@ func (t *descriptionTransformer) mapLinks(thing DescriptionThing) {
 			From: fromID, To: toID, Cardinality: cardinality, Required: &required,
 			Evidence: t.evidence(link.Evidence, thing.Evidence, t.fallback[thing.ID]),
 		}
-		if i := t.inverseRelationship(fromID, toID); i >= 0 {
+		if i := t.inverseRelationship(fromID, toID); i >= 0 && !distinctRoles(t.model.Relationships[i], relationship) {
 			t.resolveInverse(i, relationship)
 			continue
 		}
@@ -333,6 +355,14 @@ func (t *descriptionTransformer) inverseRelationship(fromID, toID string) int {
 		}
 	}
 	return -1
+}
+
+// distinctRoles reports whether two links between the same things in opposite
+// directions are two facts rather than one link stated twice: when each side
+// refers to exactly one of the other (a request belongs to a user; the user
+// points to one latest request), both foreign keys exist.
+func distinctRoles(existing, candidate ConceptualRelationshipProposal) bool {
+	return existing.Cardinality == "many_to_one" && candidate.Cardinality == "many_to_one"
 }
 
 // resolveInverse keeps one of two links stated from both sides. A link whose
@@ -367,7 +397,10 @@ func (t *descriptionTransformer) mapLifecycle(thing DescriptionThing) {
 			continue
 		}
 		outgoing[from] = true
-		transitions = append(transitions, ConceptualTransition{From: from, To: to})
+		transitions = append(transitions, ConceptualTransition{
+			From: from, To: to, Trigger: strings.TrimSpace(transition.Trigger),
+			By: strings.TrimSpace(transition.By), Effects: strings.TrimSpace(transition.Effects),
+		})
 		for _, id := range t.evidence(transition.Evidence).SourceUnits {
 			evidence.SourceUnits = appendUnique(evidence.SourceUnits, id)
 		}
@@ -383,10 +416,11 @@ func (t *descriptionTransformer) mapLifecycle(thing DescriptionThing) {
 	entityID := t.entityOf[thing.ID]
 	t.model.LifecycleConcepts = append(t.model.LifecycleConcepts, PlanElementProposal{
 		ID: t.uniqueID("LC-" + strings.TrimPrefix(entityID, "ENT-")), Label: shortLabel("Stanje "+thing.Name, "Stanje"),
-		Description: "Stanja: " + strings.Join(states, ", ") + ".", Kind: "lifecycle", Owner: entityID, Field: "status",
+		Description: "Stanja: " + strings.Join(states, ", ") + ".", Kind: "lifecycle", Owner: entityID, Field: t.stateField(thing, states),
 		States: states, Initial: states[0], Terminal: terminal, Transitions: transitions,
 		SourceUnits: evidence.SourceUnits,
 	})
+
 }
 
 var ruleConstraintKind = map[string]string{
@@ -407,7 +441,7 @@ func (t *descriptionTransformer) mapIdentities() {
 			t.warn("identity of %s (%s) does not name its properties or owner and is not enforced as a key", thing.ID, strings.Join(thing.IdentifiedBy, "; "))
 			continue
 		}
-		t.addUniqueness("CON-ID-"+strings.TrimPrefix(entityID, "ENT-"), "Identitet "+thing.Name, "Jedinstveno određuje: "+strings.Join(thing.IdentifiedBy, ", ")+".", targets, t.evidence(thing.Evidence, t.fallback[thing.ID]))
+		t.addUniqueness("CON-ID-"+strings.TrimPrefix(entityID, "ENT-"), "Identitet "+thing.Name, "Jedinstveno odredjuje: "+strings.Join(thing.IdentifiedBy, ", ")+".", targets, "", t.evidence(thing.Evidence, t.fallback[thing.ID]))
 	}
 }
 
@@ -463,20 +497,116 @@ func (t *descriptionTransformer) foreignKeyTo(entityID, targetID string) string 
 	return ""
 }
 
-func (t *descriptionTransformer) addUniqueness(id, label, description string, targets []string, evidence EvidenceProposal) {
+func (t *descriptionTransformer) addUniqueness(id, label, description string, targets []string, comparison string, evidence EvidenceProposal) string {
 	key := strings.Join(sortedCopy(targets), ",")
-	for _, existing := range t.model.ConstraintConcepts {
+	for i := range t.model.ConstraintConcepts {
+		existing := &t.model.ConstraintConcepts[i]
 		if existing.Kind == "uniqueness" && strings.Join(sortedCopy(existing.Targets), ",") == key {
-			return
+			mergeEvidenceInto(&existing.Evidence, evidence)
+			candidateDescription := descriptionText(description, label)
+			if candidateDescription != existing.Description && !strings.Contains(existing.Description, candidateDescription) {
+				existing.Description = strings.TrimSpace(existing.Description + " " + candidateDescription)
+			}
+			if comparison != "" {
+				if existing.Comparison == "" {
+					existing.Comparison = comparison
+				} else if existing.Comparison != comparison {
+					t.warn("uniqueness rules for %s declare conflicting comparison semantics %s and %s", key, existing.Comparison, comparison)
+				}
+			}
+			return existing.ID
 		}
 	}
 	if len(evidence.SourceUnits) == 0 {
-		return
+		return ""
 	}
-	t.model.ConstraintConcepts = append(t.model.ConstraintConcepts, ConceptualConstraintProposal{
+	constraint := ConceptualConstraintProposal{
 		ID: t.uniqueID(id), Label: shortLabel(label, "Jedinstvenost"), Description: descriptionText(description, label),
-		Kind: "uniqueness", Targets: targets, Evidence: evidence,
-	})
+		Kind: "uniqueness", Targets: targets, Comparison: comparison, Evidence: evidence,
+	}
+	t.model.ConstraintConcepts = append(t.model.ConstraintConcepts, constraint)
+	return constraint.ID
+}
+
+// closedSetOnly reports whether every target is an attribute whose values come
+// from a closed set (an enum or a yes/no flag).
+func (t *descriptionTransformer) closedSetOnly(targets []string) bool {
+	if len(targets) == 0 {
+		return false
+	}
+	for _, target := range targets {
+		attribute, ok := t.attributeConcept(target)
+		if !ok || (len(attribute.EnumValues) == 0 && attribute.ValueType != "boolean") {
+			return false
+		}
+	}
+	return true
+}
+
+func (t *descriptionTransformer) attributeConcept(id string) (ConceptualAttributeProposal, bool) {
+	for _, entity := range t.model.EntityConcepts {
+		for _, attribute := range entity.Attributes {
+			if attribute.ID == id {
+				return attribute, true
+			}
+		}
+	}
+	return ConceptualAttributeProposal{}, false
+}
+
+// stateField is the attribute that holds the states: a property whose allowed
+// values are exactly the states already is that attribute; otherwise a state
+// attribute is added, so the lifecycle never names a field the entity lacks.
+// Either way "thing.stanje" in a rule or query refers to it.
+func (t *descriptionTransformer) stateField(thing DescriptionThing, states []string) string {
+	entityID := t.entityOf[thing.ID]
+	want := strings.Join(sortedCopy(states), "\x00")
+	for _, property := range thing.Properties {
+		if property.Origin == "derived" || property.Shape != "single" {
+			continue
+		}
+		if strings.Join(sortedCopy(trimmedUniqueStrings(property.AllowedValues)), "\x00") != want {
+			continue
+		}
+		for _, id := range t.attributes[entityID][snakeIdentifier(property.Name)] {
+			if attribute, ok := t.attributeConcept(id); ok {
+				t.rememberStateAttribute(entityID, attribute.ID)
+				return attribute.Name
+			}
+		}
+	}
+	for i := range t.model.EntityConcepts {
+		entity := &t.model.EntityConcepts[i]
+		if entity.ID != entityID {
+			continue
+		}
+		taken := map[string]bool{}
+		for _, attribute := range entity.Attributes {
+			taken[attribute.Name] = true
+		}
+		name := stateReference
+		for n := 2; taken[name]; n++ {
+			name = fmt.Sprintf("%s_%d", stateReference, n)
+		}
+		attribute := ConceptualAttributeProposal{
+			ID: t.uniqueID("ATTR-" + strings.TrimPrefix(entityID, "ENT-") + "-" + upperID(name)), Label: "Stanje",
+			Description: "Stanje: " + strings.Join(states, ", ") + ".", Name: name, ValueType: "string", Required: true,
+			EnumValues: append([]string(nil), states...), Evidence: t.evidence(thing.Evidence, t.fallback[thing.ID]),
+		}
+		entity.Attributes = append(entity.Attributes, attribute)
+		t.rememberAttribute(entityID, name, attribute.ID)
+		t.rememberStateAttribute(entityID, attribute.ID)
+		return name
+	}
+	return stateReference
+}
+
+// rememberStateAttribute lets "thing.stanje" resolve to the state attribute,
+// unless a property is itself named that way.
+func (t *descriptionTransformer) rememberStateAttribute(entityID, attributeID string) {
+	if len(t.attributes[entityID][stateReference]) == 0 {
+		t.rememberAttribute(entityID, stateReference, attributeID)
+	}
 }
 
 func sortedCopy(values []string) []string {
@@ -487,14 +617,8 @@ func sortedCopy(values []string) []string {
 
 func (t *descriptionTransformer) mapRules() {
 	for _, rule := range t.description.Rules {
-		if rule.Kind == "uniqueness" {
-			if owner := ruleOwner(rule.AppliesTo); owner != "" {
-				if targets, ok := t.uniqueKey(owner, rule.AppliesTo); ok {
-					t.addUniqueness("CON-"+upperID(nonEmpty(rule.ID, "uniqueness")), rule.Statement, rule.Statement, targets, t.evidence(rule.Evidence))
-					continue
-				}
-			}
-			t.warn("uniqueness rule %s could not be resolved to a key and is kept as an application rule", nonEmpty(rule.ID, rule.Statement))
+		if rule.Kind == "uniqueness" && t.mapUniquenessRule(rule) {
+			continue
 		}
 		targets := t.resolveTargets(rule.AppliesTo)
 		evidence := t.evidence(rule.Evidence)
@@ -506,11 +630,41 @@ func (t *descriptionTransformer) mapRules() {
 		if kind == "" {
 			kind = "application_enforced"
 		}
-		t.model.ConstraintConcepts = append(t.model.ConstraintConcepts, ConceptualConstraintProposal{
+		constraint := ConceptualConstraintProposal{
 			ID: t.uniqueID("CON-" + upperID(nonEmpty(rule.ID, rule.Kind))), Label: shortLabel(rule.Statement, "Pravilo"),
-			Description: descriptionText(rule.Statement, rule.Kind), Kind: kind, Targets: targets, Evidence: evidence,
-		})
+			Description: descriptionRuleText(rule), Kind: kind, Targets: targets, Evidence: evidence,
+		}
+		t.model.ConstraintConcepts = append(t.model.ConstraintConcepts, constraint)
 	}
+}
+
+// mapUniquenessRule turns a uniqueness rule into a key when it names a key. A
+// rule that does not resolve, or that covers only values from a closed set,
+// stays an application rule: values from a closed set repeat by nature, so a
+// key over them alone would allow one record per value, which is a count limit
+// rather than uniqueness.
+func (t *descriptionTransformer) mapUniquenessRule(rule DescriptionRule) bool {
+	owner := ruleOwner(rule.AppliesTo)
+	targets, ok := t.uniqueKey(owner, rule.AppliesTo)
+	switch {
+	case owner == "" || !ok:
+		t.warn("uniqueness rule %s could not be resolved to a key and is kept as an application rule", nonEmpty(rule.ID, rule.Statement))
+		return false
+	case t.closedSetOnly(targets):
+		t.warn("uniqueness rule %s covers only values from a closed set and is kept as an application rule", nonEmpty(rule.ID, rule.Statement))
+		return false
+	}
+	t.addUniqueness("CON-"+upperID(nonEmpty(rule.ID, "uniqueness")), rule.Statement, descriptionRuleText(rule), targets, rule.Comparison, t.evidence(rule.Evidence))
+	return true
+}
+
+func descriptionRuleText(rule DescriptionRule) string {
+	description := descriptionText(rule.Statement, rule.Kind)
+	parameters := trimmedUniqueStrings(rule.Parameters)
+	if len(parameters) == 0 {
+		return description
+	}
+	return strings.TrimSpace(description + " Parameters: " + strings.Join(parameters, "; ") + ".")
 }
 
 // resolveTargets maps "thing" and "thing.property" references onto entity and
@@ -584,6 +738,7 @@ func (t *descriptionTransformer) mapQueries() {
 					ID: t.uniqueID("IDX-" + strings.TrimPrefix(attributeID, "ATTR-")), Label: shortLabel("Pretraga po "+property, "Pretraga"),
 					Description: query.Description, Owner: entityID, Targets: []string{attributeID}, Evidence: evidence,
 				})
+
 			}
 		}
 	}
@@ -600,6 +755,7 @@ func (t *descriptionTransformer) mapImports() {
 			Description: descriptionText(item.Description, "Uvoz podataka"), Kind: "import",
 			SourceUnits: evidence.SourceUnits,
 		})
+
 	}
 }
 
@@ -722,7 +878,7 @@ func propertyDescription(property DescriptionProperty) string {
 	text := descriptionText(property.Meaning, property.Name)
 	notes := []string{}
 	if property.Origin == "copied" && property.Source != "" {
-		notes = append(notes, "vrednost se pamti u trenutku događaja, preuzeta iz "+property.Source)
+		notes = append(notes, "vrednost se pamti u trenutku dogadjaja, preuzeta iz "+property.Source)
 	}
 	if property.Origin == "generated" {
 		notes = append(notes, "vrednost dodeljuje sistem")

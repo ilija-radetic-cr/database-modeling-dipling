@@ -28,16 +28,16 @@ type RelationshipForeignKey struct {
 func RelationshipForeignKeys(relationship Relationship) []RelationshipForeignKey {
 	switch relationship.Cardinality {
 	case "many_to_one", "one_to_one":
-		return []RelationshipForeignKey{{OwnerEntityID: relationship.From, Field: GeneratedForeignKeyName(relationship.To)}}
+		return []RelationshipForeignKey{{OwnerEntityID: relationship.From, Field: RelationshipForeignKeyName(relationship, relationship.To)}}
 	case "one_to_many":
-		return []RelationshipForeignKey{{OwnerEntityID: relationship.To, Field: GeneratedForeignKeyName(relationship.From)}}
+		return []RelationshipForeignKey{{OwnerEntityID: relationship.To, Field: RelationshipForeignKeyName(relationship, relationship.From)}}
 	case "many_to_many":
 		if relationship.Through == "" {
 			return nil
 		}
 		return []RelationshipForeignKey{
-			{OwnerEntityID: relationship.Through, Field: GeneratedForeignKeyName(relationship.From)},
-			{OwnerEntityID: relationship.Through, Field: GeneratedForeignKeyName(relationship.To)},
+			{OwnerEntityID: relationship.Through, Field: RelationshipForeignKeyName(relationship, relationship.From)},
+			{OwnerEntityID: relationship.Through, Field: RelationshipForeignKeyName(relationship, relationship.To)},
 		}
 	default:
 		return nil
@@ -140,6 +140,15 @@ func hasEntityAttribute(doc *Document, owner, field string) bool {
 		}
 	}
 	return false
+}
+
+// RelationshipForeignKeyName preserves explicit roles for single-FK relationships.
+// Many-to-many uses two conventional keys; a single override is invalid there.
+func RelationshipForeignKeyName(relationship Relationship, referencedEntity string) string {
+	if relationship.ForeignKey != "" && relationship.Cardinality != "many_to_many" {
+		return relationship.ForeignKey
+	}
+	return GeneratedForeignKeyName(referencedEntity)
 }
 
 func GeneratedForeignKeyName(entityID string) string {

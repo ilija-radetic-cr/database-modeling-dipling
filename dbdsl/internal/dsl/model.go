@@ -81,6 +81,8 @@ type Attribute struct {
 }
 
 type Relationship struct {
+	// ForeignKey overrides the conventional FK column for a single-role relationship.
+	ForeignKey  string   `yaml:"foreign_key,omitempty"`
 	ID          string   `yaml:"id"`
 	Label       string   `yaml:"label"`
 	Description string   `yaml:"description"`
@@ -97,6 +99,7 @@ type Relationship struct {
 }
 
 type Constraint struct {
+	Comparison  string        `yaml:"comparison,omitempty"`
 	ID          string        `yaml:"id"`
 	Type        string        `yaml:"type"`
 	Owner       string        `yaml:"owner"`

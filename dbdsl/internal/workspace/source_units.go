@@ -225,7 +225,12 @@ func (s *Store) ReviewSourceUnit(projectID, sourceUnitID string, opts ReviewSour
 		Note: strings.TrimSpace(opts.Note), ReviewedBy: nonEmpty(strings.TrimSpace(opts.ReviewedBy), "local_user"),
 		ReviewedAt: time.Now().UTC().Format(time.RFC3339Nano), ProjectRevision: nextRevision,
 	})
-	paths, err := s.writeAnalysisRevision(project, map[string]artifactValue{
+	stage, err := s.newRevisionStage(projectID, project.CurrentRevision)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer stage.discard()
+	paths, err := stage.write(map[string]artifactValue{
 		"source_units.proposed.json": {Value: artifacts.Proposal, JSON: true},
 		"source_units.yaml":          {Value: artifacts.Accepted},
 		"source_unit_qa.json":        {Value: artifacts.QA, JSON: true},
@@ -233,7 +238,7 @@ func (s *Store) ReviewSourceUnit(projectID, sourceUnitID string, opts ReviewSour
 	if err != nil {
 		return 0, 0, err
 	}
-	err = s.withProject(projectID, project.CurrentRevision, func(current *ProjectState) error {
+	revision, err := s.publishRevision(stage, func(current *ProjectState) error {
 		s.invalidateDerivedFromSourceUnits(current)
 		current.SourceUnitsProposalPath = paths["source_units.proposed.json"]
 		current.SourceUnitsPath = paths["source_units.yaml"]
@@ -241,7 +246,6 @@ func (s *Store) ReviewSourceUnit(projectID, sourceUnitID string, opts ReviewSour
 		current.ModelGenerated = false
 		current.FinalModelAccepted = false
 		current.DBMLReady = false
-		current.Completed = false
 		remaining := len(artifacts.QA.NeedsAttention)
 		if remaining > 0 {
 			current.LifecycleStatus = "source_review"
@@ -255,8 +259,7 @@ func (s *Store) ReviewSourceUnit(projectID, sourceUnitID string, opts ReviewSour
 	if err != nil {
 		return 0, 0, err
 	}
-	current, _ := s.Project(projectID)
-	return current.CurrentRevision, len(artifacts.QA.NeedsAttention), nil
+	return revision, len(artifacts.QA.NeedsAttention), nil
 }
 
 func findAcceptedSourceUnit(units []dsl.SourceUnit, id string) (int, bool) {
@@ -366,6 +369,53 @@ func proposalSegmentIDs(proposal llmpipeline.SourceUnitProposal) []string {
 		return proposal.SegmentIDs
 	}
 	return proposal.ODSentenceIDs
+}
+
+// sourceUnitsFromBundle keeps imported and reopened v0.6 bundles usable in the
+// evidence UI even when they do not have workbench-only proposal/QA sidecars.
+func sourceUnitsFromBundle(project *ProjectState, accepted *dsl.SourceUnitsFile) []SourceUnit {
+	if accepted == nil {
+		return []SourceUnit{}
+	}
+	resourceID := ""
+	if len(project.Resources) > 0 {
+		resourceID = project.Resources[0].ID
+	}
+	units := make([]SourceUnit, 0, len(accepted.SourceUnits))
+	for _, source := range accepted.SourceUnits {
+		normalized := source.Text.Normalized
+		if normalized == "" {
+			normalized = source.Text.Exact
+		}
+		segments := sourceUnitLocationSegments(source.Location)
+		origins := make([]OriginSpan, 0, 1)
+		if source.Location != "" {
+			origins = append(origins, OriginSpan{ResourceID: resourceID, Label: source.Location})
+		}
+		units = append(units, SourceUnit{
+			ID: source.ID, Kind: source.Kind, Section: source.Section,
+			NormalizedText: normalized, Normalization: source.Text.Normalization,
+			ExactText: source.Text.Exact, Relevance: source.Relevance,
+			Confidence: "high", ReviewStatus: "reviewed", OriginSpans: origins,
+			SegmentIDs: segments,
+		})
+	}
+	return units
+}
+
+func sourceUnitLocationSegments(location string) []string {
+	_, fragment, found := strings.Cut(location, "#")
+	if !found || strings.TrimSpace(fragment) == "" {
+		return nil
+	}
+	parts := strings.Split(fragment, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func readJSON(path string, target any) error {

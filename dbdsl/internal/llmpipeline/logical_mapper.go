@@ -1,6 +1,7 @@
 package llmpipeline
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
 
@@ -10,7 +11,7 @@ import (
 // LogicalMappingRuleVersion identifies the deterministic conceptual-to-DB-DSL
 // rule set. It is recorded in the mapping report so a logical model can be
 // traced to the exact rules that produced it.
-const LogicalMappingRuleVersion = "conceptual_to_dbdsl_v3"
+const LogicalMappingRuleVersion = "conceptual_to_dbdsl_v8_roles_keys_and_normalization"
 
 // LogicalMappingReport is the audit trail of one deterministic projection:
 // which rules fired, which values were inferred instead of declared, and which
@@ -83,6 +84,7 @@ func MapConceptualToLogical(model ConceptualModelProposal, options LogicalMappin
 	m.mapEntities()
 	m.mapRelationships()
 	m.dropAttributesShadowingForeignKeys()
+	m.dropDerivableForeignKeys()
 	m.mapConstraints()
 	m.mapLifecycles()
 	m.mapDerivedViews()
@@ -258,6 +260,10 @@ func (m *logicalMapper) mapRelationships() {
 			Required: required, FKRequired: required, OnDelete: "restrict", Notes: []string{},
 			Evidence: m.evidence(rel.Evidence, from.proposal.Evidence),
 		}
+		if cardinality != "many_to_many" && m.hasParallelRole(rel) {
+			proposal.ForeignKey = roleForeignKeyName(rel.ID)
+			m.decide("%s: distinct relationship role uses explicit foreign key %s", rel.ID, proposal.ForeignKey)
+		}
 		if !required {
 			proposal.OnDelete = "set_null"
 		}
@@ -266,16 +272,38 @@ func (m *logicalMapper) mapRelationships() {
 				m.errors = append(m.errors, fmt.Sprintf("relationship %s links %s to itself many-to-many; model it as an association entity with two roles", rel.ID, rel.From))
 				continue
 			}
+			if inverse := reversedManyToMany(m.relationships, proposal); inverse != nil {
+				m.errors = append(m.errors, fmt.Sprintf(
+					"relationships %s and %s declare the same many-to-many link in reverse directions; keep one direction or model explicit association roles",
+					inverse.ID, rel.ID,
+				))
+				continue
+			}
 			proposal.Through = m.linkEntity(rel, from, to, proposal.Evidence)
 			proposal.Required, proposal.FKRequired, proposal.OnDelete = true, true, "cascade"
 		}
 		duplicate := false
-		for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: proposal.From, To: proposal.To, Cardinality: proposal.Cardinality, Through: proposal.Through}) {
+		for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: proposal.From, To: proposal.To, Cardinality: proposal.Cardinality, Through: proposal.Through, ForeignKey: proposal.ForeignKey}) {
 			key := fkKey{fk.OwnerEntityID, fk.Field}
 			if existing := producers[key]; existing != nil {
-				mergeEvidenceInto(&existing.Evidence, proposal.Evidence)
-				existing.Notes = append(existing.Notes, fmt.Sprintf("Also represents %s (%s).", rel.ID, rel.Label))
-				m.decide("%s merged into %s: both would create foreign key %s.%s and DB-DSL has no role-named foreign keys", rel.ID, existing.ID, fk.OwnerEntityID, fk.Field)
+				if inverseRelationship(existing, proposal) {
+					if sameRelationshipSemantics(existing, proposal) {
+						mergeEvidenceInto(&existing.Evidence, proposal.Evidence)
+						existing.Notes = append(existing.Notes, fmt.Sprintf("Also represents inverse %s (%s).", rel.ID, rel.Label))
+						m.decide("%s merged into inverse relationship %s on foreign key %s.%s", rel.ID, existing.ID, fk.OwnerEntityID, fk.Field)
+					} else {
+						m.errors = append(m.errors, fmt.Sprintf(
+							"inverse relationships %s and %s disagree on physical semantics for foreign key %s.%s (required %t/%t, fk_required %t/%t, on_delete %s/%s)",
+							existing.ID, rel.ID, fk.OwnerEntityID, fk.Field, existing.Required, proposal.Required,
+							existing.FKRequired, proposal.FKRequired, existing.OnDelete, proposal.OnDelete,
+						))
+					}
+				} else {
+					m.errors = append(m.errors, fmt.Sprintf(
+						"relationships %s (%s) and %s (%s) require distinct roles but both map to foreign key %s.%s; resolve the roles before logical mapping",
+						existing.ID, existing.Label, rel.ID, rel.Label, fk.OwnerEntityID, fk.Field,
+					))
+				}
 				duplicate = true
 				break
 			}
@@ -283,10 +311,67 @@ func (m *logicalMapper) mapRelationships() {
 		if duplicate {
 			continue
 		}
-		for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: proposal.From, To: proposal.To, Cardinality: proposal.Cardinality, Through: proposal.Through}) {
+		for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: proposal.From, To: proposal.To, Cardinality: proposal.Cardinality, Through: proposal.Through, ForeignKey: proposal.ForeignKey}) {
 			producers[fkKey{fk.OwnerEntityID, fk.Field}] = proposal
 		}
 		m.relationships = append(m.relationships, proposal)
+	}
+}
+
+// Parallel roles use relationship IDs, not guessed language semantics. This is
+// stable under reordering and preserves labels/evidence on each relationship.
+func (m *logicalMapper) hasParallelRole(rel ConceptualRelationshipProposal) bool {
+	for _, other := range m.model.Relationships {
+		if other.ID != rel.ID && other.From == rel.From && other.To == rel.To && other.Cardinality != "many_to_many" {
+			// Reverse declarations cannot identify which parallel role they invert.
+			for _, inverse := range m.model.Relationships {
+				if rel.From != rel.To && inverse.From == rel.To && inverse.To == rel.From {
+					m.errors = append(m.errors, fmt.Sprintf("relationship %s has ambiguous inverse %s across parallel roles; keep one declaration per explicit role", rel.ID, inverse.ID))
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func roleForeignKeyName(id string) string {
+	name := dsl.GeneratedForeignKeyName(id)
+	if len(name) > 63 {
+		digest := sha256.Sum256([]byte(id))
+		name = name[:50] + fmt.Sprintf("_%x_id", digest[:4])
+	}
+	return name
+}
+
+func reversedManyToMany(existing []*RelationshipProposal, candidate *RelationshipProposal) *RelationshipProposal {
+	for _, relationship := range existing {
+		if relationship.Cardinality == "many_to_many" && relationship.From == candidate.To && relationship.To == candidate.From {
+			return relationship
+		}
+	}
+	return nil
+}
+
+func sameRelationshipSemantics(existing, candidate *RelationshipProposal) bool {
+	return existing.Required == candidate.Required &&
+		existing.FKRequired == candidate.FKRequired &&
+		existing.OnDelete == candidate.OnDelete
+}
+
+func inverseRelationship(existing, candidate *RelationshipProposal) bool {
+	if existing == nil || candidate == nil || existing.From != candidate.To || existing.To != candidate.From {
+		return false
+	}
+	switch existing.Cardinality {
+	case "one_to_many":
+		return candidate.Cardinality == "many_to_one"
+	case "many_to_one":
+		return candidate.Cardinality == "one_to_many"
+	case "one_to_one":
+		return candidate.Cardinality == "one_to_one"
+	default:
+		return false
 	}
 }
 
@@ -331,7 +416,7 @@ func (m *logicalMapper) mapFileReference(rel ConceptualRelationshipProposal, own
 // relationship so the requirement stays realized.
 func (m *logicalMapper) dropAttributesShadowingForeignKeys() {
 	for _, rel := range m.relationships {
-		for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: rel.From, To: rel.To, Cardinality: rel.Cardinality, Through: rel.Through}) {
+		for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: rel.From, To: rel.To, Cardinality: rel.Cardinality, Through: rel.Through, ForeignKey: rel.ForeignKey}) {
 			owner := m.entityByID[fk.OwnerEntityID]
 			if owner == nil || owner.byName[fk.Field] == nil {
 				continue
@@ -354,6 +439,7 @@ func (m *logicalMapper) dropAttributesShadowingForeignKeys() {
 func (m *logicalMapper) mapConstraints() {
 	for _, concept := range m.model.ConstraintConcepts {
 		owner, fields := "", []string{}
+		resolved := map[string]bool{}
 		for _, target := range concept.Targets {
 			if attribute, ok := m.attributeByID[target]; ok {
 				if owner == "" {
@@ -361,6 +447,7 @@ func (m *logicalMapper) mapConstraints() {
 				}
 				if m.attributeOwner[target] == owner && m.entityByID[owner].byName[attribute.proposal.ID] == attribute {
 					fields = appendUnique(fields, attribute.proposal.ID)
+					resolved[target] = true
 				}
 			} else if m.entityByID[target] != nil && owner == "" {
 				owner = target
@@ -371,7 +458,7 @@ func (m *logicalMapper) mapConstraints() {
 				if rel.ID != target || rel.Cardinality == "many_to_many" {
 					continue
 				}
-				for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: rel.From, To: rel.To, Cardinality: rel.Cardinality, Through: rel.Through}) {
+				for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: rel.From, To: rel.To, Cardinality: rel.Cardinality, Through: rel.Through, ForeignKey: rel.ForeignKey}) {
 					// A key made only of links belongs to the table that holds
 					// their foreign keys.
 					if owner == "" {
@@ -379,6 +466,7 @@ func (m *logicalMapper) mapConstraints() {
 					}
 					if fk.OwnerEntityID == owner {
 						fields = appendUnique(fields, rel.ID)
+						resolved[target] = true
 					}
 				}
 			}
@@ -388,9 +476,16 @@ func (m *logicalMapper) mapConstraints() {
 		if entity != nil {
 			evidence = m.evidence(concept.Evidence, entity.proposal.Evidence)
 		}
+		if concept.Kind == "uniqueness" && len(resolved) < len(concept.Targets) {
+			// A key that lost a part is a different, stricter rule than the one the
+			// model states; it is kept visible as an application rule instead.
+			m.warn("%s: %d of %d key parts have no column in the logical model, so the key is kept as an application rule", concept.ID, len(concept.Targets)-len(resolved), len(concept.Targets))
+			m.recordApplicationRule(concept)
+			continue
+		}
 		switch {
 		case concept.Kind == "uniqueness" && entity != nil && len(fields) > 0:
-			constraint := ConstraintProposal{ID: concept.ID, Type: "unique", Owner: owner, Description: nonEmpty(concept.Description, concept.Label), Evidence: evidence}
+			constraint := ConstraintProposal{ID: concept.ID, Type: "unique", Owner: owner, Comparison: concept.Comparison, Description: nonEmpty(concept.Description, concept.Label), Evidence: evidence}
 			if len(fields) == 1 {
 				constraint.Field = fields[0]
 			} else {
@@ -401,42 +496,89 @@ func (m *logicalMapper) mapConstraints() {
 			m.constraints = append(m.constraints, ConstraintProposal{ID: concept.ID, Type: "check", Owner: owner, Fields: fields,
 				Expression: strings.TrimSpace(concept.Expression), Description: nonEmpty(concept.Description, concept.Label), Evidence: evidence})
 		default:
-			m.recordApplicationRule(concept, owner, fields)
+			m.recordApplicationRule(concept)
 		}
 	}
 }
 
 // recordApplicationRule keeps a rule that plain DDL cannot enforce visible on
-// the columns (or table) it governs, instead of emitting an invalid constraint.
-func (m *logicalMapper) recordApplicationRule(concept ConceptualConstraintProposal, owner string, fields []string) {
+// every mapped element it governs, instead of emitting an invalid constraint.
+// Entity targets share one model-level documentation constraint per conceptual
+// rule so multi-entity rules do not create duplicate check IDs.
+func (m *logicalMapper) recordApplicationRule(concept ConceptualConstraintProposal) {
 	note := fmt.Sprintf("Application-enforced rule %s: %s", concept.ID, nonEmpty(concept.Description, concept.Label))
+	recorded, entityTargets, unresolved := []string{}, []string{}, []string{}
 	for _, target := range concept.Targets {
+		if attribute := m.attributeByID[target]; attribute != nil {
+			owner := m.entityByID[m.attributeOwner[target]]
+			if owner != nil && owner.byName[attribute.proposal.ID] == attribute {
+				mergeEvidenceInto(&attribute.proposal.Evidence, m.evidence(concept.Evidence, attribute.proposal.Evidence))
+				attribute.proposal.Notes = appendUnique(attribute.proposal.Notes, note)
+				recorded = appendUnique(recorded, target)
+				continue
+			}
+			// The target column may have been replaced by a relationship FK.
+			// Keep the rule visible at model level for its owning entity.
+			if owner != nil {
+				mergeEvidenceInto(&owner.proposal.Evidence, m.evidence(concept.Evidence, owner.proposal.Evidence))
+				entityTargets = appendUnique(entityTargets, owner.proposal.ID)
+				recorded = appendUnique(recorded, target)
+				continue
+			}
+		}
+		if entity := m.entityByID[target]; entity != nil {
+			mergeEvidenceInto(&entity.proposal.Evidence, m.evidence(concept.Evidence, entity.proposal.Evidence))
+			entityTargets = appendUnique(entityTargets, target)
+			recorded = appendUnique(recorded, target)
+			continue
+		}
+		matchedRelationship := false
 		for _, rel := range m.relationships {
 			if rel.ID == target {
 				mergeEvidenceInto(&rel.Evidence, m.evidence(concept.Evidence, rel.Evidence))
-				rel.Notes = append(rel.Notes, note)
-				m.decide("%s: %s rule recorded on relationship %s", concept.ID, concept.Kind, rel.ID)
-				return
+				rel.Notes = appendUnique(rel.Notes, note)
+				recorded = appendUnique(recorded, target)
+				matchedRelationship = true
 			}
 		}
+		if matchedRelationship {
+			continue
+		}
+		unresolved = appendUnique(unresolved, target)
 	}
-	entity := m.entityByID[owner]
-	if entity == nil {
+	if len(entityTargets) > 0 {
+		if m.hasConstraintID(concept.ID) {
+			m.warn("%s model-level application rule was not duplicated because its constraint ID already exists", concept.ID)
+		} else {
+			fallback := EvidenceProposal{}
+			if entity := m.entityByID[entityTargets[0]]; entity != nil {
+				fallback = entity.proposal.Evidence
+			}
+			m.constraints = append(m.constraints, ConstraintProposal{
+				ID: concept.ID, Type: "check", Owner: "model",
+				Expression:  fmt.Sprintf("%s (applies to %s).", note, strings.Join(entityTargets, ", ")),
+				Description: nonEmpty(concept.Description, concept.Label),
+				Evidence:    m.evidence(concept.Evidence, fallback),
+			})
+		}
+	}
+	if len(unresolved) > 0 {
+		m.warn("%s (%s) has unresolved targets: %s", concept.ID, concept.Kind, strings.Join(unresolved, ", "))
+	}
+	if len(recorded) == 0 {
 		m.warn("%s (%s) has no resolvable target and is not represented in the logical model", concept.ID, concept.Kind)
 		return
 	}
-	attached := false
-	for _, field := range fields {
-		if attribute := entity.byName[field]; attribute != nil {
-			mergeEvidenceInto(&attribute.proposal.Evidence, m.evidence(concept.Evidence, attribute.proposal.Evidence))
-			attribute.proposal.Notes = append(attribute.proposal.Notes, note)
-			attached = true
+	m.decide("%s: %s rule recorded as application-enforced on %s", concept.ID, concept.Kind, strings.Join(recorded, ", "))
+}
+
+func (m *logicalMapper) hasConstraintID(id string) bool {
+	for _, constraint := range m.constraints {
+		if constraint.ID == id {
+			return true
 		}
 	}
-	if !attached {
-		mergeEvidenceInto(&entity.proposal.Evidence, m.evidence(concept.Evidence, entity.proposal.Evidence))
-	}
-	m.decide("%s: %s rule recorded as application-enforced on %s", concept.ID, concept.Kind, owner)
+	return false
 }
 
 // mapIndexes projects the access paths of the conceptual model. A column that
@@ -467,6 +609,10 @@ func (m *logicalMapper) mapIndexes() {
 			m.warn("index %s has no mapped column and is not projected", concept.ID)
 			continue
 		}
+		if attribute := entity.byName[fields[0]]; attribute != nil && !indexable(attribute.proposal) {
+			m.decide("%s: %s.%s is not indexed: an index does not help searching long text or a column with few distinct values", concept.ID, entity.proposal.TableName, fields[0])
+			continue
+		}
 		if leading[concept.Owner+"."+fields[0]] {
 			m.decide("%s: %s.%s is already indexed by a unique key", concept.ID, entity.proposal.TableName, fields[0])
 			continue
@@ -474,6 +620,105 @@ func (m *logicalMapper) mapIndexes() {
 		leading[concept.Owner+"."+fields[0]] = true
 		m.indexes = append(m.indexes, IndexProposal{ID: concept.ID, Owner: concept.Owner, Fields: fields,
 			Description: nonEmpty(concept.Description, concept.Label), Evidence: m.evidence(concept.Evidence, entity.proposal.Evidence)})
+	}
+}
+
+// indexable reports whether a plain B-tree index on the column helps a search:
+// long text is searched by content, not by prefix, and a flag or a closed set
+// of values has too few distinct values to narrow a search.
+func indexable(attribute AttributeProposal) bool {
+	return attribute.Type != "text" && attribute.Type != "boolean" && len(attribute.EnumValues) == 0
+}
+
+// dropDerivableForeignKeys removes a foreign key that the owner already reaches
+// through a mandatory chain of classifications (a place that belongs to a
+// municipality that belongs to a city). A classification hierarchy is a fixed
+// fact, so the direct key only repeats it and could contradict it. A path
+// through an ordinary record is not such a fact: the city of an owner is not
+// the city of what the owner offers, so that path never makes a key redundant.
+// Keys that a constraint names, and role-named keys, are kept.
+func (m *logicalMapper) dropDerivableForeignKeys() {
+	named := map[string]bool{}
+	for _, concept := range m.model.ConstraintConcepts {
+		for _, target := range concept.Targets {
+			named[target] = true
+		}
+	}
+	type edge struct {
+		rel       *RelationshipProposal
+		from, to  string
+		mandatory bool
+	}
+	edges := func(skip *RelationshipProposal) []edge {
+		out := []edge{}
+		for _, rel := range m.relationships {
+			if rel == skip || rel.Cardinality == "many_to_many" {
+				continue
+			}
+			for _, fk := range dsl.RelationshipForeignKeys(dsl.Relationship{From: rel.From, To: rel.To, Cardinality: rel.Cardinality, ForeignKey: rel.ForeignKey}) {
+				target := rel.To
+				if fk.OwnerEntityID == rel.To {
+					target = rel.From
+				}
+				if target != fk.OwnerEntityID {
+					out = append(out, edge{rel: rel, from: fk.OwnerEntityID, to: target, mandatory: rel.FKRequired})
+				}
+			}
+		}
+		return out
+	}
+	reaches := func(from, to string, graph []edge) (string, bool) {
+		previous := map[string]string{from: ""}
+		queue := []string{from}
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
+			for _, e := range graph {
+				if e.from != current || !e.mandatory {
+					continue
+				}
+				if e.to != to && m.entityByID[e.to].proposal.Kind != "lookup" {
+					continue
+				}
+				if _, seen := previous[e.to]; seen {
+					continue
+				}
+				previous[e.to] = current
+				if e.to == to {
+					path := []string{to}
+					for step := current; step != ""; step = previous[step] {
+						path = append([]string{step}, path...)
+					}
+					return strings.Join(path, " → "), true
+				}
+				queue = append(queue, e.to)
+			}
+		}
+		return "", false
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, direct := range edges(nil) {
+			if named[direct.rel.ID] || direct.rel.ForeignKey != "" {
+				continue
+			}
+			path, ok := reaches(direct.from, direct.to, edges(direct.rel))
+			if !ok {
+				continue
+			}
+			owner := m.entityByID[direct.from]
+			mergeEvidenceInto(&owner.proposal.Evidence, direct.rel.Evidence)
+			kept := m.relationships[:0]
+			for _, rel := range m.relationships {
+				if rel != direct.rel {
+					kept = append(kept, rel)
+				}
+			}
+			m.relationships = kept
+			m.warn("%s removed: %s already reaches %s through a mandatory chain of classifications (%s), so a second foreign key would repeat that fact", direct.rel.ID, direct.from, direct.to, path)
+			changed = true
+			break
+		}
 	}
 }
 
@@ -511,6 +756,19 @@ func (m *logicalMapper) mapLifecycles() {
 			m.warn("lifecycle %s declares no states; only its evidence is attached to %s.%s", lifecycle.ID, owner.proposal.ID, field)
 			continue
 		}
+		if attribute != nil && attribute.proposal.Type == "boolean" {
+			// Two states held by a yes/no flag stay a flag: turning the column into
+			// a string enum of "true" and "false" would change its type. The
+			// transitions stay on the column as notes.
+			for _, transition := range lifecycle.Transitions {
+				if note := conceptualTransitionNote(transition); note != "" {
+					attribute.proposal.Notes = appendUnique(attribute.proposal.Notes, note)
+				}
+			}
+			mergeEvidenceInto(&attribute.proposal.Evidence, evidence)
+			m.decide("%s: lifecycle kept as the boolean %s.%s; its transitions are enforced by the application", lifecycle.ID, owner.proposal.ID, field)
+			continue
+		}
 		if attribute == nil {
 			attribute = &mappedAttribute{conceptID: lifecycle.ID, proposal: AttributeProposal{ID: field, Label: "Status", Description: nonEmpty(lifecycle.Description, "Lifecycle state."),
 				SourceField: field, Required: true, Notes: []string{}, Evidence: evidence}}
@@ -535,14 +793,36 @@ func (m *logicalMapper) mapLifecycles() {
 			}
 		}
 		transitions := []dsl.StateTransition{}
+		notes := []string{}
 		for _, transition := range lifecycle.Transitions {
 			if known[transition.From] && known[transition.To] {
 				transitions = append(transitions, dsl.StateTransition{From: transition.From, To: transition.To})
+				if note := conceptualTransitionNote(transition); note != "" {
+					notes = appendUnique(notes, note)
+				}
 			}
 		}
 		m.stateMachines = append(m.stateMachines, StateMachineProposal{ID: lifecycle.ID, Owner: owner.proposal.ID, Field: field, States: attribute.proposal.EnumValues,
-			Initial: initial, Terminal: terminal, Transitions: transitions, Notes: []string{}, Evidence: evidence})
+			Initial: initial, Terminal: terminal, Transitions: transitions, Notes: notes, Evidence: evidence})
 	}
+}
+
+func conceptualTransitionNote(transition ConceptualTransition) string {
+	trigger, actor, effects := strings.TrimSpace(transition.Trigger), strings.TrimSpace(transition.By), strings.TrimSpace(transition.Effects)
+	if trigger == "" && actor == "" && effects == "" {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("Transition %q -> %q", transition.From, transition.To)}
+	if trigger != "" {
+		parts = append(parts, "trigger/guard: "+trigger)
+	}
+	if actor != "" {
+		parts = append(parts, "actor: "+actor)
+	}
+	if effects != "" {
+		parts = append(parts, "effects: "+effects)
+	}
+	return strings.Join(parts, "; ") + "."
 }
 
 func (m *logicalMapper) findStatusAttribute(lifecycle PlanElementProposal) (*mappedEntity, string) {
@@ -805,7 +1085,7 @@ func inferValueType(name, text string) string {
 }
 
 func derivedViewKind(derived PlanElementProposal) string {
-	text := strings.ToLower(latinTransliteration.Replace(derived.Label + " " + derived.Description + " " + strings.Join(derived.Metrics, " ")))
+	text := strings.ToLower(asciiSerbian(derived.Label + " " + derived.Description + " " + strings.Join(derived.Metrics, " ")))
 	for _, token := range []string{"total", "sum", "count", "average", "statistic", "number of", "ukupn", "zbir", "prosek", "prosecn", "statistik", "broj "} {
 		if strings.Contains(text, token) {
 			return "aggregate"
@@ -822,20 +1102,10 @@ func surrogateNames(entityID string) map[string]bool {
 	return map[string]bool{"id": true, "identifier": true, base + "_id": true, base + "_identifier": true}
 }
 
-var latinTransliteration = strings.NewReplacer(
-	"č", "c", "ć", "c", "š", "s", "ž", "z", "đ", "dj", "Č", "C", "Ć", "C", "Š", "S", "Ž", "Z", "Đ", "Dj",
-	"а", "a", "б", "b", "в", "v", "г", "g", "д", "d", "ђ", "dj", "е", "e", "ж", "z", "з", "z", "и", "i", "ј", "j",
-	"к", "k", "л", "l", "љ", "lj", "м", "m", "н", "n", "њ", "nj", "о", "o", "п", "p", "р", "r", "с", "s", "т", "t",
-	"ћ", "c", "у", "u", "ф", "f", "х", "h", "ц", "c", "ч", "c", "џ", "dz", "ш", "s",
-	"А", "A", "Б", "B", "В", "V", "Г", "G", "Д", "D", "Ђ", "Dj", "Е", "E", "Ж", "Z", "З", "Z", "И", "I", "Ј", "J",
-	"К", "K", "Л", "L", "Љ", "Lj", "М", "M", "Н", "N", "Њ", "Nj", "О", "O", "П", "P", "Р", "R", "С", "S", "Т", "T",
-	"Ћ", "C", "У", "U", "Ф", "F", "Х", "H", "Ц", "C", "Ч", "C", "Џ", "Dz", "Ш", "S",
-)
-
 // snakeIdentifier converts a label into a lower snake_case identifier,
-// transliterating Serbian Latin letters and dropping other non-ASCII runes.
+// writing Serbian in ASCII letters and dropping other non-ASCII runes.
 func snakeIdentifier(value string) string {
-	value = latinTransliteration.Replace(strings.TrimSpace(value))
+	value = asciiSerbian(strings.TrimSpace(value))
 	var out strings.Builder
 	lastUnderscore := true
 	for i, r := range value {

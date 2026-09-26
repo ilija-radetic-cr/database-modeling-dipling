@@ -29,6 +29,9 @@ export function NewProjectPage() {
   const llmStatus = useQuery({
     queryKey: ["llm-status"],
     queryFn: () => api.llmStatus(),
+    // A failed or negative answer is re-checked, so a backend restart or a key
+    // added later is picked up without reloading the page.
+    refetchInterval: (query) => (query.state.data?.available ? false : 5_000),
   });
   const bundles = useQuery({
     queryKey: ["bundles"],
@@ -162,7 +165,7 @@ export function NewProjectPage() {
   const activeRevision = project.data?.project.current_revision ?? projectRevision;
   const manifestSummary = sourceManifest.data?.manifest.summary;
   const hasSources = sourceText.trim() !== "" || selectedFiles.length > 0 || readyResourceCount > 0;
-  const canStart = name.trim() !== "" && hasSources && !start.isPending && !job;
+  const canStart = name.trim() !== "" && hasSources && llmAvailable && !start.isPending && !job;
 
   return (
     <div className="page">
@@ -222,6 +225,13 @@ export function NewProjectPage() {
                   {readyResourceCount > 0 && <Badge tone="good">{readyResourceCount} source{readyResourceCount === 1 ? "" : "s"} attached</Badge>}
                 </div>
                 <p className="muted small">The pipeline runs automatically and stops only where your review is needed.</p>
+                {!llmStatus.isLoading && !llmAvailable && (
+                  <p className="error-text small">
+                    {llmStatus.data
+                      ? "No LLM provider is configured. Add the server API key or enable Mock LLM under Developer tools."
+                      : "The backend server is not reachable. Start it (or wait for it to restart); this check repeats automatically."}
+                  </p>
+                )}
               </div>
             </div>
             {(start.isError || addText.isError || upload.isError || process.isError) && (
@@ -245,7 +255,7 @@ export function NewProjectPage() {
                     <div className="toolbar">
                       <Bot size={18} />
                       <strong>LLM settings for source segmentation</strong>
-                      <Badge tone={llmAvailable ? "good" : "warn"}>{llmUseMock ? "mock" : llmStatus.data?.available ? "ready" : "no key"}</Badge>
+                      <Badge tone={llmAvailable ? "good" : "warn"}>{llmUseMock ? "mock" : llmStatus.data?.available ? "ready" : llmStatus.data ? "no key" : "no backend"}</Badge>
                     </div>
                     <label className="toolbar toggle-label">
                       <input type="checkbox" checked={llmUseMock} onChange={(event) => setLlmUseMock(event.target.checked)} />
@@ -263,7 +273,7 @@ export function NewProjectPage() {
                   </Button>
                 </div>
                 {scaffoldAndImport.isError && <p className="error-text">{(scaffoldAndImport.error as Error).message}</p>}
-                <Field label="Import existing v0.5 bundle path">
+                <Field label="Import existing DB-DSL v0.6 bundle path">
                   <input className="input" value={bundlePath} onChange={(event) => setBundlePath(event.target.value)} />
                 </Field>
                 <div className="toolbar">

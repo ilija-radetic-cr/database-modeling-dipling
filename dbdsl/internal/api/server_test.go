@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -41,6 +42,409 @@ func TestLLMStatusDoesNotExposeAPIKey(t *testing.T) {
 	}
 	if !body.Available || body.DefaultModel == "" || !body.MockAvailable {
 		t.Fatalf("unexpected status response: %+v", body)
+	}
+}
+
+func TestListProjectsReturnsEmptyArray(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Items == nil || len(body.Items) != 0 {
+		t.Fatalf("expected an empty projects array, got %s", rec.Body.String())
+	}
+}
+
+func TestProjectJobEntryPointsRejectConcurrentWork(t *testing.T) {
+	server := newTestServer(t)
+	projectID, revision := createProjectAndAddPastedText(t, server, "Product has a name.")
+
+	failed := server.jobs.StartWithRevision(projectID, "failed_stage", revision, []string{"fail"}, func(_ string, _ string, _ int, _ jobs.StepEmitter) (int, []string, error) {
+		return 0, nil, fmt.Errorf("expected test failure")
+	})
+	waitForFailedTestJob(t, server, failed.ID)
+
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	active := server.jobs.StartWithRevision(projectID, "blocking_stage", revision, []string{"block"}, func(_ string, _ string, inputRevision int, _ jobs.StepEmitter) (int, []string, error) {
+		<-release
+		return inputRevision, nil, nil
+	})
+	waitForRunningTestJob(t, server, active.ID)
+
+	requests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "quality refresh", path: "/api/v1/projects/" + projectID + "/quality/run", body: `{}`},
+		{name: "DBML regeneration", path: "/api/v1/projects/" + projectID + "/dbml/regenerate", body: `{}`},
+		{name: "job retry", path: "/api/v1/projects/" + projectID + "/jobs/" + failed.ID + "/retry", body: fmt.Sprintf(`{"base_revision":%d}`, revision)},
+		{name: "adversarial review", path: "/api/v1/projects/" + projectID + "/stages/adversarial_review/run", body: fmt.Sprintf(`{"base_revision":%d}`, revision)},
+		{name: "operator review finding", path: "/api/v1/projects/" + projectID + "/adversarial-review/findings", body: fmt.Sprintf(`{"base_revision":%d}`, revision)},
+		{name: "review decisions", path: "/api/v1/projects/" + projectID + "/adversarial-review/decisions", body: fmt.Sprintf(`{"base_revision":%d}`, revision)},
+		{name: "conceptual correction", path: "/api/v1/projects/" + projectID + "/adversarial-review/correct", body: fmt.Sprintf(`{"base_revision":%d}`, revision)},
+		{name: "conceptual acceptance", path: "/api/v1/projects/" + projectID + "/conceptual-model/accept", body: fmt.Sprintf(`{"base_revision":%d}`, revision)},
+	}
+	for _, test := range requests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
+			rec := httptest.NewRecorder()
+			server.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"project_busy"`) {
+				t.Fatalf("expected project_busy, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+	close(release)
+	released = true
+	waitForTestJob(t, server, active.ID)
+}
+
+func TestMockExecutionProfileCarriesIntoConceptualStage(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	server := newTestServer(t)
+	projectID, revision := createProjectAndAddPastedText(t, server, "Product has a name.")
+
+	processReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/process-sources", bytes.NewReader([]byte(fmt.Sprintf(`{
+	  "base_revision": %d,
+	  "mock": true,
+	  "model": "gpt-5.6-sol"
+	}`, revision))))
+	processRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(processRec, processReq)
+	if processRec.Code != http.StatusAccepted {
+		t.Fatalf("start mock source processing: %d %s", processRec.Code, processRec.Body.String())
+	}
+	var processing struct {
+		Job jobs.Job `json:"job"`
+	}
+	if err := json.Unmarshal(processRec.Body.Bytes(), &processing); err != nil {
+		t.Fatalf("decode process job: %v", err)
+	}
+	waitForTestJob(t, server, processing.Job.ID)
+
+	project, ok := server.store.Project(projectID)
+	if !ok || project.LLMExecutionProfile == nil {
+		t.Fatalf("mock execution profile was not persisted: %+v", project)
+	}
+	if project.LLMExecutionProfile.Provider != "mock" || project.LLMExecutionProfile.Model != "mock-model" {
+		t.Fatalf("mock request froze a paid-provider profile: %+v", project.LLMExecutionProfile)
+	}
+
+	conceptualReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/stages/conceptual_model/run", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d}`, project.CurrentRevision))))
+	conceptualRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(conceptualRec, conceptualReq)
+	if conceptualRec.Code != http.StatusAccepted {
+		t.Fatalf("frozen mock profile was not reused: %d %s", conceptualRec.Code, conceptualRec.Body.String())
+	}
+	var conceptual struct {
+		Job jobs.Job `json:"job"`
+	}
+	if err := json.Unmarshal(conceptualRec.Body.Bytes(), &conceptual); err != nil {
+		t.Fatalf("decode conceptual job: %v", err)
+	}
+	waitForTestJob(t, server, conceptual.Job.ID)
+	project, _ = server.store.Project(projectID)
+	if project.LLMExecutionProfile.Provider != "mock" || project.LLMExecutionProfile.Model != "mock-model" {
+		t.Fatalf("conceptual stage changed the frozen mock profile: %+v", project.LLMExecutionProfile)
+	}
+
+	beforeReviewReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/adversarial-review", nil)
+	beforeReviewRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(beforeReviewRec, beforeReviewReq)
+	if beforeReviewRec.Code != http.StatusOK || !strings.Contains(beforeReviewRec.Body.String(), `"status":"not_run"`) || !strings.Contains(beforeReviewRec.Body.String(), `"decisions":[]`) || !strings.Contains(beforeReviewRec.Body.String(), `"audit":[]`) {
+		t.Fatalf("unreviewed wire shape must use empty arrays: %d %s", beforeReviewRec.Code, beforeReviewRec.Body.String())
+	}
+	logicalReviewReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/stages/adversarial_review/run", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d,"scope":"logical"}`, project.CurrentRevision))))
+	logicalReviewRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(logicalReviewRec, logicalReviewReq)
+	if logicalReviewRec.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported logical review scope was queued: %d %s", logicalReviewRec.Code, logicalReviewRec.Body.String())
+	}
+
+	reviewReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/stages/adversarial_review/run", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d}`, project.CurrentRevision))))
+	reviewRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(reviewRec, reviewReq)
+	if reviewRec.Code != http.StatusAccepted {
+		t.Fatalf("start adversarial review: %d %s", reviewRec.Code, reviewRec.Body.String())
+	}
+	var reviewJob struct {
+		Job jobs.Job `json:"job"`
+	}
+	if err := json.Unmarshal(reviewRec.Body.Bytes(), &reviewJob); err != nil {
+		t.Fatalf("decode adversarial review job: %v", err)
+	}
+	waitForTestJob(t, server, reviewJob.Job.ID)
+	project, _ = server.store.Project(projectID)
+	afterReviewReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/adversarial-review", nil)
+	afterReviewRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(afterReviewRec, afterReviewReq)
+	if afterReviewRec.Code != http.StatusOK || !strings.Contains(afterReviewRec.Body.String(), `"status":"current"`) || !strings.Contains(afterReviewRec.Body.String(), `"findings":[]`) || !strings.Contains(afterReviewRec.Body.String(), `"decisions":[]`) {
+		t.Fatalf("reviewed wire shape must use empty arrays: %d %s", afterReviewRec.Code, afterReviewRec.Body.String())
+	}
+	sourceArtifacts, err := server.store.SourceUnitArtifacts(projectID)
+	if err != nil || len(sourceArtifacts.Accepted.SourceUnits) == 0 {
+		t.Fatalf("read source evidence for operator finding: %v", err)
+	}
+	conceptualArtifacts, err := server.store.ConceptualModel(projectID)
+	if err != nil || len(conceptualArtifacts.Proposed.EntityConcepts) == 0 {
+		t.Fatalf("read conceptual IDs for operator finding: %v", err)
+	}
+	unit := sourceArtifacts.Accepted.SourceUnits[0]
+	findingBody, _ := json.Marshal(map[string]any{
+		"base_revision": project.CurrentRevision, "actor": "test_operator", "note": "API operator finding.",
+		"finding": map[string]any{
+			"severity": "warning", "category": "missing", "source_unit_ids": []string{unit.ID},
+			"description_refs": []string{conceptualArtifacts.Description.Things[0].ID}, "source_quote": unit.Text.Exact,
+			"claim": "A cited identity detail is absent.", "expected": "Preserve the cited identity detail.",
+			"actual": "The candidate omits the detail.", "suggested_correction": "Add the grounded detail.",
+		},
+	})
+	findingReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/adversarial-review/findings", bytes.NewReader(findingBody))
+	findingRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(findingRec, findingReq)
+	if findingRec.Code != http.StatusOK || !strings.Contains(findingRec.Body.String(), `"id":"OF-001"`) || !strings.Contains(findingRec.Body.String(), `"origin":"operator"`) || !strings.Contains(findingRec.Body.String(), `"action":"operator_finding_added"`) {
+		t.Fatalf("operator finding endpoint omitted combined finding or provenance: %d %s", findingRec.Code, findingRec.Body.String())
+	}
+	project, _ = server.store.Project(projectID)
+	decisionReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/adversarial-review/decisions", strings.NewReader(fmt.Sprintf(`{"base_revision":%d,"actor":"test_operator","decisions":[{"finding_id":"OF-001","decision":"waive","note":"API test explicitly waives this synthetic finding."}]}`, project.CurrentRevision)))
+	decisionRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(decisionRec, decisionReq)
+	if decisionRec.Code != http.StatusOK || !strings.Contains(decisionRec.Body.String(), `"can_accept":true`) {
+		t.Fatalf("operator finding could not use the existing decision gate: %d %s", decisionRec.Code, decisionRec.Body.String())
+	}
+	project, _ = server.store.Project(projectID)
+
+	acceptReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/conceptual-model/accept", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d,"actor":"test_operator","note":"API mock acceptance."}`, project.CurrentRevision))))
+	acceptRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(acceptRec, acceptReq)
+	if acceptRec.Code != http.StatusOK {
+		t.Fatalf("accept adversarially reviewed conceptual model: %d %s", acceptRec.Code, acceptRec.Body.String())
+	}
+}
+
+func TestBundleDiscoveryIncludesCurrentGoldenFixtures(t *testing.T) {
+	server, root := newTestServerWithRoot(t)
+	goldenDir := filepath.Join(root, "fixtures", "golden", "demo_v06")
+	if _, err := scaffold.BundleFromText("Customer has a name.", goldenDir, scaffold.Options{ModelID: "golden", Name: "Golden fixture"}); err != nil {
+		t.Fatalf("create golden fixture: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bundles", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list bundles: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Items []struct {
+			BundlePath string `json:"bundle_path"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode bundles: %v", err)
+	}
+	found := false
+	for _, item := range body.Items {
+		if item.BundlePath == "fixtures/golden/demo_v06" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("current golden fixture directory was not discovered: %s", rec.Body.String())
+	}
+}
+
+func TestImportedBundleCanBeReviewedExportedCompletedAndReopened(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	server, _ := newTestServerWithRoot(t)
+	importReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/import-bundle", bytes.NewReader([]byte(`{"path":"poc/printing_house_full/v0.5_granularity_sentance"}`)))
+	importRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(importRec, importReq)
+	if importRec.Code != http.StatusOK {
+		t.Fatalf("import bundle: %d %s", importRec.Code, importRec.Body.String())
+	}
+	var imported struct {
+		Project struct {
+			ID              string `json:"id"`
+			CurrentRevision int    `json:"current_revision"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(importRec.Body.Bytes(), &imported); err != nil {
+		t.Fatalf("decode imported project: %v", err)
+	}
+
+	stagesReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+imported.Project.ID+"/stages", nil)
+	stagesRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(stagesRec, stagesReq)
+	if stagesRec.Code != http.StatusOK || !strings.Contains(stagesRec.Body.String(), `"next_stage":"model_review"`) {
+		t.Fatalf("imported valid model was sent backwards in the pipeline: %d %s", stagesRec.Code, stagesRec.Body.String())
+	}
+
+	sourceUnitsReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+imported.Project.ID+"/source-units", nil)
+	sourceUnitsRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(sourceUnitsRec, sourceUnitsReq)
+	if sourceUnitsRec.Code != http.StatusOK {
+		t.Fatalf("read imported source units: %d %s", sourceUnitsRec.Code, sourceUnitsRec.Body.String())
+	}
+	var sourceUnits struct {
+		Items []struct {
+			ID             string `json:"id"`
+			NormalizedText string `json:"normalized_text"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(sourceUnitsRec.Body.Bytes(), &sourceUnits); err != nil {
+		t.Fatalf("decode imported source units: %v", err)
+	}
+	if len(sourceUnits.Items) == 0 || sourceUnits.Items[0].ID == "" || sourceUnits.Items[0].NormalizedText == "" {
+		t.Fatalf("imported bundle lost accepted source evidence: %s", sourceUnitsRec.Body.String())
+	}
+
+	traceReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+imported.Project.ID+"/trace-index", nil)
+	traceRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(traceRec, traceReq)
+	if traceRec.Code != http.StatusOK {
+		t.Fatalf("read imported trace index: %d %s", traceRec.Code, traceRec.Body.String())
+	}
+	var traceBody struct {
+		TraceIndex struct {
+			SourceToElements map[string][]string `json:"source_to_elements"`
+		} `json:"trace_index"`
+	}
+	if err := json.Unmarshal(traceRec.Body.Bytes(), &traceBody); err != nil {
+		t.Fatalf("decode imported trace index: %v", err)
+	}
+	if len(traceBody.TraceIndex.SourceToElements) == 0 {
+		t.Fatalf("imported bundle lost source-to-model trace links: %s", traceRec.Body.String())
+	}
+
+	graphReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+imported.Project.ID+"/model-graph", nil)
+	graphRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(graphRec, graphReq)
+	var graphBody struct {
+		ModelGraph struct {
+			Nodes []struct {
+				Fields []struct {
+					ElementID string `json:"element_id"`
+					Evidence  struct {
+						SourceUnits []string `json:"source_units"`
+					} `json:"evidence"`
+				} `json:"fields"`
+			} `json:"nodes"`
+		} `json:"model_graph"`
+	}
+	if graphRec.Code != http.StatusOK || json.Unmarshal(graphRec.Body.Bytes(), &graphBody) != nil {
+		t.Fatalf("read imported model graph: %d %s", graphRec.Code, graphRec.Body.String())
+	}
+	fieldID := ""
+	for _, node := range graphBody.ModelGraph.Nodes {
+		for _, field := range node.Fields {
+			if len(field.Evidence.SourceUnits) > 0 {
+				fieldID = field.ElementID
+				break
+			}
+		}
+	}
+	if fieldID == "" {
+		t.Fatalf("imported model has no field-level evidence: %s", graphRec.Body.String())
+	}
+	detailsReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+imported.Project.ID+"/model-elements/"+fieldID, nil)
+	detailsRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(detailsRec, detailsReq)
+	if detailsRec.Code != http.StatusOK || !strings.Contains(detailsRec.Body.String(), `"source_unit_summaries":[`) {
+		t.Fatalf("imported field evidence is not hydrated with source text: %d %s", detailsRec.Code, detailsRec.Body.String())
+	}
+
+	acceptReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+imported.Project.ID+"/model-acceptance", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d}`, imported.Project.CurrentRevision))))
+	acceptRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(acceptRec, acceptReq)
+	if acceptRec.Code != http.StatusOK {
+		t.Fatalf("accept imported model: %d %s", acceptRec.Code, acceptRec.Body.String())
+	}
+	var accepted struct {
+		ProjectRevision int `json:"project_revision"`
+	}
+	if err := json.Unmarshal(acceptRec.Body.Bytes(), &accepted); err != nil {
+		t.Fatalf("decode acceptance: %v", err)
+	}
+
+	generateReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+imported.Project.ID+"/stages/generate_outputs/run", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d}`, accepted.ProjectRevision))))
+	generateRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(generateRec, generateReq)
+	if generateRec.Code != http.StatusAccepted {
+		t.Fatalf("start imported outputs: %d %s", generateRec.Code, generateRec.Body.String())
+	}
+	var generated struct {
+		Job jobs.Job `json:"job"`
+	}
+	if err := json.Unmarshal(generateRec.Body.Bytes(), &generated); err != nil {
+		t.Fatalf("decode output job: %v", err)
+	}
+	waitForTestJob(t, server, generated.Job.ID)
+	project, _ := server.store.Project(imported.Project.ID)
+
+	exportSuffixes := map[string]string{
+		"dbml": "final.dbml", "sql": "schema.postgresql.sql", "report": "traceability_report.md", "bundle": "db_model_workbench_bundle.zip",
+	}
+	for _, kind := range []string{"dbml", "sql", "report", "bundle"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+imported.Project.ID+"/exports/"+kind, nil)
+		rec := httptest.NewRecorder()
+		server.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.Len() == 0 {
+			t.Fatalf("export %s: %d %s", kind, rec.Code, rec.Body.String())
+		}
+		wantFilename := fmt.Sprintf("attachment; filename=%q", fmt.Sprintf("%s_rev_%06d_%s", imported.Project.ID, project.CurrentRevision, exportSuffixes[kind]))
+		if got := rec.Header().Get("Content-Disposition"); got != wantFilename {
+			t.Fatalf("export %s has ambiguous filename: got %q want %q", kind, got, wantFilename)
+		}
+	}
+
+	completeReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+imported.Project.ID+"/complete", bytes.NewReader([]byte(fmt.Sprintf(`{"base_revision":%d}`, project.CurrentRevision))))
+	completeRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(completeRec, completeReq)
+	if completeRec.Code != http.StatusOK || !strings.Contains(completeRec.Body.String(), `"lifecycle_status":"completed"`) {
+		t.Fatalf("complete imported project: %d %s", completeRec.Code, completeRec.Body.String())
+	}
+
+	reopenReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+imported.Project.ID+"/reopen", bytes.NewReader([]byte(`{"mode":"new_revision","note":"Continue review"}`)))
+	reopenRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(reopenRec, reopenReq)
+	if reopenRec.Code != http.StatusOK {
+		t.Fatalf("reopen completed project: %d %s", reopenRec.Code, reopenRec.Body.String())
+	}
+	var reopened struct {
+		Project struct {
+			ID string `json:"id"`
+		} `json:"project"`
+		SourceSnapshotID string `json:"source_snapshot_id"`
+	}
+	if err := json.Unmarshal(reopenRec.Body.Bytes(), &reopened); err != nil {
+		t.Fatalf("decode reopened project: %v", err)
+	}
+	if reopened.Project.ID == "" || reopened.Project.ID == imported.Project.ID || reopened.SourceSnapshotID == "" {
+		t.Fatalf("reopen did not create a revision project: %s", reopenRec.Body.String())
+	}
+	reopenedStageReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+reopened.Project.ID+"/stages", nil)
+	reopenedStageRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(reopenedStageRec, reopenedStageReq)
+	if reopenedStageRec.Code != http.StatusOK || !strings.Contains(reopenedStageRec.Body.String(), `"next_stage":"model_review"`) {
+		t.Fatalf("reopened project is not ready for explicit model review: %d %s", reopenedStageRec.Code, reopenedStageRec.Body.String())
 	}
 }
 
@@ -130,25 +534,7 @@ func TestProcessSourcesEndpointWritesCombinedDocumentWithMock(t *testing.T) {
 		t.Fatalf("decode process response: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	completed := false
-	for time.Now().Before(deadline) {
-		job, ok := server.jobs.Get(started.Job.ID)
-		if !ok {
-			t.Fatalf("job not found")
-		}
-		if job.Status == "completed" {
-			completed = true
-			break
-		}
-		if job.Status == "failed" {
-			t.Fatalf("job failed: %+v", job)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !completed {
-		t.Fatalf("process-sources job did not complete")
-	}
+	waitForTestJob(t, server, started.Job.ID)
 
 	docReq := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/combined-document", nil)
 	docRec := httptest.NewRecorder()
@@ -380,7 +766,7 @@ func TestDeleteProjectEndpointRejectsActiveJob(t *testing.T) {
 	projectID, _ := createProjectAndAddPastedText(t, server, "Product has a name.")
 	started := make(chan struct{})
 	release := make(chan struct{})
-	server.jobs.StartWithRevision(projectID, "test", 0, nil, func(_ string, _ string, _ jobs.StepEmitter) (int, []string, error) {
+	server.jobs.StartWithRevision(projectID, "test", 0, nil, func(_ string, _ string, _ int, _ jobs.StepEmitter) (int, []string, error) {
 		close(started)
 		<-release
 		return 0, nil, nil
@@ -462,21 +848,49 @@ func processSourcesWithMock(t *testing.T, server *Server, projectID string, revi
 
 func waitForTestJob(t *testing.T, server *Server, jobID string) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	job, err := server.jobs.Wait(ctx, jobID)
+	if err != nil {
+		current, _ := server.jobs.Get(jobID)
+		t.Fatalf("job %s did not finish: %v (last state: %+v)", jobID, err, current)
+	}
+	if job.Status != jobs.StatusCompleted {
+		t.Fatalf("job %s reached %s: %s", jobID, job.Status, job.Error)
+	}
+}
+
+func waitForFailedTestJob(t *testing.T, server *Server, jobID string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	job, err := server.jobs.Wait(ctx, jobID)
+	if err != nil {
+		current, _ := server.jobs.Get(jobID)
+		t.Fatalf("job %s did not finish: %v (last state: %+v)", jobID, err, current)
+	}
+	if job.Status != jobs.StatusFailed {
+		t.Fatalf("job %s unexpectedly reached %s", jobID, job.Status)
+	}
+}
+
+func waitForRunningTestJob(t *testing.T, server *Server, jobID string) {
+	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		job, ok := server.jobs.Get(jobID)
 		if !ok {
 			t.Fatalf("job %s not found", jobID)
 		}
-		switch job.Status {
-		case jobs.StatusCompleted:
+		if job.Status == jobs.StatusRunning {
 			return
-		case jobs.StatusFailed:
-			t.Fatalf("job %s failed", jobID)
+		}
+		if job.Status == jobs.StatusFailed || job.Status == jobs.StatusCompleted {
+			t.Fatalf("job %s reached %s before running assertion", jobID, job.Status)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("job %s did not finish", jobID)
+	t.Fatalf("job %s did not start", jobID)
 }
 
 func newTestServer(t *testing.T) *Server {

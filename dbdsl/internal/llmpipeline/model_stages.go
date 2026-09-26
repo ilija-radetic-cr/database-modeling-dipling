@@ -40,6 +40,7 @@ func ValidateConceptualModel(proposal ConceptualModelProposal, units []dsl.Sourc
 		decisionIDs[id] = true
 	}
 	concepts := map[string]bool{}
+	attributeNames := map[string]map[string]bool{}
 	fileConcepts := map[string]bool{}
 	if len(proposal.EntityConcepts) == 0 {
 		qa.Errors = append(qa.Errors, "conceptual model produced no entity concepts")
@@ -88,6 +89,10 @@ func ValidateConceptualModel(proposal ConceptualModelProposal, units []dsl.Sourc
 				qa.Errors = append(qa.Errors, fmt.Sprintf("%s has empty or duplicate attribute %q", concept.ID, attribute.ID))
 			}
 			attributeIDs[attribute.ID] = true
+			if attributeNames[concept.ID] == nil {
+				attributeNames[concept.ID] = map[string]bool{}
+			}
+			attributeNames[concept.ID][attribute.Name] = true
 			validateEvidence(concept.ID+"."+attribute.ID, attribute.Evidence)
 			validateConceptLabel(&qa, concept.ID+"."+attribute.ID, attribute.Label)
 		}
@@ -112,6 +117,10 @@ func ValidateConceptualModel(proposal ConceptualModelProposal, units []dsl.Sourc
 	for _, lifecycle := range proposal.LifecycleConcepts {
 		if lifecycle.Owner != "" && !concepts[lifecycle.Owner] {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("lifecycle %s owner %s is not an entity concept", lifecycle.ID, lifecycle.Owner))
+		} else if lifecycle.Owner != "" && lifecycle.Field != "" && !attributeNames[lifecycle.Owner][lifecycle.Field] {
+			// The transformation always gives a lifecycle its state attribute; a
+			// missing one is a defect of the derivation, not of the description.
+			qa.Errors = append(qa.Errors, fmt.Sprintf("lifecycle %s names field %q, which %s does not have", lifecycle.ID, lifecycle.Field, lifecycle.Owner))
 		}
 		if len(lifecycle.States) > 0 && lifecycle.Initial != "" && !containsString(lifecycle.States, lifecycle.Initial) {
 			qa.Errors = append(qa.Errors, fmt.Sprintf("lifecycle %s initial state %q is not one of its states", lifecycle.ID, lifecycle.Initial))
@@ -125,6 +134,15 @@ func ValidateConceptualModel(proposal ConceptualModelProposal, units []dsl.Sourc
 		constraintIDs[constraint.ID] = true
 		if len(constraint.Targets) == 0 {
 			qa.Errors = append(qa.Errors, constraint.ID+" has no target")
+		}
+		switch constraint.Comparison {
+		case "":
+		case "case_sensitive", "case_insensitive":
+			if constraint.Kind != "uniqueness" {
+				qa.Errors = append(qa.Errors, constraint.ID+" comparison is valid only for uniqueness constraints")
+			}
+		default:
+			qa.Errors = append(qa.Errors, fmt.Sprintf("%s has invalid comparison %q", constraint.ID, constraint.Comparison))
 		}
 		validateEvidence(constraint.ID, constraint.Evidence)
 	}

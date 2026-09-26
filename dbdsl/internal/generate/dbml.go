@@ -23,6 +23,7 @@ type dbmlRef struct {
 	FromField string
 	ToTable   string
 	ToField   string
+	OnDelete  string
 }
 
 func DBMLFile(path string) (string, error) {
@@ -30,15 +31,48 @@ func DBMLFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if doc.DSL.Version == "0.6" {
-		return DBML(doc), nil
+	if doc.DSL.Version != "0.6" {
+		if doc, _, _, err = dsl.LoadBundle(path); err != nil {
+			return "", err
+		}
 	}
-
-	doc, _, _, err = dsl.LoadBundle(path)
-	if err != nil {
+	if err := dbmlRepresentable(doc); err != nil {
 		return "", err
 	}
 	return DBML(doc), nil
+}
+
+// dbmlRepresentable rejects enum values that DBML cannot carry unchanged. The
+// DBML parser keeps an escape such as \u0022 as literal text, so a value with
+// a quote, a backslash or a control character would come back as a different
+// value; the export fails with a clear reason instead of changing it silently.
+// SQL keeps such values exactly and is not affected.
+func dbmlRepresentable(doc *dsl.Document) error {
+	check := func(owner, field, value string) error {
+		for _, r := range value {
+			if r == '"' || r == '\\' || r < 0x20 || r == 0x7f {
+				return fmt.Errorf("enum value %q of %s.%s cannot be written in DBML without changing it; rename the value or use the SQL export", value, owner, field)
+			}
+		}
+		return nil
+	}
+	for _, entity := range doc.Entities {
+		for _, attribute := range entity.Attributes {
+			for _, value := range attribute.EnumValues {
+				if err := check(entity.ID, attribute.ID, value); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	for _, machine := range doc.StateMachines {
+		for _, state := range machine.States {
+			if err := check(machine.Owner, machine.Field, state); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func DBML(doc *dsl.Document) string {
@@ -68,9 +102,23 @@ func DBML(doc *dsl.Document) string {
 	}
 
 	for _, ref := range refs {
-		fmt.Fprintf(&out, "Ref: %s.%s > %s.%s\n", ref.FromTable, ref.FromField, ref.ToTable, ref.ToField)
+		fmt.Fprintf(&out, "Ref: %s.%s > %s.%s", ref.FromTable, ref.FromField, ref.ToTable, ref.ToField)
+		if ref.OnDelete != "" {
+			fmt.Fprintf(&out, " [delete: %s]", ref.OnDelete)
+		}
+		fmt.Fprintln(&out)
 	}
 
+	// Keep the same application-rule trace as SQL; these comments never claim
+	// that a diagram or database enforces the described business behavior.
+	var rules bytes.Buffer
+	_, notes := buildSQLChecks(doc)
+	writeSQLNotes(&rules, doc, notes)
+	for _, line := range strings.Split(strings.TrimSpace(rules.String()), "\n") {
+		if strings.HasPrefix(line, "--") {
+			fmt.Fprintln(&out, "//"+strings.TrimPrefix(line, "--"))
+		}
+	}
 	return strings.TrimRight(out.String(), "\n") + "\n"
 }
 
@@ -78,14 +126,14 @@ func writeTable(out *bytes.Buffer, entity dsl.Entity, fks []fkColumn, uniqueInde
 	fmt.Fprintf(out, "Table %s {\n", dbmlIdentifier(entity.TableName))
 
 	if entity.Kind != "association" {
-		fmt.Fprintln(out, "  id int [pk, increment]")
+		fmt.Fprintln(out, "  id bigint [pk, increment]")
 	}
 
 	for _, fk := range fks {
 		if fk.Required {
-			fmt.Fprintf(out, "  %s int [not null]\n", dbmlIdentifier(fk.Name))
+			fmt.Fprintf(out, "  %s bigint [not null]\n", dbmlIdentifier(fk.Name))
 		} else {
-			fmt.Fprintf(out, "  %s int\n", dbmlIdentifier(fk.Name))
+			fmt.Fprintf(out, "  %s bigint\n", dbmlIdentifier(fk.Name))
 		}
 	}
 
@@ -112,7 +160,7 @@ func writeTable(out *bytes.Buffer, entity dsl.Entity, fks []fkColumn, uniqueInde
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "  indexes {")
 		for _, index := range indexes {
-			fmt.Fprintf(out, "    %s %s\n", dbmlIndexFields(index.Fields), index.Settings)
+			fmt.Fprintf(out, "    %s %s\n", dbmlUniqueIndexFields(index), index.Settings)
 		}
 		fmt.Fprintln(out, "  }")
 	}
@@ -161,7 +209,7 @@ func writeEnums(out *bytes.Buffer, enumTypes map[string]enumType) {
 		enumType := enumTypes[key]
 		fmt.Fprintf(out, "Enum %s {\n", dbmlIdentifier(enumType.Name))
 		for _, value := range enumType.Values {
-			fmt.Fprintf(out, "  %s\n", dbmlIdentifier(value))
+			fmt.Fprintf(out, "  %s\n", dbmlEnumValue(value))
 		}
 		fmt.Fprintln(out, "}")
 		fmt.Fprintln(out)
@@ -183,23 +231,23 @@ func buildFKColumns(doc *dsl.Document, entityByID map[string]dsl.Entity) (map[st
 		case "many_to_one", "one_to_one":
 			fk := fkColumn{
 				OwnerEntityID: relationship.From,
-				Name:          fkName(relationship.To),
+				Name:          dsl.RelationshipForeignKeyName(relationship, relationship.To),
 				RefEntityID:   relationship.To,
 				RefTable:      to.TableName,
 				Required:      effectiveFKRequired(relationship),
 			}
 			fks[relationship.From] = appendUniqueFK(fks[relationship.From], fk)
-			refs = append(refs, dbmlRef{FromTable: from.TableName, FromField: fk.Name, ToTable: to.TableName, ToField: "id"})
+			refs = append(refs, dbmlRef{FromTable: from.TableName, FromField: fk.Name, ToTable: to.TableName, ToField: "id", OnDelete: dbmlOnDelete(relationship.OnDelete)})
 		case "one_to_many":
 			fk := fkColumn{
 				OwnerEntityID: relationship.To,
-				Name:          fkName(relationship.From),
+				Name:          dsl.RelationshipForeignKeyName(relationship, relationship.From),
 				RefEntityID:   relationship.From,
 				RefTable:      from.TableName,
 				Required:      effectiveFKRequired(relationship),
 			}
 			fks[relationship.To] = appendUniqueFK(fks[relationship.To], fk)
-			refs = append(refs, dbmlRef{FromTable: to.TableName, FromField: fk.Name, ToTable: from.TableName, ToField: "id"})
+			refs = append(refs, dbmlRef{FromTable: to.TableName, FromField: fk.Name, ToTable: from.TableName, ToField: "id", OnDelete: dbmlOnDelete(relationship.OnDelete)})
 		case "many_to_many":
 			through, hasThrough := entityByID[relationship.Through]
 			if !hasThrough {
@@ -207,14 +255,14 @@ func buildFKColumns(doc *dsl.Document, entityByID map[string]dsl.Entity) (map[st
 			}
 			fromFK := fkColumn{
 				OwnerEntityID: relationship.Through,
-				Name:          fkName(relationship.From),
+				Name:          dsl.RelationshipForeignKeyName(relationship, relationship.From),
 				RefEntityID:   relationship.From,
 				RefTable:      from.TableName,
 				Required:      effectiveFKRequired(relationship),
 			}
 			toFK := fkColumn{
 				OwnerEntityID: relationship.Through,
-				Name:          fkName(relationship.To),
+				Name:          dsl.RelationshipForeignKeyName(relationship, relationship.To),
 				RefEntityID:   relationship.To,
 				RefTable:      to.TableName,
 				Required:      effectiveFKRequired(relationship),
@@ -222,13 +270,24 @@ func buildFKColumns(doc *dsl.Document, entityByID map[string]dsl.Entity) (map[st
 			fks[relationship.Through] = appendUniqueFK(fks[relationship.Through], fromFK)
 			fks[relationship.Through] = appendUniqueFK(fks[relationship.Through], toFK)
 			refs = append(refs,
-				dbmlRef{FromTable: through.TableName, FromField: fromFK.Name, ToTable: from.TableName, ToField: "id"},
-				dbmlRef{FromTable: through.TableName, FromField: toFK.Name, ToTable: to.TableName, ToField: "id"},
+				dbmlRef{FromTable: through.TableName, FromField: fromFK.Name, ToTable: from.TableName, ToField: "id", OnDelete: dbmlOnDelete(relationship.OnDelete)},
+				dbmlRef{FromTable: through.TableName, FromField: toFK.Name, ToTable: to.TableName, ToField: "id", OnDelete: dbmlOnDelete(relationship.OnDelete)},
 			)
 		}
 	}
 
 	return fks, refs
+}
+
+func dbmlOnDelete(value string) string {
+	switch value {
+	case "cascade", "restrict":
+		return value
+	case "set_null":
+		return "set null"
+	default:
+		return ""
+	}
 }
 
 func appendUniqueFK(items []fkColumn, next fkColumn) []fkColumn {
@@ -241,8 +300,10 @@ func appendUniqueFK(items []fkColumn, next fkColumn) []fkColumn {
 }
 
 type dbmlIndex struct {
-	Fields   []string
-	Settings string
+	ID         string
+	Comparison string
+	Fields     []string
+	Settings   string
 }
 
 func buildUniqueIndexes(doc *dsl.Document) map[string][]dbmlIndex {
@@ -262,8 +323,10 @@ func buildUniqueIndexes(doc *dsl.Document) map[string][]dbmlIndex {
 			physicalFields = append(physicalFields, resolved.PhysicalFields...)
 		}
 		indexes[constraint.Owner] = append(indexes[constraint.Owner], dbmlIndex{
-			Fields:   physicalFields,
-			Settings: fmt.Sprintf("[unique, name: '%s']", dbmlQuote(constraint.ID)),
+			ID:         constraint.ID,
+			Fields:     physicalFields,
+			Comparison: constraint.Comparison,
+			Settings:   fmt.Sprintf("[unique, name: '%s']", dbmlQuote(constraint.ID)),
 		})
 	}
 	return indexes
@@ -292,13 +355,33 @@ func indexPhysicalFields(doc *dsl.Document, index dsl.Index) []string {
 	return fields
 }
 
+// hasIndexOn reports whether one of the unique indexes already covers exactly
+// the given columns, in any order, with the same comparison.
+func hasIndexOn(indexes []dbmlIndex, fields []string, comparison string) bool {
+	want := append([]string(nil), fields...)
+	sort.Strings(want)
+	for _, index := range indexes {
+		have := append([]string(nil), index.Fields...)
+		sort.Strings(have)
+		if strings.Join(have, ",") == strings.Join(want, ",") && index.Comparison == comparison {
+			return true
+		}
+	}
+	return false
+}
+
 func addOneToOneIndexes(doc *dsl.Document, indexes map[string][]dbmlIndex) {
 	for _, relationship := range doc.Relationships {
 		if relationship.Cardinality != "one_to_one" {
 			continue
 		}
+		fields := []string{dsl.RelationshipForeignKeyName(relationship, relationship.To)}
+		if hasIndexOn(indexes[relationship.From], fields, "") {
+			// A unique key on the same column already makes the link one-to-one.
+			continue
+		}
 		indexes[relationship.From] = append(indexes[relationship.From], dbmlIndex{
-			Fields:   []string{fkName(relationship.To)},
+			Fields:   fields,
 			Settings: fmt.Sprintf("[unique, name: '%s_one_to_one']", dbmlQuote(relationship.ID)),
 		})
 	}
@@ -306,6 +389,12 @@ func addOneToOneIndexes(doc *dsl.Document, indexes map[string][]dbmlIndex) {
 
 func buildTableComments(doc *dsl.Document) map[string][]string {
 	comments := map[string][]string{}
+	for _, relationship := range doc.Relationships {
+		for _, fk := range dsl.RelationshipForeignKeys(relationship) {
+			comments[fk.OwnerEntityID] = append(comments[fk.OwnerEntityID],
+				fmt.Sprintf("%s: %s", fk.Field, strings.ReplaceAll(elementComment(relationship.ID, relationship.Label, relationship.Description), "\n", " ")))
+		}
+	}
 	for _, constraint := range doc.Constraints {
 		field := physicalConstraintField(doc, constraint.Owner, constraint.Field)
 		switch constraint.Type {
@@ -423,6 +512,21 @@ func enumKey(entityID, attributeID string) string {
 	return entityID + "." + attributeID
 }
 
+// Expression indexes preserve explicit case-insensitive uniqueness in DBML.
+func dbmlUniqueIndexFields(index dbmlIndex) string {
+	if index.Comparison != "case_insensitive" {
+		return dbmlIndexFields(index.Fields)
+	}
+	expressions := make([]string, 0, len(index.Fields))
+	for _, field := range index.Fields {
+		expressions = append(expressions, "`lower("+sqlIdentifier(field)+")`")
+	}
+	if len(expressions) == 1 {
+		return expressions[0]
+	}
+	return "(" + strings.Join(expressions, ", ") + ")"
+}
+
 func dbmlIndexFields(fields []string) string {
 	if len(fields) == 1 {
 		return dbmlIdentifier(fields[0])
@@ -480,4 +584,23 @@ func dbmlIdentifier(value string) string {
 
 func dbmlQuote(value string) string {
 	return strings.ReplaceAll(value, "'", "\\'")
+}
+
+// Enum fields use quoted-identifier syntax. Backtick identifiers are accepted
+// for table and column names by dbdiagram, but @dbml/core rejects them in enum
+// declarations. The legacy parser also terminates on an escaped double quote,
+// so encode that character as a Unicode escape to keep the DBML parseable.
+func dbmlEnumValue(value string) string {
+	escaped := strings.NewReplacer(
+		"\\", "\\\\",
+		"\"", "\\u0022",
+		"\n", "\\n",
+		"\r", "\\r",
+		"\t", "\\t",
+		"\b", "\\b",
+		"\f", "\\f",
+		"\v", "\\v",
+		"\x00", "\\u0000",
+	).Replace(value)
+	return `"` + escaped + `"`
 }

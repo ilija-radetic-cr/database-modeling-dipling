@@ -5,6 +5,7 @@ import { BarChart3, CheckCircle2, FolderKanban, Settings, Workflow } from "lucid
 import { api, projectDefaultPath } from "@/shared/api/client";
 import { routeParts, useRouter } from "@/shared/lib/router";
 import { finalizePath } from "@/shared/lib/autopilot";
+import { selectCurrentProjectId } from "@/shared/lib/currentProject";
 
 const lastProjectStorageKey = "dbdsl:lastProjectId";
 
@@ -45,14 +46,22 @@ function Sidebar() {
   }, [routeProjectId]);
 
   const projectItems = projects.data?.items ?? [];
-  // A remembered project may have been deleted; fall back to the most recent
-  // open project, then to any project. With no projects there is no current one.
+  // A remembered or routed project may have been deleted (or may belong to a
+  // different local backend that used the same browser origin). Only expose it
+  // after the refreshed project list confirms that it still exists.
   const rememberedProjectId = readLastProject();
-  const currentProjectId: string | undefined = routeProjectId
-    ?? (rememberedProjectId && (projects.isLoading || projectItems.some((project) => project.id === rememberedProjectId)) ? rememberedProjectId : undefined)
-    ?? projectItems.find((project) => project.lifecycle_status !== "completed")?.id
-    ?? projectItems[0]?.id;
+  const listedRememberedProjectId = rememberedProjectId && projectItems.some((project) => project.id === rememberedProjectId) ? rememberedProjectId : undefined;
+  const currentProjectId = selectCurrentProjectId(projectItems, routeProjectId, rememberedProjectId, projects.isLoading);
   const currentProject = currentProjectId ? projectItems.find((project) => project.id === currentProjectId) : undefined;
+
+  useEffect(() => {
+    if (projects.isLoading || !rememberedProjectId || listedRememberedProjectId) return;
+    try {
+      window.localStorage.removeItem(lastProjectStorageKey);
+    } catch {
+      // Stale selection cleanup is only a convenience.
+    }
+  }, [listedRememberedProjectId, projects.isLoading, rememberedProjectId]);
   const currentProjectHref = currentProject
     ? projectDefaultPath(currentProject)
     : currentProjectId ? `/projects/${currentProjectId}/analysis/sources` : "/projects/new";

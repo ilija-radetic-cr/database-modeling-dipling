@@ -16,6 +16,7 @@ import { useRouter } from "@/shared/lib/router";
 import { JobProgress, friendlyError } from "@/features/jobs/JobProgress";
 import { PipelineStepper } from "./PipelineStepper";
 import { SourceTraceGraph } from "./SourceTraceGraph";
+import { AdversarialAuditPanel } from "@/features/model/AdversarialReview";
 import { isRunnableStage, isTerminalJobStatus, nextStageLabel, shouldRecoverLatestJob } from "@/shared/lib/pipeline";
 import { consumeAutoRun, gatePath } from "@/shared/lib/autopilot";
 
@@ -198,6 +199,7 @@ function ActivityView({ projectId }: { projectId: string }) {
 	const metrics = optimization.data?.report;
 	return (
 		<div className="activity-stack">
+			<AdversarialAuditPanel projectId={projectId} active={hasActiveJob} />
 			<Panel title="LLM optimization report">
 				{optimization.isLoading ? <LoadingState /> : optimization.isError ? (
 					<p className="error-text">{(optimization.error as Error).message}</p>

@@ -29,6 +29,14 @@ func TestProcessSourcesFreezesLLMExecutionProfileForLaterStages(t *testing.T) {
 	if sourceEffort != "low" {
 		t.Fatalf("source segmentation reasoning effort changed: %s", sourceEffort)
 	}
+	_, reviewEffort, _ := store.resolveLLMOptions(project.ID, "adversarial_review", "", "", 0)
+	if reviewEffort != "medium" {
+		t.Fatalf("adversarial review reasoning effort = %s, want medium", reviewEffort)
+	}
+	_, explicitReviewEffort, _ := store.resolveLLMOptions(project.ID, "adversarial_review", "", "high", 0)
+	if explicitReviewEffort != "high" {
+		t.Fatalf("explicit adversarial review reasoning effort was not preserved: %s", explicitReviewEffort)
+	}
 	budget := store.resolveStageBudget(project.ID, "conceptual_model", tokens, stageBudgetInput{})
 	if budget != 12000 {
 		t.Fatalf("conceptual adaptive budget = %d, want 12000", budget)

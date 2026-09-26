@@ -75,6 +75,7 @@ type ProjectState struct {
 	// ConceptualDescriptionPath is set by the segment-based flow: the rich
 	// description the conceptual model was derived from.
 	ConceptualDescriptionPath string
+	AdversarialReviewPath     string
 	LogicalPatchProposalPath  string
 	ValidationReportPath      string
 	LintReportPath            string
@@ -259,7 +260,7 @@ func (s *Store) ListProjects(status, search string) ([]ProjectSummary, error) {
 		return projects[i].UpdatedAt.After(projects[j].UpdatedAt)
 	})
 
-	var out []ProjectSummary
+	out := make([]ProjectSummary, 0, len(projects))
 	for _, project := range projects {
 		if status == "active" && project.Completed {
 			continue
@@ -373,37 +374,41 @@ func (s *Store) safeProjectWorkspaceDir(id string) (string, error) {
 }
 
 func (s *Store) DiscoverBundles() ([]BundleCandidate, error) {
-	searchRoot := filepath.Join(s.root, "poc")
-	if _, err := os.Stat(searchRoot); err != nil {
-		if os.IsNotExist(err) {
-			return []BundleCandidate{}, nil
-		}
-		return nil, err
+	searchRoots := []string{
+		filepath.Join(s.root, "fixtures", "golden"),
+		filepath.Join(s.root, "poc"),
 	}
-
-	var out []BundleCandidate
-	err := filepath.WalkDir(searchRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") {
-				return filepath.SkipDir
+	out := make([]BundleCandidate, 0)
+	for _, searchRoot := range searchRoots {
+		if _, err := os.Stat(searchRoot); err != nil {
+			if os.IsNotExist(err) {
+				continue
 			}
-			return nil
+			return nil, err
 		}
-		if d.Name() != "db_model.dsl.yaml" {
+		err := filepath.WalkDir(searchRoot, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if strings.HasPrefix(d.Name(), ".") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if d.Name() != "db_model.dsl.yaml" {
+				return nil
+			}
+			bundle, err := dsl.LoadV06Bundle(path)
+			if err != nil {
+				return nil
+			}
+			out = append(out, s.bundleCandidate(path, bundle))
 			return nil
-		}
-		bundle, err := dsl.LoadV06Bundle(path)
+		})
 		if err != nil {
-			return nil
+			return nil, err
 		}
-		out = append(out, s.bundleCandidate(path, bundle))
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].BundlePath < out[j].BundlePath
@@ -442,10 +447,9 @@ func (s *Store) ImportBundle(inputPath string) (ProjectSummary, error) {
 
 	s.mu.Lock()
 	s.nextProject++
-	s.nextResource++
 	id := fmt.Sprintf("project_%03d", s.nextProject)
 	delete(s.deletedProjectIDs, id)
-	s.projects[id] = &ProjectState{
+	project := &ProjectState{
 		ID:                 id,
 		Name:               nonEmpty(bundle.Document.Model.Name, filepath.Base(filepath.Dir(modelPath))),
 		Description:        bundle.Document.Model.Description,
@@ -461,10 +465,14 @@ func (s *Store) ImportBundle(inputPath string) (ProjectSummary, error) {
 		ModelPath:          modelPath,
 		TaskPath:           taskPath,
 		BundlePath:         filepath.Dir(modelPath),
+		SourceUnitsPath:    bundle.SourceUnitsPath,
 		SourceManifestPath: s.sourceManifestRel(id),
 		Imported:           true,
 		AcceptedQuality:    map[string]bool{},
-		Resources: []InputResource{{
+	}
+	if taskPath != "" {
+		s.nextResource++
+		project.Resources = []InputResource{{
 			ID:                   fmt.Sprintf("R-%03d", s.nextResource),
 			Kind:                 "uploaded_file",
 			FileType:             fileType,
@@ -482,9 +490,10 @@ func (s *Store) ImportBundle(inputPath string) (ProjectSummary, error) {
 			ExtractionConfidence: "high",
 			CreatedAt:            now,
 			UpdatedAt:            now,
-		}},
+		}}
 	}
-	err = s.writeSourceManifestLocked(s.projects[id])
+	s.projects[id] = project
+	err = s.writeSourceManifestLocked(project)
 	if err == nil {
 		err = s.saveLocked()
 	}
@@ -679,33 +688,48 @@ func (s *Store) ReopenProject(projectID, note string) (ProjectSummary, string, e
 		_ = s.DeleteProject(summary.ID)
 		return ProjectSummary{}, "", fmt.Errorf("preserve input resources while reopening: %w", err)
 	}
+	reopenedArtifacts, err := s.copyReopenedProjectArtifacts(source, summary.ID)
+	if err != nil {
+		_ = s.DeleteProject(summary.ID)
+		return ProjectSummary{}, "", fmt.Errorf("preserve derived artifacts while reopening: %w", err)
+	}
 	s.mu.Lock()
 	reopened := s.projects[summary.ID]
 	reopened.ModelGenerated = source.ModelGenerated
 	reopened.DBMLReady = false
 	reopened.Completed = false
 	reopened.FinalModelAccepted = false
-	reopened.ModelPath = source.ModelPath
-	reopened.TaskPath = source.TaskPath
-	reopened.BundlePath = source.BundlePath
-	reopened.CombinedDocumentPath = source.CombinedDocumentPath
-	reopened.CombinedDocumentLineagePath = source.CombinedDocumentLineagePath
-	reopened.SourceSegmentationProposalPath = source.SourceSegmentationProposalPath
+	reopened.ModelPath = reopenedArtifacts["model"]
+	reopened.TaskPath = reopenedArtifacts["task"]
+	reopened.BundlePath = reopenedArtifacts["bundle"]
+	reopened.CombinedDocumentPath = reopenedArtifacts["combined_document"]
+	reopened.CombinedDocumentLineagePath = reopenedArtifacts["combined_document_lineage"]
+	reopened.SourceSegmentationProposalPath = reopenedArtifacts["source_segmentation"]
 	reopened.CombinedDocumentReady = source.CombinedDocumentReady
-	reopened.SourceUnitsProposalPath = source.SourceUnitsProposalPath
-	reopened.SourceUnitsPath = source.SourceUnitsPath
-	reopened.SourceUnitQAPath = source.SourceUnitQAPath
-	reopened.ConceptualModelProposalPath = source.ConceptualModelProposalPath
-	reopened.ConceptualModelAcceptedPath = source.ConceptualModelAcceptedPath
-	reopened.ConceptualModelQAPath = source.ConceptualModelQAPath
-	reopened.ConceptualDescriptionPath = source.ConceptualDescriptionPath
-	reopened.LogicalPatchProposalPath = source.LogicalPatchProposalPath
-	reopened.ValidationReportPath = source.ValidationReportPath
-	reopened.LintReportPath = source.LintReportPath
-	reopened.QualityReportPath = source.QualityReportPath
+	reopened.SourceUnitsProposalPath = reopenedArtifacts["source_units_proposal"]
+	reopened.SourceUnitsPath = reopenedArtifacts["source_units"]
+	reopened.SourceUnitQAPath = reopenedArtifacts["source_unit_qa"]
+	reopened.ConceptualModelProposalPath = reopenedArtifacts["conceptual_model_proposal"]
+	reopened.ConceptualModelAcceptedPath = reopenedArtifacts["conceptual_model_accepted"]
+	reopened.ConceptualModelQAPath = reopenedArtifacts["conceptual_model_qa"]
+	reopened.ConceptualModelDiffPath = reopenedArtifacts["conceptual_model_diff"]
+	reopened.ConceptualDescriptionPath = reopenedArtifacts["conceptual_description"]
+	reopened.AdversarialReviewPath = reopenedArtifacts["adversarial_review"]
+	reopened.LogicalPatchProposalPath = reopenedArtifacts["logical_patch"]
+	reopened.ValidationReportPath = reopenedArtifacts["validation_report"]
+	reopened.LintReportPath = reopenedArtifacts["lint_report"]
+	reopened.QualityReportPath = reopenedArtifacts["quality_report"]
 	reopened.DBMLPath = ""
 	reopened.TraceReportPath = ""
 	reopened.Imported = source.Imported
+	if source.LLMExecutionProfile != nil {
+		profile := *source.LLMExecutionProfile
+		profile.StageOutputLimits = make(map[string]int, len(source.LLMExecutionProfile.StageOutputLimits))
+		for stage, limit := range source.LLMExecutionProfile.StageOutputLimits {
+			profile.StageOutputLimits[stage] = limit
+		}
+		reopened.LLMExecutionProfile = &profile
+	}
 	reopened.LifecycleStatus = "ready_for_model_generation"
 	if reopened.ModelGenerated {
 		reopened.LifecycleStatus = "model_generated"
@@ -754,6 +778,109 @@ func (s *Store) copyProjectResources(resources []InputResource, targetProjectID 
 		copied = append(copied, clone)
 	}
 	return copied, nil
+}
+
+// copyReopenedProjectArtifacts makes a reopened project independent from the
+// completed project it came from. The accepted bundle is re-homed as a
+// self-contained v0.6 bundle, while earlier workbench artifacts are copied into
+// the reopened project's first revision and remapped below.
+func (s *Store) copyReopenedProjectArtifacts(source *ProjectState, targetProjectID string) (map[string]string, error) {
+	paths := map[string]string{}
+	revisionRel := s.projectRevisionRel(targetProjectID, 1)
+	bundleRel := filepath.ToSlash(filepath.Join(revisionRel, "bundle"))
+	bundleDir := s.absoluteWorkspacePath(bundleRel)
+	bundle, err := dsl.LoadV06Bundle(source.ModelPath)
+	if err != nil {
+		return nil, err
+	}
+
+	document := *bundle.Document
+	document.Source.SourceUnitsFile = "source_units.yaml"
+	document.Source.ReviewDecisionsFile = "review_decisions.yaml"
+	modelBytes, err := yaml.Marshal(&document)
+	if err != nil {
+		return nil, err
+	}
+	sourceUnitBytes, err := yaml.Marshal(bundle.SourceUnits)
+	if err != nil {
+		return nil, err
+	}
+	reviewDecisionBytes, err := yaml.Marshal(bundle.ReviewDecisions)
+	if err != nil {
+		return nil, err
+	}
+	for name, data := range map[string][]byte{
+		"db_model.dsl.yaml":     modelBytes,
+		"source_units.yaml":     sourceUnitBytes,
+		"review_decisions.yaml": reviewDecisionBytes,
+	} {
+		if err := writeAtomic(filepath.Join(bundleDir, name), data); err != nil {
+			return nil, err
+		}
+	}
+
+	taskSource := source.TaskPath
+	if taskSource == "" {
+		taskSource = source.CombinedDocumentPath
+	}
+	if taskSource != "" {
+		task, err := os.ReadFile(s.absoluteWorkspacePath(taskSource))
+		if err != nil {
+			return nil, err
+		}
+		if err := writeAtomic(filepath.Join(bundleDir, "TASK.md"), task); err != nil {
+			return nil, err
+		}
+		document.Source.TaskTextFile = "TASK.md"
+		modelBytes, err = yaml.Marshal(&document)
+		if err != nil {
+			return nil, err
+		}
+		if err := writeAtomic(filepath.Join(bundleDir, "db_model.dsl.yaml"), modelBytes); err != nil {
+			return nil, err
+		}
+		paths["task"] = filepath.Join(bundleDir, "TASK.md")
+	}
+	paths["model"] = filepath.Join(bundleDir, "db_model.dsl.yaml")
+	paths["bundle"] = bundleDir
+	paths["source_units"] = filepath.ToSlash(filepath.Join(bundleRel, "source_units.yaml"))
+
+	type artifactCopy struct {
+		key       string
+		source    string
+		targetRel string
+	}
+	copies := []artifactCopy{
+		{key: "combined_document", source: source.CombinedDocumentPath, targetRel: s.combinedDocumentRel(targetProjectID)},
+		{key: "combined_document_lineage", source: source.CombinedDocumentLineagePath, targetRel: s.combinedDocumentLineageRel(targetProjectID)},
+		{key: "source_segmentation", source: source.SourceSegmentationProposalPath, targetRel: s.sourceSegmentationProposalRel(targetProjectID)},
+		{key: "source_units_proposal", source: source.SourceUnitsProposalPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "source_units.proposed.json"))},
+		{key: "source_unit_qa", source: source.SourceUnitQAPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "source_unit_qa.json"))},
+		{key: "conceptual_model_proposal", source: source.ConceptualModelProposalPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "conceptual_model.proposed.json"))},
+		{key: "conceptual_model_accepted", source: source.ConceptualModelAcceptedPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "conceptual_model.accepted.json"))},
+		{key: "conceptual_model_qa", source: source.ConceptualModelQAPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "conceptual_model_qa.json"))},
+		{key: "conceptual_model_diff", source: source.ConceptualModelDiffPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "conceptual_model_diff.json"))},
+		{key: "conceptual_description", source: source.ConceptualDescriptionPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "conceptual_description.json"))},
+		{key: "adversarial_review", source: source.AdversarialReviewPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "adversarial_review_history.json"))},
+		{key: "logical_patch", source: source.LogicalPatchProposalPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "dbdsl_patch.proposed.json"))},
+		{key: "validation_report", source: source.ValidationReportPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "validation_report.json"))},
+		{key: "lint_report", source: source.LintReportPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "lint_report.json"))},
+		{key: "quality_report", source: source.QualityReportPath, targetRel: filepath.ToSlash(filepath.Join(revisionRel, "snapshot", "quality_report.json"))},
+	}
+	for _, artifact := range copies {
+		if artifact.source == "" {
+			continue
+		}
+		data, err := os.ReadFile(s.absoluteWorkspacePath(artifact.source))
+		if err != nil {
+			return nil, err
+		}
+		if err := writeAtomic(s.absoluteWorkspacePath(artifact.targetRel), data); err != nil {
+			return nil, err
+		}
+		paths[artifact.key] = artifact.targetRel
+	}
+	return paths, nil
 }
 
 func (s *Store) copyProjectLLMRuns(sourceProjectID, targetProjectID string) error {
@@ -860,7 +987,7 @@ func (s *Store) artifactHealthForProject(project *ProjectState, report quality.R
 	}
 	modelValid := modelStatus == "ready" && report.Summary.ValidationErrors == 0
 	conceptualStatus := s.artifactStatus(project.ConceptualModelAcceptedPath)
-	if conceptualStatus == "not_generated" && s.artifactStatus(project.ConceptualModelProposalPath) == "ready" {
+	if conceptualStatus == "not_generated" && (s.artifactStatus(project.ConceptualDescriptionPath) == "ready" || s.artifactStatus(project.ConceptualModelProposalPath) == "ready") {
 		conceptualStatus = "proposed"
 	}
 	segmentationStatus := "not_generated"
@@ -916,13 +1043,18 @@ func deriveLifecycle(project *ProjectState, health ArtifactHealth) string {
 }
 
 func (s *Store) SourceUnits(projectID string) ([]SourceUnit, error) {
-	if _, ok := s.Project(projectID); !ok {
+	project, ok := s.Project(projectID)
+	if !ok {
 		return nil, ErrNotFound
 	}
 	if units, found, err := s.projectSourceUnits(projectID); found || err != nil {
 		return units, err
 	}
-	return nil, nil
+	bundle, err := s.bundleForProject(project)
+	if err != nil {
+		return nil, err
+	}
+	return sourceUnitsFromBundle(project, bundle.SourceUnits), nil
 }
 
 func (s *Store) SourceUnit(projectID, sourceUnitID string) (SourceUnit, bool, error) {
@@ -1109,6 +1241,17 @@ func (s *Store) ExportBundle(projectID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	adversarialReviewHistory := ""
+	if project.AdversarialReviewPath != "" {
+		if _, err := s.loadAdversarialReviewHistory(project); err != nil {
+			return nil, fmt.Errorf("read required adversarial review audit history: %w", err)
+		}
+		data, err := os.ReadFile(s.absoluteWorkspacePath(project.AdversarialReviewPath))
+		if err != nil {
+			return nil, fmt.Errorf("read required adversarial review audit history: %w", err)
+		}
+		adversarialReviewHistory = string(data)
+	}
 	files := map[string]string{
 		"TASK.md":                           s.readArtifact(project.TaskPath),
 		"source_manifest.yaml":              sourceManifest,
@@ -1128,6 +1271,7 @@ func (s *Store) ExportBundle(projectID string) ([]byte, error) {
 		"conceptual_model_qa.json":          s.readArtifact(project.ConceptualModelQAPath),
 		"conceptual_model_diff.json":        s.readArtifact(project.ConceptualModelDiffPath),
 		"conceptual_description.json":       s.readArtifact(project.ConceptualDescriptionPath),
+		"adversarial_review_history.json":   adversarialReviewHistory,
 		"dbdsl_patch.proposed.json":         s.readArtifact(project.LogicalPatchProposalPath),
 		"validation_report.json":            s.readArtifact(project.ValidationReportPath),
 		"lint_report.json":                  s.readArtifact(project.LintReportPath),
@@ -1352,7 +1496,9 @@ func (s *Store) saveLocked() error {
 		cp.ConceptualModelProposalPath = s.relativePath(cp.ConceptualModelProposalPath)
 		cp.ConceptualModelAcceptedPath = s.relativePath(cp.ConceptualModelAcceptedPath)
 		cp.ConceptualModelQAPath = s.relativePath(cp.ConceptualModelQAPath)
+		cp.ConceptualModelDiffPath = s.relativePath(cp.ConceptualModelDiffPath)
 		cp.ConceptualDescriptionPath = s.relativePath(cp.ConceptualDescriptionPath)
+		cp.AdversarialReviewPath = s.relativePath(cp.AdversarialReviewPath)
 		cp.LogicalPatchProposalPath = s.relativePath(cp.LogicalPatchProposalPath)
 		cp.ValidationReportPath = s.relativePath(cp.ValidationReportPath)
 		cp.LintReportPath = s.relativePath(cp.LintReportPath)
@@ -1402,6 +1548,7 @@ func (s *Store) normalizeLoadedProject(project *ProjectState) {
 	project.ConceptualModelQAPath = s.absoluteWorkspacePath(project.ConceptualModelQAPath)
 	project.ConceptualModelDiffPath = s.absoluteWorkspacePath(project.ConceptualModelDiffPath)
 	project.ConceptualDescriptionPath = s.absoluteWorkspacePath(project.ConceptualDescriptionPath)
+	project.AdversarialReviewPath = s.absoluteWorkspacePath(project.AdversarialReviewPath)
 	project.LogicalPatchProposalPath = s.absoluteWorkspacePath(project.LogicalPatchProposalPath)
 	project.ValidationReportPath = s.absoluteWorkspacePath(project.ValidationReportPath)
 	project.LintReportPath = s.absoluteWorkspacePath(project.LintReportPath)
@@ -1490,8 +1637,9 @@ func (s *Store) refreshArtifactRegistry(project *ProjectState) {
 		"source_units_accepted": project.SourceUnitsPath, "source_unit_qa": project.SourceUnitQAPath,
 		"conceptual_model_proposed": project.ConceptualModelProposalPath, "conceptual_model_accepted": project.ConceptualModelAcceptedPath,
 		"conceptual_model_qa": project.ConceptualModelQAPath, "conceptual_model_diff": project.ConceptualModelDiffPath,
-		"conceptual_description": project.ConceptualDescriptionPath,
-		"logical_patch_proposed": project.LogicalPatchProposalPath, "logical_model_accepted": project.ModelPath, "validation_report": project.ValidationReportPath,
+		"conceptual_description":     project.ConceptualDescriptionPath,
+		"adversarial_review_history": project.AdversarialReviewPath,
+		"logical_patch_proposed":     project.LogicalPatchProposalPath, "logical_model_accepted": project.ModelPath, "validation_report": project.ValidationReportPath,
 		"lint_report": project.LintReportPath, "quality_report": project.QualityReportPath,
 		"model_dbml": project.DBMLPath, "traceability_report": project.TraceReportPath,
 	}
@@ -1651,7 +1799,28 @@ var (
 	ErrRevisionConflict  = errors.New("revision conflict")
 	ErrModelNotGenerated = errors.New("model is not generated")
 	ErrDBMLNotReady      = errors.New("DBML is not ready")
+	// ErrProjectCompleted guards the locked snapshot of a completed project:
+	// it can be read, exported, reopened as a new project or deleted, but not
+	// changed in place.
+	ErrProjectCompleted = errors.New("project is completed; reopen it as a new revision to make changes")
 )
+
+func projectMutable(project *ProjectState) error {
+	if project.Completed {
+		return ErrProjectCompleted
+	}
+	return nil
+}
+
+// RequireMutable reports whether a mutating operation may start on the project.
+// Every commit checks it again under the store lock.
+func (s *Store) RequireMutable(projectID string) error {
+	project, ok := s.Project(projectID)
+	if !ok {
+		return ErrNotFound
+	}
+	return projectMutable(project)
+}
 
 func (s *Store) withProject(id string, baseRevision int, fn func(project *ProjectState) error) error {
 	s.mu.Lock()
@@ -1662,6 +1831,9 @@ func (s *Store) withProject(id string, baseRevision int, fn func(project *Projec
 	}
 	if baseRevision > 0 && project.CurrentRevision != baseRevision {
 		return ErrRevisionConflict
+	}
+	if err := projectMutable(project); err != nil {
+		return err
 	}
 	if err := fn(project); err != nil {
 		return err
@@ -1675,6 +1847,10 @@ func cloneProject(project *ProjectState) *ProjectState {
 	cp := *project
 	if project.LLMExecutionProfile != nil {
 		profile := *project.LLMExecutionProfile
+		profile.StageOutputLimits = make(map[string]int, len(project.LLMExecutionProfile.StageOutputLimits))
+		for stage, limit := range project.LLMExecutionProfile.StageOutputLimits {
+			profile.StageOutputLimits[stage] = limit
+		}
 		cp.LLMExecutionProfile = &profile
 	}
 	cp.AcceptedQuality = map[string]bool{}

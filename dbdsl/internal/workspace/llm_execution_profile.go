@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"math"
 	"os"
 	"strings"
 
@@ -35,6 +36,7 @@ type llmExecutionControls struct {
 }
 
 const conceptualModelReasoningEffort = "medium"
+const adversarialReviewReasoningEffort = "medium"
 
 func defaultLLMExecutionProfile(model string) LLMExecutionProfile {
 	if model == "" {
@@ -56,6 +58,7 @@ func defaultLLMExecutionProfile(model string) LLMExecutionProfile {
 		RiskPolicy: "review_risk_value_v1",
 		StageOutputLimits: map[string]int{
 			"source_segmentation": 16000, "conceptual_model": 32000,
+			"adversarial_review": 24000, "conceptual_correction": 32000,
 		},
 	}
 }
@@ -102,7 +105,9 @@ func (s *Store) resolveLLMOptions(projectID, stage, model, effort string, maxOut
 		model = profile.Model
 	}
 	if effort == "" {
-		if stage == "conceptual_model" {
+		if stage == "adversarial_review" {
+			effort = adversarialReviewReasoningEffort
+		} else if stage == "conceptual_model" || stage == "conceptual_correction" {
 			effort = conceptualModelReasoningEffort
 		} else {
 			effort = profile.ReasoningEffort
@@ -110,7 +115,7 @@ func (s *Store) resolveLLMOptions(projectID, stage, model, effort string, maxOut
 	}
 	if maxOutputTokens <= 0 && profile.BudgetPolicy != "adaptive_v1" {
 		maxOutputTokens = profile.MaxOutputTokens
-		if stage == "conceptual_model" && maxOutputTokens < 24000 {
+		if (stage == "conceptual_model" || stage == "conceptual_correction") && maxOutputTokens < 24000 {
 			maxOutputTokens = 24000
 		}
 	}
@@ -160,6 +165,13 @@ func (s *Store) resolveStageBudget(projectID, stage string, requested int, input
 			// The whole description is one response.
 			value, floor = 8000+150*input.Units, 16000
 		}
+	case "conceptual_correction":
+		// A correction returns only what it changes, but it reasons over the
+		// whole description, so it may use the stage's full limit; the limit
+		// is a cap, and only the tokens actually produced are spent.
+		value, floor = math.MaxInt32, 16000
+	case "adversarial_review":
+		value, floor = 8000+80*input.Units, 12000
 	default:
 		value, floor = 6000, 6000
 	}

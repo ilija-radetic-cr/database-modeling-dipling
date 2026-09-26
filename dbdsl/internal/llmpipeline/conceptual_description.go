@@ -117,6 +117,7 @@ type DescriptionRule struct {
 	Statement  string              `json:"statement"`
 	AppliesTo  []string            `json:"applies_to"`
 	Parameters []string            `json:"parameters"`
+	Comparison string              `json:"comparison,omitempty"`
 	Evidence   DescriptionEvidence `json:"evidence"`
 }
 
@@ -186,7 +187,8 @@ func conceptualDescriptionSchema() map[string]any {
 		})),
 		"rules": array(object(map[string]any{
 			"id": str(), "kind": enum("uniqueness", "access", "visibility", "eligibility", "precondition", "approval", "priority", "quantity", "time", "mutability", "retention", "parameter", "context", "other"),
-			"statement": str(), "applies_to": array(str()), "parameters": array(str()), "evidence": evidence,
+			"statement": str(), "applies_to": array(str()), "parameters": array(str()),
+			"comparison": enum("", "case_sensitive", "case_insensitive"), "evidence": evidence,
 		})),
 		"queries":    array(object(map[string]any{"id": str(), "description": str(), "needs": array(str()), "criteria": array(str()), "evidence": evidence})),
 		"imports":    array(object(map[string]any{"id": str(), "description": str(), "fills": array(str()), "evidence": evidence})),
@@ -237,10 +239,7 @@ func RunConceptualDescription(ctx context.Context, client llm.Client, opts Conce
 			"canonicalizer_version": "backend_source_unit_ids_v1", "call_gate_policy": "always_v1",
 			"budget_policy": "adaptive_v1", "stage_max_output_tokens": fmt.Sprint(opts.MaxOutputTokens),
 		},
-	}, &description, func() []string {
-		qa = ValidateConceptualDescription(&description, opts.SourceUnits)
-		return qa.Errors
-	})
+	}, &description, conceptualDescriptionCheck(&description, opts.SourceUnits, &qa))
 	if err != nil {
 		return description, qa, err
 	}
@@ -248,6 +247,20 @@ func RunConceptualDescription(ctx context.Context, client llm.Client, opts Conce
 		return description, qa, fmt.Errorf("conceptual description failed validation: %s", strings.Join(qa.Errors, "; "))
 	}
 	return description, qa, nil
+}
+
+// conceptualDescriptionCheck is the validation callback of the conceptual stage.
+// Before the feedback round it reports every contract violation, so the model
+// gets one chance to correct them; on the kept response it repairs what is left
+// and fails only on problems no repair can fix.
+func conceptualDescriptionCheck(description *ConceptualDescription, units []dsl.SourceUnit, qa *StageQA) func(final bool) []string {
+	return func(final bool) []string {
+		if !final {
+			return append(fatalDescriptionErrors(*description), ConceptualDescriptionIssues(*description, units)...)
+		}
+		*qa = ValidateConceptualDescription(description, units)
+		return qa.Errors
+	}
 }
 
 // RenderSegmentsForConceptualModel writes the numbered segments in the format
@@ -303,90 +316,11 @@ func conceptualCoverageTargets(units []dsl.SourceUnit) []string {
 // coverage is a warning the conceptual review shows to the person.
 func ValidateConceptualDescription(description *ConceptualDescription, units []dsl.SourceUnit) StageQA {
 	qa := newStageQA(nil)
-	known := map[string]bool{}
-	for _, unit := range units {
-		known[unit.ID] = true
-	}
-	dropped := map[string]bool{}
-	clean := func(evidence *DescriptionEvidence) {
-		kept := []string{}
-		for _, id := range evidence.Segments {
-			id = strings.TrimSpace(id)
-			if known[id] {
-				kept = appendUnique(kept, id)
-			} else if id != "" {
-				dropped[id] = true
-			}
-		}
-		evidence.Segments = kept
-	}
-	things := map[string]bool{}
-	for i := range description.Things {
-		thing := &description.Things[i]
-		thing.ID = strings.TrimSpace(thing.ID)
-		if thing.ID == "" || things[thing.ID] {
-			qa.Errors = append(qa.Errors, fmt.Sprintf("thing %q has an empty or duplicate id", thing.ID))
-		}
-		things[thing.ID] = true
-		clean(&thing.Evidence)
-		for p := range thing.Properties {
-			clean(&thing.Properties[p].Evidence)
-		}
-		for l := range thing.Links {
-			clean(&thing.Links[l].Evidence)
-		}
-		for t := range thing.Transitions {
-			clean(&thing.Transitions[t].Evidence)
-		}
-	}
-	if len(description.Things) == 0 {
-		qa.Errors = append(qa.Errors, "the description contains no things")
-	}
-	actorThing := map[string]string{}
-	for i := range description.Actors {
-		actor := &description.Actors[i]
-		clean(&actor.Evidence)
-		if actor.RepresentedBy != "" && !things[actor.RepresentedBy] {
-			qa.Warnings = append(qa.Warnings, fmt.Sprintf("actor %s represented_by %q is not a thing; the reference was cleared", actor.ID, actor.RepresentedBy))
-			actor.RepresentedBy = ""
-		}
-		if actor.RepresentedBy != "" {
-			actorThing[actor.ID] = actor.RepresentedBy
-		}
-	}
-	for i := range description.Things {
-		thing := &description.Things[i]
-		if thing.InstanceOf != "" && !things[thing.InstanceOf] {
-			qa.Warnings = append(qa.Warnings, fmt.Sprintf("thing %s instance_of %q is not a thing; the reference was cleared", thing.ID, thing.InstanceOf))
-			thing.InstanceOf = ""
-		}
-		for l := range thing.Links {
-			link := &thing.Links[l]
-			if target, ok := actorThing[link.To]; ok && !things[link.To] {
-				link.To = target
-			}
-			if !things[link.To] {
-				qa.Errors = append(qa.Errors, fmt.Sprintf("thing %s links to %q, which is not a thing id", thing.ID, link.To))
-			}
-		}
-	}
-	for _, group := range [][]*DescriptionEvidence{ruleEvidence(description), queryEvidence(description), importEvidence(description), boundaryEvidence(description), questionEvidence(description)} {
-		for _, evidence := range group {
-			clean(evidence)
-		}
-	}
+	qa.Errors = append(qa.Errors, fatalDescriptionErrors(*description)...)
+	qa.Warnings = append(qa.Warnings, sanitizeConceptualDescription(description, units)...)
 	excluded := map[string]bool{}
-	for i := range description.Excluded {
-		id := strings.TrimSpace(description.Excluded[i].Segment)
-		description.Excluded[i].Segment = id
-		if known[id] {
-			excluded[id] = true
-		} else if id != "" {
-			dropped[id] = true
-		}
-	}
-	if len(dropped) > 0 {
-		qa.Warnings = append(qa.Warnings, "unknown segment IDs were removed from evidence: "+strings.Join(sortedKeys(dropped), ", "))
+	for _, item := range description.Excluded {
+		excluded[item.Segment] = true
 	}
 	cited := citedSegments(*description)
 	targets := conceptualCoverageTargets(units)
@@ -408,6 +342,24 @@ func ValidateConceptualDescription(description *ConceptualDescription, units []d
 	qa.Coverage["excluded_segments"] = len(excluded)
 	qa.OK = len(qa.Errors) == 0
 	return qa
+}
+
+// fatalDescriptionErrors are the problems no repair can fix: without distinct
+// thing IDs nothing else in the description can be referenced.
+func fatalDescriptionErrors(d ConceptualDescription) []string {
+	var errors []string
+	if len(d.Things) == 0 {
+		errors = append(errors, "the description contains no things")
+	}
+	seen := map[string]bool{}
+	for _, thing := range d.Things {
+		id := strings.TrimSpace(thing.ID)
+		if id == "" || seen[id] {
+			errors = append(errors, fmt.Sprintf("thing %q has an empty or duplicate id", id))
+		}
+		seen[id] = true
+	}
+	return errors
 }
 
 func ruleEvidence(d *ConceptualDescription) []*DescriptionEvidence {
@@ -480,7 +432,7 @@ func citedSegments(d ConceptualDescription) map[string]bool {
 	return cited
 }
 
-func sortedKeys(values map[string]bool) []string {
+func sortedKeys[T any](values map[string]T) []string {
 	out := make([]string, 0, len(values))
 	for key := range values {
 		out = append(out, key)

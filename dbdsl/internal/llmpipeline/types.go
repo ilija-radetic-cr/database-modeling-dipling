@@ -272,6 +272,7 @@ type ConceptualConstraintProposal struct {
 	Kind        string           `json:"kind" yaml:"kind"`
 	Targets     []string         `json:"targets" yaml:"targets"`
 	Expression  string           `json:"expression,omitempty" yaml:"expression,omitempty"`
+	Comparison  string           `json:"comparison,omitempty" yaml:"comparison,omitempty"`
 	Evidence    EvidenceProposal `json:"evidence" yaml:"evidence"`
 }
 
@@ -331,8 +332,11 @@ type PlanElementProposal struct {
 }
 
 type ConceptualTransition struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	Trigger string `json:"trigger,omitempty"`
+	By      string `json:"by,omitempty"`
+	Effects string `json:"effects,omitempty"`
 }
 
 type PatchProposal struct {
@@ -392,6 +396,7 @@ type AttributeProposal struct {
 }
 
 type RelationshipProposal struct {
+	ForeignKey  string           `json:"foreign_key,omitempty"`
 	ID          string           `json:"id"`
 	Label       string           `json:"label"`
 	Description string           `json:"description"`
@@ -418,6 +423,7 @@ type ConstraintProposal struct {
 	Max         any              `json:"max"`
 	Pattern     string           `json:"pattern"`
 	Expression  string           `json:"expression"`
+	Comparison  string           `json:"comparison,omitempty"`
 	Description string           `json:"description"`
 	Evidence    EvidenceProposal `json:"evidence"`
 }

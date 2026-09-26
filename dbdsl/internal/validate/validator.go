@@ -275,6 +275,9 @@ func (v *validator) validateRelationships() {
 		if relationship.OnDelete != "" && !v.isV02() {
 			v.add("%s.on_delete is only supported in DB-DSL v0.2", prefix)
 		}
+		if relationship.ForeignKey != "" {
+			v.add("%s.foreign_key requires DB-DSL v0.6", prefix)
+		}
 		if relationship.FKRequired != nil && !v.isV02() {
 			v.add("%s.fk_required is only supported in DB-DSL v0.2", prefix)
 		}
@@ -352,6 +355,9 @@ func (v *validator) validateConstraints() {
 
 	for _, constraint := range v.doc.Constraints {
 		prefix := fmt.Sprintf("constraint %s", displayID(constraint.ID))
+		if constraint.Comparison != "" {
+			v.add("%s comparison requires DB-DSL v0.6", prefix)
+		}
 		requireString(v, prefix, "type", constraint.Type)
 		requireString(v, prefix, "owner", constraint.Owner)
 		requireString(v, prefix, "description", constraint.Description)

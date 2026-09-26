@@ -382,6 +382,89 @@ export interface ConceptualModel {
 	confidence_summary: Record<string, string>;
 }
 
+export type AdversarialReviewStatus = "not_run" | "current" | "stale";
+export type AdversarialReviewActor = "human" | "test_operator";
+export type AdversarialReviewDecisionType = "dismiss" | "waive" | "request_correction";
+
+export interface AdversarialReviewFinding {
+	id: string;
+	severity: "error" | "warning" | "info" | "critical" | string;
+	category: string;
+	source_unit_ids: string[];
+	// Elements of the conceptual description the finding is about: "thing",
+	// "thing.property", "thing.other_thing" (a link), "thing.stanje", "rule:ID", …
+	description_refs: string[];
+	source_quote: string;
+	claim: string;
+	expected: string;
+	actual: string;
+	suggested_correction: string;
+}
+
+export type AdversarialReviewFindingInput = Omit<AdversarialReviewFinding, "id">;
+
+export interface AdversarialReviewFindingProvenance {
+	finding_id: string;
+	review_id: string;
+	origin: "llm" | "operator" | string;
+	actor: AdversarialReviewActor | string;
+	note?: string;
+	created_at: string;
+	project_revision: number;
+}
+
+export interface AdversarialReviewRecord {
+	review_id: string;
+	scope: "conceptual" | "logical" | string;
+	candidate_revision: number;
+	candidate_hash: string;
+	source_hash: string;
+	summary: string;
+	findings: AdversarialReviewFinding[];
+}
+
+export interface AdversarialReviewDecision {
+	review_id: string;
+	finding_id: string;
+	decision: AdversarialReviewDecisionType;
+	note: string;
+	actor: AdversarialReviewActor;
+	decided_at: string;
+	project_revision: number;
+}
+
+export interface AdversarialReviewAuditEvent {
+	event_id: string;
+	review_id: string;
+	finding_id?: string;
+	action: string;
+	actor: AdversarialReviewActor | string;
+	note?: string;
+	candidate_hash: string;
+	source_hash: string;
+	created_at: string;
+	project_revision: number;
+	before_candidate_hash?: string;
+	after_candidate_hash?: string;
+	before_model_summary?: string;
+	after_model_summary?: string;
+	reason?: string;
+	result?: string;
+	changes?: string[];
+}
+
+export interface AdversarialReviewResponse {
+	project_revision: number;
+	status: AdversarialReviewStatus;
+	review: AdversarialReviewRecord | null;
+	decisions: AdversarialReviewDecision[];
+	audit: AdversarialReviewAuditEvent[];
+	finding_provenance: AdversarialReviewFindingProvenance[];
+	can_accept: boolean;
+	// Whether the conceptual model was accepted earlier; can_accept says whether acceptance is possible now.
+	accepted?: boolean;
+}
+
 // ConceptualDescription is the rich LLM description of what the system must
 // remember; the conceptual model is derived from it deterministically.
 export interface DescriptionEvidence {
@@ -438,6 +521,9 @@ export interface ModelField {
 
 export interface ModelEdge {
   id: string;
+  // The trace element the line belongs to; the two lines of a many-to-many
+  // association share their relationship.
+  element_id?: string;
   kind: string;
   label: string;
   from: string;

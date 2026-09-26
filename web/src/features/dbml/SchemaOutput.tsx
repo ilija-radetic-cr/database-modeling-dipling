@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
 import { api } from "@/shared/api/client";
-import { Button, Panel } from "@/shared/components/ui";
+import { Panel } from "@/shared/components/ui";
+import { ExportButton } from "@/shared/components/ExportButton";
 
 // SchemaOutput shows the two deterministic renderings of the accepted DB-DSL
 // model: DBML for diagrams and PostgreSQL DDL for an actual database.
@@ -16,10 +16,9 @@ export function SchemaOutput({ projectId, ready }: { projectId: string; ready: b
     <Panel
       title="Database schema"
       action={
-        <Button disabled={!ready} onClick={() => window.open(api.exportURL(projectId, format), "_blank")}>
-          <Download size={18} />
+        <ExportButton projectId={projectId} kind={format} disabled={!ready}>
           {format === "dbml" ? "DBML" : "SQL"}
-        </Button>
+        </ExportButton>
       }
     >
       <div className="segmented">

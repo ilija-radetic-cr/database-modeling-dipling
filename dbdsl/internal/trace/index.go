@@ -1,7 +1,9 @@
 package trace
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"dbdsl/internal/dsl"
 )
@@ -38,8 +40,12 @@ type ModelField struct {
 	Evidence    EvidenceRef `json:"evidence"`
 }
 
+// ModelEdge is one line of the database diagram. A many-to-many relationship
+// is drawn as the two references of its association table, as the schema
+// has them; both lines carry the relationship as their ElementID.
 type ModelEdge struct {
 	ID          string      `json:"id"`
+	ElementID   string      `json:"element_id"`
 	Kind        string      `json:"kind"`
 	Label       string      `json:"label"`
 	From        string      `json:"from"`
@@ -103,13 +109,34 @@ func BuildModelGraph(doc *dsl.Document) ModelGraph {
 			Evidence:    evidenceRef(view.Evidence),
 		})
 	}
+	tables := map[string]bool{}
+	for _, entity := range doc.Entities {
+		tables[entity.ID] = true
+	}
 	for _, rel := range doc.Relationships {
 		required := false
 		if rel.Required != nil {
 			required = *rel.Required
 		}
+		if rel.Cardinality == "many_to_many" && tables[rel.Through] {
+			for i, end := range []string{rel.From, rel.To} {
+				graph.Edges = append(graph.Edges, ModelEdge{
+					ID:          fmt.Sprintf("relationship:%s:%d", rel.ID, i+1),
+					ElementID:   "relationship:" + rel.ID,
+					Kind:        "relationship",
+					Label:       nonEmpty(rel.Label, rel.ID),
+					From:        "table:" + rel.Through,
+					To:          "table:" + end,
+					Cardinality: "many_to_one",
+					Required:    true,
+					Evidence:    evidenceRef(rel.Evidence),
+				})
+			}
+			continue
+		}
 		graph.Edges = append(graph.Edges, ModelEdge{
 			ID:          "relationship:" + rel.ID,
+			ElementID:   "relationship:" + rel.ID,
 			Kind:        "relationship",
 			Label:       nonEmpty(rel.Label, rel.ID),
 			From:        "table:" + rel.From,
@@ -207,6 +234,47 @@ func BuildElementDetails(doc *dsl.Document, elementID string) (ElementDetails, b
 			}, true
 		}
 	}
+	for _, constraint := range doc.Constraints {
+		if elementID == "constraint:"+constraint.ID {
+			expression := constraint.Expression
+			if expression == "" {
+				expression = constraint.Type
+			}
+			return ElementDetails{
+				ID:              elementID,
+				Kind:            "constraint",
+				Label:           constraint.ID,
+				Description:     constraint.Description,
+				Expression:      expression,
+				Evidence:        evidenceRef(constraint.Evidence),
+				RelatedElements: relatedOwnerField(constraint.Owner, constraint.Field),
+			}, true
+		}
+	}
+	for _, spec := range doc.ImportSpecs {
+		if elementID == "import_spec:"+spec.ID {
+			return ElementDetails{
+				ID:          elementID,
+				Kind:        "import_spec",
+				Label:       nonEmpty(spec.Label, spec.ID),
+				Description: spec.Description,
+				Expression:  strings.TrimSpace(spec.Format + " " + spec.Root),
+				Evidence:    evidenceRef(spec.Evidence),
+			}, true
+		}
+	}
+	for _, machine := range doc.StateMachines {
+		if elementID == "state_machine:"+machine.ID {
+			return ElementDetails{
+				ID:              elementID,
+				Kind:            "state_machine",
+				Label:           machine.ID,
+				Expression:      machine.Owner + "." + machine.Field + " states: " + strings.Join(machine.States, ", "),
+				Evidence:        evidenceRef(machine.Evidence),
+				RelatedElements: relatedOwnerField(machine.Owner, machine.Field),
+			}, true
+		}
+	}
 	for _, view := range doc.DerivedViews {
 		if elementID == "derived_view:"+view.ID {
 			return ElementDetails{
@@ -220,7 +288,30 @@ func BuildElementDetails(doc *dsl.Document, elementID string) (ElementDetails, b
 			}, true
 		}
 	}
+	for _, spec := range doc.FileSpecs {
+		if elementID == "file_spec:"+spec.ID {
+			return ElementDetails{
+				ID:              elementID,
+				Kind:            "file_spec",
+				Label:           spec.ID,
+				Expression:      strings.TrimSpace(spec.Owner + "." + spec.Field + " " + spec.Storage),
+				Evidence:        evidenceRef(spec.Evidence),
+				RelatedElements: relatedOwnerField(spec.Owner, spec.Field),
+			}, true
+		}
+	}
 	return ElementDetails{}, false
+}
+
+func relatedOwnerField(owner, field string) []string {
+	if owner == "" || owner == "model" {
+		return nil
+	}
+	related := []string{"table:" + owner}
+	if field != "" {
+		related = append(related, "field:"+owner+"."+field)
+	}
+	return related
 }
 
 func evidenceRef(e dsl.Evidence) EvidenceRef {

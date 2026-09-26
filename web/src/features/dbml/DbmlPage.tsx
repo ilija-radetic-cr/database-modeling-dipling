@@ -1,8 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Download, Lock, RefreshCcw } from "lucide-react";
+import { CheckCircle2, Lock, RefreshCcw } from "lucide-react";
 import { api } from "@/shared/api/client";
+import type { Job } from "@/shared/api/types";
 import { Button, Metric, Panel, StatusBadge } from "@/shared/components/ui";
+import { JobProgress } from "@/features/jobs/JobProgress";
+import { ExportButton } from "@/shared/components/ExportButton";
 import { useRouter } from "@/shared/lib/router";
 import { SchemaOutput } from "./SchemaOutput";
 
@@ -11,13 +14,23 @@ export function DbmlPage({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
   const dbml = useQuery({ queryKey: ["dbml", projectId], queryFn: () => api.dbml(projectId), retry: false });
+  const [regenerateJob, setRegenerateJob] = useState<Job | null>(null);
   const regenerate = useMutation({
     mutationFn: () => api.regenerateDbml(projectId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dbml", projectId] }),
+    onSuccess: ({ job }) => setRegenerateJob(job),
   });
   const complete = useMutation({
     mutationFn: () => api.completeProject(projectId, project.data?.project.current_revision ?? 0),
-    onSuccess: ({ project }) => navigate(`/projects/${project.id}/completed`),
+    onSuccess: async ({ project: completedProject }) => {
+      // CompletedPage redirects non-completed projects. Refresh the shared
+      // project cache before navigating so it cannot see the fresh pre-complete
+      // value and bounce the user back to this page.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["project", completedProject.id] }),
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+      ]);
+      navigate(`/projects/${completedProject.id}/completed`);
+    },
   });
 
   const health = project.data?.artifact_health;
@@ -36,16 +49,42 @@ export function DbmlPage({ projectId }: { projectId: string }) {
           <p className="page-subtitle">DBML and PostgreSQL schema, exports and completion gate.</p>
         </div>
         <div className="toolbar">
-          <Button onClick={() => regenerate.mutate()} disabled={regenerate.isPending}>
+          <Button onClick={() => regenerate.mutate()} disabled={regenerate.isPending || !!regenerateJob || complete.isPending}>
             <RefreshCcw size={18} />
             Regenerate
           </Button>
-          <Button variant="primary" disabled={!canComplete || complete.isPending} onClick={() => complete.mutate()}>
+          <Button variant="primary" disabled={!canComplete || complete.isPending || !!regenerateJob} onClick={() => complete.mutate()}>
             <Lock size={18} />
             Complete Project
           </Button>
         </div>
       </div>
+
+      {regenerateJob && (
+        <Panel title="Regenerating final outputs">
+          <JobProgress
+            projectId={projectId}
+            job={regenerateJob}
+            onDone={() => {
+              setRegenerateJob(null);
+              void Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
+                queryClient.invalidateQueries({ queryKey: ["dbml", projectId] }),
+                queryClient.invalidateQueries({ queryKey: ["postgresql", projectId] }),
+              ]);
+            }}
+            onDismiss={() => setRegenerateJob(null)}
+          />
+        </Panel>
+      )}
+      {(regenerate.isError || complete.isError) && (
+        <p className="error-text">
+          {(regenerate.error ?? complete.error) instanceof Error
+            ? (regenerate.error ?? complete.error)?.message
+            : "The finalization action failed."}
+        </p>
+      )}
+      {regenerateJob && <p className="muted">Downloads and completion are paused until the refreshed outputs are ready.</p>}
 
       <div className="grid-3">
         <Metric label="Validation errors" value={project.data?.project.quality.validation_errors ?? "-"} />
@@ -54,7 +93,7 @@ export function DbmlPage({ projectId }: { projectId: string }) {
       </div>
 
       <div className="grid-2">
-        <SchemaOutput projectId={projectId} ready={!dbml.isError && health?.dbml_status === "ready"} />
+        <SchemaOutput projectId={projectId} ready={!regenerateJob && !dbml.isError && health?.dbml_status === "ready"} />
         <Panel title="Completion Checklist">
           <div className="field" style={{ gap: 12 }}>
             <ChecklistItem done={(project.data?.project.quality.validation_errors ?? 1) === 0} label="Validation errors = 0" />
@@ -62,22 +101,10 @@ export function DbmlPage({ projectId }: { projectId: string }) {
             <ChecklistItem done={health?.can_continue_to_dbml ?? false} label="Model generated from current analysis" />
             <ChecklistItem done={health?.dbml_status === "ready"} label="DBML ready" />
             <div className="toolbar">
-              <Button disabled={dbml.isError} onClick={() => window.open(api.exportURL(projectId, "dbml"), "_blank")}>
-                <Download size={18} />
-                DBML
-              </Button>
-              <Button disabled={dbml.isError} onClick={() => window.open(api.exportURL(projectId, "sql"), "_blank")}>
-                <Download size={18} />
-                SQL
-              </Button>
-              <Button disabled={dbml.isError} onClick={() => window.open(api.exportURL(projectId, "report"), "_blank")}>
-                <Download size={18} />
-                Report
-              </Button>
-              <Button disabled={dbml.isError} onClick={() => window.open(api.exportURL(projectId, "bundle"), "_blank")}>
-                <Download size={18} />
-                Bundle
-              </Button>
+              <ExportButton projectId={projectId} kind="dbml" disabled={dbml.isError || !!regenerateJob}>DBML</ExportButton>
+              <ExportButton projectId={projectId} kind="sql" disabled={dbml.isError || !!regenerateJob}>SQL</ExportButton>
+              <ExportButton projectId={projectId} kind="report" disabled={dbml.isError || !!regenerateJob}>Report</ExportButton>
+              <ExportButton projectId={projectId} kind="bundle" disabled={dbml.isError || !!regenerateJob}>Bundle</ExportButton>
             </div>
           </div>
         </Panel>

@@ -257,6 +257,14 @@ func (v *validatorV06) validateRelationships() {
 		v.requireString(prefix, "from", relationship.From)
 		v.requireString(prefix, "to", relationship.To)
 		v.requireString(prefix, "cardinality", relationship.Cardinality)
+		if relationship.ForeignKey != "" {
+			if !v05AttributeIDPattern.MatchString(relationship.ForeignKey) || len(relationship.ForeignKey) > 63 || relationship.ForeignKey == "id" {
+				v.add("%s.foreign_key must be a lowercase SQL column identifier of at most 63 characters other than id", prefix)
+			}
+			if relationship.Cardinality == "many_to_many" {
+				v.add("%s.foreign_key is not supported for many_to_many; use an explicit association with separate relationships", prefix)
+			}
+		}
 		if relationship.Required == nil {
 			v.add("%s.required is required", prefix)
 		}
@@ -298,17 +306,36 @@ func (v *validatorV06) buildGeneratedFKs() {
 	for entityID := range v.entityByID {
 		v.generatedFKs[entityID] = map[string]bool{}
 	}
+	type fkProducerKey struct {
+		owner string
+		field string
+	}
+	producers := map[fkProducerKey][]string{}
+	order := []fkProducerKey{}
 	for _, relationship := range v.doc.Relationships {
 		for _, fk := range dsl.RelationshipForeignKeys(relationship) {
 			if !v.hasEntity(fk.OwnerEntityID) {
 				continue
 			}
-			if _, err := dsl.ResolveConstraintReference(v.doc, fk.OwnerEntityID, fk.Field); err != nil {
-				v.add("relationship %s has invalid generated foreign key: %v", relationship.ID, err)
-				continue
+			key := fkProducerKey{owner: fk.OwnerEntityID, field: fk.Field}
+			if len(producers[key]) == 0 {
+				order = append(order, key)
 			}
-			v.generatedFKs[fk.OwnerEntityID][fk.Field] = true
+			producers[key] = append(producers[key], relationship.ID)
 		}
+	}
+	for _, key := range order {
+		relationshipIDs := producers[key]
+		if len(relationshipIDs) > 1 {
+			v.add("relationships %s generate the same foreign key %s.%s; distinct relationship roles require distinct physical columns",
+				strings.Join(relationshipIDs, ", "), key.owner, key.field)
+			continue
+		}
+		if _, err := dsl.ResolveConstraintReference(v.doc, key.owner, key.field); err != nil {
+			v.add("relationship %s has invalid generated foreign key: %v", relationshipIDs[0], err)
+			continue
+		}
+		v.generatedFKs[key.owner][key.field] = true
 	}
 }
 
@@ -316,6 +343,12 @@ func (v *validatorV06) validateConstraints() {
 	validTypes := set("required", "unique", "min_inclusive", "min_exclusive", "max_inclusive", "max_exclusive", "length", "regex", "check", "conditional_required")
 	for _, constraint := range v.doc.Constraints {
 		prefix := fmt.Sprintf("constraint %s", displayID(constraint.ID))
+		if constraint.Comparison != "" && constraint.Comparison != "case_sensitive" && constraint.Comparison != "case_insensitive" {
+			v.add("%s has invalid comparison %s", prefix, constraint.Comparison)
+		}
+		if constraint.Comparison != "" && constraint.Type != "unique" {
+			v.add("%s.comparison is only supported on unique constraints", prefix)
+		}
 		v.requireString(prefix, "type", constraint.Type)
 		v.requireString(prefix, "owner", constraint.Owner)
 		v.requireString(prefix, "description", constraint.Description)
@@ -357,8 +390,15 @@ func (v *validatorV06) validateConstraints() {
 			if len(fields) == 0 {
 				v.add("%s requires field or non-empty fields", prefix)
 			}
+			v.validateDistinctPhysicalFields(prefix, constraint.Owner, fields)
 			for _, field := range fields {
 				v.validateConstraintField(prefix, constraint.Owner, field)
+				if constraint.Comparison == "case_insensitive" {
+					attribute := v.attribute(constraint.Owner, field)
+					if attribute == nil || !set("string", "text", "email", "phone", "url")[attribute.Type] || len(attribute.EnumValues) > 0 {
+						v.add("%s case_insensitive comparison requires scalar text attributes without enum values: %s", prefix, field)
+					}
+				}
 			}
 		case "min_inclusive", "min_exclusive", "max_inclusive", "max_exclusive":
 			if constraint.Field == "" {
@@ -569,8 +609,25 @@ func (v *validatorV06) validateIndexes() {
 		if len(index.Fields) == 0 {
 			v.add("%s requires non-empty fields", prefix)
 		}
+		v.validateDistinctPhysicalFields(prefix, index.Owner, index.Fields)
 		for _, field := range index.Fields {
 			v.validateConstraintField(prefix, index.Owner, field)
+		}
+	}
+}
+
+func (v *validatorV06) validateDistinctPhysicalFields(prefix, owner string, fields []string) {
+	seen := map[string]bool{}
+	for _, field := range fields {
+		resolved, err := dsl.ResolveConstraintReference(v.doc, owner, field)
+		if err != nil {
+			continue // Normal reference validation reports the error.
+		}
+		for _, physical := range resolved.PhysicalFields {
+			if seen[physical] {
+				v.add("%s repeats physical field %s", prefix, physical)
+			}
+			seen[physical] = true
 		}
 	}
 }

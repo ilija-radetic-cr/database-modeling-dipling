@@ -135,6 +135,23 @@ relationships:
 	assertHasError(t, result, "targets association entity ProductColor without scalar id")
 }
 
+func TestValidateV06RejectsRelationshipsThatGenerateTheSamePhysicalFK(t *testing.T) {
+	model := strings.Replace(baseV06Model(), "constraints:\n", `  - id: ProductBillingPrintShop
+    label: Product billing print shop
+    description: A second role targeting the same entity.
+    from: Product
+    to: PrintShop
+    cardinality: many_to_one
+    required: true
+    evidence: *ev
+constraints:
+`, 1)
+	modelPath := writeV06Fixture(t, model, baseV06SourceUnits(), baseV06Reviews())
+
+	result := ValidateFile(modelPath)
+	assertHasError(t, result, "relationships ProductPrintShop, ProductBillingPrintShop generate the same foreign key Product.print_shop_id")
+}
+
 func writeV06Fixture(t *testing.T, model, sourceUnits, reviews string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -254,4 +271,57 @@ review_decisions:
       rationale: Test rationale.
 coverage_checks: []
 `
+}
+
+func TestValidateV06ExplicitRoleColumnsAndInvalidOverrides(t *testing.T) {
+	model := strings.Replace(baseV06Model(), "constraints:\n", `  - id: ProductBillingPrintShop
+    label: Product billing print shop
+    description: A second role targeting the same entity.
+    from: Product
+    to: PrintShop
+    cardinality: many_to_one
+    foreign_key: billing_shop_id
+    required: false
+    fk_required: false
+    on_delete: set_null
+    evidence: *ev
+constraints:
+`, 1)
+	result := ValidateFile(writeV06Fixture(t, model, baseV06SourceUnits(), baseV06Reviews()))
+	if !result.OK() {
+		t.Fatalf("explicit role column rejected: %v", result.Errors)
+	}
+	for _, invalid := range []string{"id", "bad-name", strings.Repeat("x", 64), "print_shop_id", "code"} {
+		t.Run(invalid, func(t *testing.T) {
+			modified := strings.Replace(model, "foreign_key: billing_shop_id", "foreign_key: "+invalid, 1)
+			result := ValidateFile(writeV06Fixture(t, modified, baseV06SourceUnits(), baseV06Reviews()))
+			if result.OK() {
+				t.Fatalf("accepted invalid/colliding role column %s", invalid)
+			}
+		})
+	}
+}
+
+func TestValidateV06ComparisonSemantics(t *testing.T) {
+	for _, tc := range []struct{ name, comparison, fields, kind, want string }{
+		{"explicit insensitive", "case_insensitive", "code", "unique", ""},
+		{"explicit sensitive", "case_sensitive", "code", "unique", ""},
+		{"unknown comparison", "fuzzy", "code", "unique", "invalid comparison"},
+		{"duplicate", "case_insensitive", "code, code", "unique", "repeats physical field"},
+		{"FK not text", "case_insensitive", "print_shop_id, code", "unique", "requires scalar text"},
+		{"non unique", "case_sensitive", "code", "check", "comparison is only supported"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := strings.Replace(baseV06Model(), "fields: [print_shop_id, code]", "fields: ["+tc.fields+"]", 1)
+			model = strings.Replace(model, "type: unique", "type: "+tc.kind+"\n    comparison: "+tc.comparison, 1)
+			result := ValidateFile(writeV06Fixture(t, model, baseV06SourceUnits(), baseV06Reviews()))
+			if tc.want == "" {
+				if !result.OK() {
+					t.Fatal(result.Errors)
+				}
+			} else {
+				assertHasError(t, result, tc.want)
+			}
+		})
+	}
 }

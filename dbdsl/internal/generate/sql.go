@@ -2,6 +2,7 @@ package generate
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"strings"
@@ -39,6 +40,13 @@ func PostgreSQL(doc *dsl.Document) string {
 	uniques := buildUniqueIndexes(doc)
 	addOneToOneIndexes(doc, uniques)
 	checks, notes := buildSQLChecks(doc)
+	// Tables and indexes (including the index behind each UNIQUE constraint)
+	// share one namespace in a PostgreSQL schema, so every such name is drawn
+	// from one allocator; table names come first and never change.
+	relations := newSQLNames()
+	for _, entity := range doc.Entities {
+		relations.claim(entity.TableName, entity.ID)
+	}
 
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "-- %s\n", nonEmptyString(doc.Model.Name, doc.Model.ID))
@@ -66,11 +74,32 @@ func PostgreSQL(doc *dsl.Document) string {
 	}
 
 	for _, entity := range doc.Entities {
-		writeSQLTable(&out, entity, fks[entity.ID], uniques[entity.ID], checks[entity.ID], enumTypes)
+		writeSQLTable(&out, entity, fks[entity.ID], uniques[entity.ID], checks[entity.ID], enumTypes, relations)
+	}
+
+	// PostgreSQL expression indexes implement explicit case-insensitive keys
+	// without extensions or changes to the stored display spelling.
+	for _, entity := range doc.Entities {
+		for _, index := range uniques[entity.ID] {
+			if index.Comparison != "case_insensitive" {
+				continue
+			}
+			expressions := make([]string, 0, len(index.Fields))
+			for _, field := range index.Fields {
+				expressions = append(expressions, "lower("+sqlIdentifier(field)+")")
+			}
+			name := relations.claim(sqlCaseInsensitiveIndexName(entity.ID, index), entity.ID+":"+rawIndexID(index))
+			fmt.Fprintf(&out, "CREATE UNIQUE INDEX %s ON %s (%s);\n", sqlIdentifier(name), sqlIdentifier(entity.TableName), strings.Join(expressions, ", "))
+		}
 	}
 
 	wroteFK := false
 	indexed := map[string]bool{}
+	for _, index := range doc.Indexes {
+		if fields := indexPhysicalFields(doc, index); len(fields) > 0 {
+			indexed[index.Owner+"."+fields[0]] = true
+		}
+	}
 	for _, entity := range doc.Entities {
 		for _, index := range uniques[entity.ID] {
 			if len(index.Fields) > 0 {
@@ -113,7 +142,8 @@ func PostgreSQL(doc *dsl.Document) string {
 				if indexed[entity.ID+"."+fk.Name] {
 					continue
 				}
-				fmt.Fprintf(&out, "CREATE INDEX %s ON %s (%s);\n", sqlIdentifier(sqlConstraintName("idx", entity.TableName, fk.Name)), sqlIdentifier(entity.TableName), sqlIdentifier(fk.Name))
+				name := relations.claim(sqlConstraintName("idx", entity.TableName, fk.Name), entity.ID+":fk:"+fk.Name)
+				fmt.Fprintf(&out, "CREATE INDEX %s ON %s (%s);\n", sqlIdentifier(name), sqlIdentifier(entity.TableName), sqlIdentifier(fk.Name))
 			}
 		}
 		fmt.Fprintln(&out)
@@ -129,7 +159,8 @@ func PostgreSQL(doc *dsl.Document) string {
 			for _, field := range indexPhysicalFields(doc, index) {
 				columns = append(columns, sqlIdentifier(field))
 			}
-			fmt.Fprintf(&out, "CREATE INDEX %s ON %s (%s); -- %s\n", sqlIdentifier(sqlConstraintName("idx", owner.TableName, strings.Join(indexPhysicalFields(doc, index), "_"))),
+			name := relations.claim(sqlConstraintName("idx", owner.TableName, strings.Join(indexPhysicalFields(doc, index), "_")), index.ID)
+			fmt.Fprintf(&out, "CREATE INDEX %s ON %s (%s); -- %s\n", sqlIdentifier(name),
 				sqlIdentifier(owner.TableName), strings.Join(columns, ", "), index.ID)
 		}
 		fmt.Fprintln(&out)
@@ -141,7 +172,7 @@ func PostgreSQL(doc *dsl.Document) string {
 	return out.String()
 }
 
-func writeSQLTable(out *bytes.Buffer, entity dsl.Entity, fks []fkColumn, uniques []dbmlIndex, checks []string, enumTypes map[string]enumType) {
+func writeSQLTable(out *bytes.Buffer, entity dsl.Entity, fks []fkColumn, uniques []dbmlIndex, checks []string, enumTypes map[string]enumType, relations *sqlNames) {
 	lines := []string{}
 	composite := entity.Kind == "association" && len(fks) >= 2
 	if !composite {
@@ -172,10 +203,15 @@ func writeSQLTable(out *bytes.Buffer, entity dsl.Entity, fks []fkColumn, uniques
 		lines = append(lines, "PRIMARY KEY ("+strings.Join(fields, ", ")+")")
 	}
 	for _, index := range uniques {
-		name := sqlConstraintName("uq", entity.TableName, strings.Join(index.Fields, "_"))
-		if label := uniqueIndexName(index.Settings); label != "" {
-			name = sqlConstraintName("uq", label, "")
+		if index.Comparison == "case_insensitive" {
+			continue
 		}
+		name := sqlConstraintName("uq", entity.TableName, strings.Join(index.Fields, "_"))
+		source := entity.ID + ":" + strings.Join(index.Fields, ",")
+		if label := rawIndexID(index); label != "" {
+			name, source = sqlConstraintName("uq", label, ""), label
+		}
+		name = relations.claim(name, source)
 		fields := make([]string, 0, len(index.Fields))
 		for _, field := range index.Fields {
 			fields = append(fields, sqlIdentifier(field))
@@ -191,9 +227,14 @@ func writeSQLTable(out *bytes.Buffer, entity dsl.Entity, fks []fkColumn, uniques
 func buildSQLChecks(doc *dsl.Document) (map[string][]string, []string) {
 	checks := map[string][]string{}
 	notes := []string{}
+	// CHECK names are unique per table.
+	checkNames := map[string]*sqlNames{}
 	for _, constraint := range doc.Constraints {
 		field := sqlIdentifier(physicalConstraintField(doc, constraint.Owner, constraint.Field))
-		name := sqlIdentifier(sqlConstraintName("ck", constraint.ID, ""))
+		if checkNames[constraint.Owner] == nil {
+			checkNames[constraint.Owner] = newSQLNames()
+		}
+		name := sqlIdentifier(checkNames[constraint.Owner].claim(sqlConstraintName("ck", constraint.ID, ""), constraint.ID))
 		expression := ""
 		switch constraint.Type {
 		case "min_inclusive":
@@ -218,7 +259,7 @@ func buildSQLChecks(doc *dsl.Document) (map[string][]string, []string) {
 		case "regex":
 			expression = fmt.Sprintf("%s ~ %s", field, sqlString(constraint.Pattern))
 		case "check":
-			if constraint.Owner == "" {
+			if constraint.Owner == "" || constraint.Owner == "model" {
 				notes = append(notes, fmt.Sprintf("%s (model-level): %s", constraint.ID, constraint.Expression))
 				continue
 			}
@@ -246,6 +287,16 @@ func writeSQLComments(out *bytes.Buffer, doc *dsl.Document) {
 				sqlString(elementComment(entity.ID+"."+attribute.ID, attribute.Label, attribute.Description)))
 		}
 	}
+	for _, relationship := range doc.Relationships {
+		for _, fk := range dsl.RelationshipForeignKeys(relationship) {
+			for _, entity := range doc.Entities {
+				if entity.ID == fk.OwnerEntityID {
+					fmt.Fprintf(out, "COMMENT ON COLUMN %s.%s IS %s;\n", sqlIdentifier(entity.TableName), sqlIdentifier(fk.Field),
+						sqlString(elementComment(relationship.ID, relationship.Label, relationship.Description)))
+				}
+			}
+		}
+	}
 	fmt.Fprintln(out)
 }
 
@@ -253,8 +304,21 @@ func writeSQLNotes(out *bytes.Buffer, doc *dsl.Document, notes []string) {
 	entityTable := map[string]string{}
 	for _, entity := range doc.Entities {
 		entityTable[entity.ID] = entity.TableName
+		for _, attribute := range entity.Attributes {
+			for _, note := range attribute.Notes {
+				notes = append(notes, fmt.Sprintf("%s.%s (%s.%s): %s", entity.ID, attribute.ID, entity.TableName, attribute.ID, note))
+			}
+		}
+	}
+	for _, relationship := range doc.Relationships {
+		for _, note := range relationship.Notes {
+			notes = append(notes, fmt.Sprintf("%s: %s", relationship.ID, note))
+		}
 	}
 	for _, machine := range doc.StateMachines {
+		for _, note := range machine.Notes {
+			notes = append(notes, fmt.Sprintf("%s: %s (enforced by the application)", machine.ID, note))
+		}
 		transitions := make([]string, 0, len(machine.Transitions))
 		for _, transition := range machine.Transitions {
 			transitions = append(transitions, transition.From+" -> "+transition.To)
@@ -346,6 +410,31 @@ func sqlOnDelete(relationship dsl.Relationship, throughTable bool) string {
 
 // PostgreSQL identifiers are limited to 63 bytes; longer generated names are
 // shortened with a stable suffix so they stay unique.
+// sqlNames hands out physical names that are unique in one namespace. A name
+// already taken gets a suffix derived from the source ID, so distinct model
+// elements whose IDs normalize to the same name (CON-A-B and CON-A_B) never
+// collide, and the result is the same on every run.
+type sqlNames struct{ used map[string]bool }
+
+func newSQLNames() *sqlNames { return &sqlNames{used: map[string]bool{}} }
+
+func (n *sqlNames) claim(base, source string) string {
+	name := base
+	if n.used[name] {
+		sum := sha256.Sum256([]byte(source))
+		suffix := fmt.Sprintf("_%x", sum[:4])
+		if len(base)+len(suffix) > 63 {
+			base = base[:63-len(suffix)]
+		}
+		name = base + suffix
+		for counter := 2; n.used[name]; counter++ {
+			name = fmt.Sprintf("%s_%d", base[:min(len(base), 58)], counter)
+		}
+	}
+	n.used[name] = true
+	return name
+}
+
 func sqlConstraintName(prefix, table, column string) string {
 	parts := []string{prefix, toSnake(table)}
 	if column != "" {
@@ -360,6 +449,24 @@ func sqlConstraintName(prefix, table, column string) string {
 		sum = (sum*31 + int(r)) % 1000000
 	}
 	return fmt.Sprintf("%s_%06d", name[:55], sum)
+}
+
+func sqlCaseInsensitiveIndexName(owner string, index dbmlIndex) string {
+	// Normalizing names alone aliases distinct IDs such as A-B and A_B.
+	raw := owner + ":" + rawIndexID(index)
+	sum := sha256.Sum256([]byte(raw))
+	base := sqlConstraintName("uq", rawIndexID(index), "ci")
+	if len(base) > 50 {
+		base = base[:50]
+	}
+	return fmt.Sprintf("%s_%x", base, sum[:6])
+}
+
+func rawIndexID(index dbmlIndex) string {
+	if index.ID != "" {
+		return index.ID
+	}
+	return uniqueIndexName(index.Settings)
 }
 
 func uniqueIndexName(settings string) string {

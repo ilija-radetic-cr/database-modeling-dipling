@@ -129,6 +129,14 @@ a {
   gap: 18px;
 }
 
+/* A fieldset that only disables a locked page's controls must not look like one. */
+.locked-scope {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
 .page-header {
   display: flex;
   align-items: flex-start;
@@ -235,6 +243,11 @@ a {
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.export-action {
+  display: inline-flex;
+  align-items: flex-start;
 }
 
 .badge {
@@ -724,6 +737,42 @@ a {
   font-size: 12px;
 }
 
+.model-field-button,
+.field-focus-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-field-button:hover,
+.model-field-button:focus-visible,
+.field-focus-button:hover,
+.field-focus-button:focus-visible {
+  background: #eefbf6;
+  outline: none;
+}
+
+.field-list {
+  display: grid;
+  gap: 2px;
+}
+
+.field-focus-button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border-radius: 6px;
+}
+
+.trace-search {
+  width: min(230px, 34vw);
+}
+
 .field-row.highlighted {
   background: #eefbf6;
 }
@@ -957,6 +1006,198 @@ a {
 .concept-node .table-node-title {
   background: #0f766e;
   color: #fff;
+}
+
+.review-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.35fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.review-control-grid p {
+  margin: 6px 0 14px;
+}
+
+.review-state-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #f8d58b;
+  border-radius: 8px;
+  background: #fff7df;
+  color: #7c4a03;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.review-state-note svg {
+  flex: 0 0 auto;
+}
+
+.review-finding-list,
+.audit-event-list {
+  display: grid;
+  gap: 14px;
+}
+
+.review-finding {
+  display: grid;
+  gap: 13px;
+  padding: 17px;
+  border: 1px solid #dbe2ea;
+  border-left: 4px solid #b54708;
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+.review-finding-head,
+.audit-event-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-finding h3 {
+  margin: 0;
+  color: #172033;
+  font-size: 16px;
+}
+
+.review-finding blockquote {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 3px solid #94a3b8;
+  background: #f8fafc;
+  color: #344054;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.finding-comparison,
+.audit-summary-change {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.finding-comparison > div,
+.audit-summary-change > div {
+  padding: 11px;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.finding-comparison span,
+.audit-summary-change span {
+  color: #66758b;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.finding-comparison p,
+.finding-correction p,
+.recorded-decision p,
+.audit-summary-change p,
+.audit-event p {
+  margin: 5px 0 0;
+  line-height: 1.45;
+}
+
+.finding-correction,
+.recorded-decision {
+  padding: 11px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.recorded-decision {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #cbd5e1;
+}
+
+.finding-decision-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.75fr) minmax(280px, 1.25fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding-top: 4px;
+}
+
+.manual-finding-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #dbe2ea;
+}
+
+.manual-finding-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.textarea.review-note {
+  min-height: 80px;
+}
+
+.audit-event {
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.audit-hashes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-hashes code {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: #eef2f6;
+  color: #475569;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1050px) {
+  .review-control-grid,
+  .finding-decision-form {
+    grid-template-columns: 1fr;
+  }
+
+  .finding-decision-form .button {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 700px) {
+  .finding-comparison,
+  .audit-summary-change {
+    grid-template-columns: 1fr;
+  }
+
+  .review-finding-head,
+	.manual-finding-row,
+  .audit-event-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 /* ---- polish pass ---- */

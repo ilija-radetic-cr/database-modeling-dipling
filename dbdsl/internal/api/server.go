@@ -161,6 +161,8 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleLogicalMappingReport(w, r, projectID)
 	case "conceptual-model":
 		s.handleConceptualModel(w, r, projectID, rest[1:])
+	case "adversarial-review":
+		s.handleAdversarialReview(w, r, projectID, rest[1:])
 	case "model-acceptance":
 		s.handleModelAcceptance(w, r, projectID)
 	case "model-graph":
@@ -214,6 +216,7 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 		ReasoningEffort string `json:"reasoning_effort"`
 		MaxOutputTokens int    `json:"max_output_tokens"`
 		Mock            bool   `json:"mock"`
+		Scope           string `json:"scope"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -230,63 +233,88 @@ func (s *Server) handleStages(w http.ResponseWriter, r *http.Request, projectID 
 	stage := rest[0]
 	// Source processing and conceptual modeling are the only LLM stages; the
 	// logical projection and the outputs are deterministic.
-	needsLLM := stage == "process_sources" || stage == "conceptual_model"
-	client, clientErr := llmClient(req.Mock)
-	if clientErr != nil {
-		if needsLLM {
+	needsLLM := stage == "process_sources" || stage == "conceptual_model" || stage == "adversarial_review"
+	var client llm.Client
+	if needsLLM {
+		useMock, model := resolveLLMRequest(project, req.Mock, req.Model)
+		req.Model = model
+		var clientErr error
+		client, clientErr = llmClient(useMock)
+		if clientErr != nil {
 			writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", clientErr.Error(), nil)
 			return
 		}
-		client = nil
 	}
 	var runner jobs.Runner
 	var steps []string
 	switch stage {
 	case "process_sources":
 		steps = processSourcesSteps()
-		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
+		runner = func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
 			ctx, cancel := s.llmStageContext(projectID)
 			defer cancel()
 			return s.store.ProcessSourcesWithLLM(ctx, client, projectID, workspace.ProcessSourcesOptions{
-				BaseRevision: req.BaseRevision, Model: req.Model, ReasoningEffort: req.ReasoningEffort,
+				BaseRevision: inputRevision, Model: req.Model, ReasoningEffort: req.ReasoningEffort,
 				MaxOutputTokens: req.MaxOutputTokens, OnProgress: emit,
 			})
 		}
 	case "conceptual_model":
 		steps = []string{"propose_conceptual_model", "validate_conceptual_model", "write_conceptual_model"}
-		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
+		runner = func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
 			ctx, cancel := s.llmStageContext(projectID)
 			defer cancel()
 			return s.store.GenerateConceptualModel(ctx, client, projectID, workspace.ModelStageOptions{
-				BaseRevision: req.BaseRevision, Model: req.Model, ReasoningEffort: req.ReasoningEffort,
+				BaseRevision: inputRevision, Model: req.Model, ReasoningEffort: req.ReasoningEffort,
+				MaxOutputTokens: req.MaxOutputTokens, OnProgress: emit,
+			})
+		}
+	case "adversarial_review":
+		if req.BaseRevision <= 0 {
+			writeError(w, r, http.StatusBadRequest, "validation_failed", "base_revision is required for adversarial review.", nil)
+			return
+		}
+		if scope := strings.ToLower(strings.TrimSpace(req.Scope)); scope != "" && scope != "conceptual" {
+			writeError(w, r, http.StatusBadRequest, "validation_failed", "adversarial review scope must be conceptual.", nil)
+			return
+		}
+		steps = []string{"compare_candidate_to_sources", "validate_adversarial_review", "write_adversarial_review"}
+		runner = func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
+			ctx, cancel := s.llmStageContext(projectID)
+			defer cancel()
+			return s.store.GenerateAdversarialReview(ctx, client, projectID, workspace.AdversarialReviewRunOptions{
+				BaseRevision: inputRevision, Scope: req.Scope, Model: req.Model, ReasoningEffort: req.ReasoningEffort,
 				MaxOutputTokens: req.MaxOutputTokens, OnProgress: emit,
 			})
 		}
 	case "logical_model":
 		steps = []string{"project_logical_model", "repair_logical_model", "write_logical_bundle", "validate", "lint"}
-		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
+		runner = func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
 			ctx, cancel := s.llmStageContext(projectID)
 			defer cancel()
 			return s.store.GenerateLogicalModel(ctx, client, projectID, workspace.ModelStageOptions{
-				BaseRevision: req.BaseRevision, Model: req.Model, ReasoningEffort: req.ReasoningEffort,
+				BaseRevision: inputRevision, Model: req.Model, ReasoningEffort: req.ReasoningEffort,
 				MaxOutputTokens: req.MaxOutputTokens, OnProgress: emit,
 			})
 		}
 	case "generate_outputs":
 		steps = []string{"generate_dbml", "generate_trace", "refresh_quality"}
-		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-			return s.store.GenerateFinalOutputs(projectID, req.BaseRevision, emit)
+		runner = func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
+			return s.store.GenerateFinalOutputs(projectID, inputRevision, emit)
 		}
 	case "validation_lint":
 		steps = []string{"validate", "lint", "quality"}
-		runner = func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-			return s.store.RefreshModelQuality(projectID, req.BaseRevision, emit)
+		runner = func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
+			return s.store.RefreshModelQuality(projectID, inputRevision, emit)
 		}
 	default:
 		writeError(w, r, http.StatusBadRequest, "invalid_stage", "Unsupported project stage.", map[string]any{"stage": stage})
 		return
 	}
-	job := s.jobs.StartWithRevision(projectID, stage, req.BaseRevision, steps, runner)
+	job, err := s.jobs.StartSingleFlightWithRevision(projectID, stage, req.BaseRevision, steps, runner)
+	if errors.Is(err, jobs.ErrProjectBusy) {
+		writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 }
 
@@ -304,6 +332,19 @@ func (s *Server) handleLogicalMappingReport(w http.ResponseWriter, r *http.Reque
 }
 
 func nextProjectStage(health workspace.ArtifactHealth) string {
+	// Imported v0.6 bundles already have a valid logical model even though they
+	// do not carry the workbench's intermediate source/conceptual artifacts.
+	// Keep the explicit final-review and output gates, but do not send such a
+	// project backwards through source processing.
+	if health.ModelStatus == "ready" {
+		if !health.FinalModelAccepted {
+			return "model_review"
+		}
+		if health.DBMLStatus != "ready" {
+			return "generate_outputs"
+		}
+		return "completed"
+	}
 	if health.CombinedDocumentStatus != "ready" || health.SourceUnitsStatus == "not_generated" {
 		return "process_sources"
 	}
@@ -316,16 +357,7 @@ func nextProjectStage(health workspace.ArtifactHealth) string {
 		}
 		return "conceptual_model"
 	}
-	if health.ModelStatus != "ready" {
-		return "logical_model"
-	}
-	if !health.FinalModelAccepted {
-		return "model_review"
-	}
-	if health.DBMLStatus != "ready" {
-		return "generate_outputs"
-	}
-	return "completed"
+	return "logical_model"
 }
 
 func (s *Server) handleConceptualModel(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
@@ -334,13 +366,20 @@ func (s *Server) handleConceptualModel(w http.ResponseWriter, r *http.Request, p
 			writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
 			return
 		}
+		release, ok := s.reserve(w, r, projectID)
+		if !ok {
+			return
+		}
+		defer release()
 		var req struct {
-			BaseRevision int `json:"base_revision"`
+			BaseRevision int    `json:"base_revision"`
+			Actor        string `json:"actor"`
+			Note         string `json:"note"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		revision, err := s.store.AcceptConceptualModel(projectID, req.BaseRevision)
+		revision, err := s.store.AcceptConceptualModel(projectID, workspace.AcceptConceptualModelOptions{BaseRevision: req.BaseRevision, Actor: req.Actor, Note: req.Note})
 		if err != nil {
 			writeMappedError(w, r, err)
 			return
@@ -360,6 +399,124 @@ func (s *Server) handleConceptualModel(w http.ResponseWriter, r *http.Request, p
 	writeJSON(w, http.StatusOK, map[string]any{"conceptual_model": artifacts.Proposed, "accepted": artifacts.IsAccepted, "diff": artifacts.Diff, "qa": artifacts.QA, "description": artifacts.Description})
 }
 
+func (s *Server) handleAdversarialReview(w http.ResponseWriter, r *http.Request, projectID string, rest []string) {
+	if len(rest) == 0 && r.Method == http.MethodGet {
+		view, err := s.store.AdversarialReview(projectID)
+		if err != nil {
+			writeMappedError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+		return
+	}
+	if len(rest) == 1 && rest[0] == "decisions" && r.Method == http.MethodPost {
+		release, ok := s.reserve(w, r, projectID)
+		if !ok {
+			return
+		}
+		defer release()
+		var req struct {
+			BaseRevision int                                        `json:"base_revision"`
+			Actor        string                                     `json:"actor"`
+			Decisions    []workspace.AdversarialReviewDecisionInput `json:"decisions"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		view, err := s.store.RecordAdversarialReviewDecisions(projectID, workspace.RecordAdversarialReviewDecisionsOptions{
+			BaseRevision: req.BaseRevision, Actor: req.Actor, Decisions: req.Decisions,
+		})
+		if err != nil {
+			writeMappedError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+		return
+	}
+	if len(rest) == 1 && rest[0] == "findings" && r.Method == http.MethodPost {
+		release, ok := s.reserve(w, r, projectID)
+		if !ok {
+			return
+		}
+		defer release()
+		var req struct {
+			BaseRevision int                            `json:"base_revision"`
+			Actor        string                         `json:"actor"`
+			Note         string                         `json:"note"`
+			Finding      llmpipeline.AdversarialFinding `json:"finding"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		view, err := s.store.RecordAdversarialOperatorFinding(projectID, workspace.RecordAdversarialOperatorFindingOptions{
+			BaseRevision: req.BaseRevision, Actor: req.Actor, Note: req.Note, Finding: req.Finding,
+		})
+		if err != nil {
+			writeMappedError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+		return
+	}
+	if len(rest) == 1 && rest[0] == "correct" && r.Method == http.MethodPost {
+		if s.jobs.HasActiveProject(projectID) {
+			writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
+			return
+		}
+		var req struct {
+			BaseRevision int    `json:"base_revision"`
+			Actor        string `json:"actor"`
+			Note         string `json:"note"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		project, ok := s.store.Project(projectID)
+		if !ok {
+			writeMappedError(w, r, workspace.ErrNotFound)
+			return
+		}
+		if req.BaseRevision <= 0 || req.BaseRevision != project.CurrentRevision {
+			writeMappedError(w, r, workspace.ErrRevisionConflict)
+			return
+		}
+		useMock, model := resolveLLMRequest(project, false, "")
+		client, err := llmClient(useMock)
+		if err != nil {
+			writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", err.Error(), nil)
+			return
+		}
+		request := workspace.AdversarialCorrectionRequestOptions{
+			BaseRevision: req.BaseRevision, Actor: req.Actor, Note: req.Note,
+		}
+		if err := s.store.ValidateAdversarialCorrectionRequest(projectID, request); err != nil {
+			writeMappedError(w, r, err)
+			return
+		}
+		steps := []string{"propose_conceptual_correction", "validate_conceptual_correction", "write_conceptual_correction"}
+		job, startErr := s.jobs.StartSingleFlightWithRevision(projectID, "conceptual_correction", req.BaseRevision, steps, func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
+			revision, requestErr := s.store.RecordAdversarialCorrectionRequest(projectID, workspace.AdversarialCorrectionRequestOptions{
+				BaseRevision: inputRevision, Actor: req.Actor, Note: req.Note,
+			})
+			if requestErr != nil {
+				return 0, nil, requestErr
+			}
+			ctx, cancel := s.llmStageContext(projectID)
+			defer cancel()
+			return s.store.ApplyAdversarialCorrection(ctx, client, projectID, workspace.AdversarialCorrectionRunOptions{
+				BaseRevision: revision, Actor: req.Actor, Note: req.Note, Model: model, OnProgress: emit,
+			})
+		})
+		if errors.Is(startErr, jobs.ErrProjectBusy) {
+			writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"project_revision": req.BaseRevision, "job": job})
+		return
+	}
+	writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
+}
+
 func (s *Server) handleModelAcceptance(w http.ResponseWriter, r *http.Request, projectID string) {
 	if r.Method != http.MethodPost {
 		writeError(w, r, http.StatusMethodNotAllowed, "bad_request", "Method not allowed.", nil)
@@ -371,6 +528,11 @@ func (s *Server) handleModelAcceptance(w http.ResponseWriter, r *http.Request, p
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	release, ok := s.reserve(w, r, projectID)
+	if !ok {
+		return
+	}
+	defer release()
 	revision, err := s.store.AcceptFinalModel(projectID, req.BaseRevision)
 	if err != nil {
 		writeMappedError(w, r, err)
@@ -452,6 +614,28 @@ func llmClient(mock bool) (llm.Client, error) {
 	return llm.NewOpenAIClientFromEnv()
 }
 
+// resolveLLMRequest keeps the provider/model selected by the first LLM stage
+// stable for the rest of the project. In particular, a mock project must not
+// silently fall through to a paid provider on conceptual generation or retry.
+func resolveLLMRequest(project *workspace.ProjectState, requestedMock bool, requestedModel string) (bool, string) {
+	if os.Getenv("DBDSL_LLM_MOCK") == "1" {
+		return true, "mock-model"
+	}
+	if project != nil && project.LLMExecutionProfile != nil {
+		profile := project.LLMExecutionProfile
+		if profile.Provider == "mock" || profile.Model == "mock-model" {
+			return true, "mock-model"
+		}
+		if strings.TrimSpace(profile.Model) != "" {
+			return false, profile.Model
+		}
+	}
+	if requestedMock {
+		return true, "mock-model"
+	}
+	return false, requestedModel
+}
+
 func (s *Server) handleImportBundle(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path string `json:"path"`
@@ -490,6 +674,11 @@ func (s *Server) handlePatchProject(w http.ResponseWriter, r *http.Request, proj
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	release, ok := s.reserve(w, r, projectID)
+	if !ok {
+		return
+	}
+	defer release()
 	if err := s.store.UpdateProject(projectID, req.BaseRevision, req.Name, req.Description); err != nil {
 		writeMappedError(w, r, err)
 		return
@@ -499,10 +688,11 @@ func (s *Server) handlePatchProject(w http.ResponseWriter, r *http.Request, proj
 }
 
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request, projectID string) {
-	if s.jobs.HasActiveProject(projectID) {
-		writeError(w, r, http.StatusConflict, "project_busy", "Project cannot be deleted while a job is active.", nil)
+	release, ok := s.reserve(w, r, projectID)
+	if !ok {
 		return
 	}
+	defer release()
 	if err := s.store.DeleteProject(projectID); err != nil {
 		writeMappedError(w, r, err)
 		return
@@ -525,6 +715,11 @@ func (s *Server) handleCompleteProject(w http.ResponseWriter, r *http.Request, p
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	release, ok := s.reserve(w, r, projectID)
+	if !ok {
+		return
+	}
+	defer release()
 	project, snapshot, err := s.store.CompleteProject(projectID, req.BaseRevision)
 	if err != nil {
 		writeMappedError(w, r, err)
@@ -573,6 +768,11 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request, project
 			if !decodeJSON(w, r, &req) {
 				return
 			}
+			release, ok := s.reserve(w, r, projectID)
+			if !ok {
+				return
+			}
+			defer release()
 			resource, revision, err := s.store.AddPastedTextResource(projectID, req.BaseRevision, req.Title, req.Content)
 			if err != nil {
 				writeMappedError(w, r, err)
@@ -616,6 +816,11 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request, project
 			writeError(w, r, http.StatusBadRequest, "bad_request", "base_revision must be an integer.", nil)
 			return
 		}
+		release, ok := s.reserve(w, r, projectID)
+		if !ok {
+			return
+		}
+		defer release()
 		revision, err := s.store.DeleteResource(projectID, baseRevision, rest[0])
 		if err != nil {
 			writeMappedError(w, r, err)
@@ -643,6 +848,11 @@ func (s *Server) handleUploadResource(w http.ResponseWriter, r *http.Request, pr
 		writeError(w, r, http.StatusBadRequest, "bad_request", "base_revision must be an integer.", nil)
 		return
 	}
+	release, ok := s.reserve(w, r, projectID)
+	if !ok {
+		return
+	}
+	defer release()
 	resource, revision, err := s.store.AddUploadedResource(projectID, baseRevision, r.FormValue("title"), header.Filename, "", file)
 	if err != nil {
 		writeMappedError(w, r, err)
@@ -679,23 +889,29 @@ func (s *Server) handleProcessSources(w http.ResponseWriter, r *http.Request, pr
 		writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
 		return
 	}
-	client, clientErr := llmClient(req.Mock)
+	useMock, model := resolveLLMRequest(project, req.Mock, req.Model)
+	req.Model = model
+	client, clientErr := llmClient(useMock)
 	if clientErr != nil {
 		writeError(w, r, http.StatusPreconditionFailed, "llm_unavailable", clientErr.Error(), nil)
 		return
 	}
 	steps := processSourcesSteps()
-	job := s.jobs.StartWithRevision(projectID, "process_sources", req.BaseRevision, steps, func(projectID string, _ string, emit jobs.StepEmitter) (int, []string, error) {
+	job, err := s.jobs.StartSingleFlightWithRevision(projectID, "process_sources", req.BaseRevision, steps, func(projectID string, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
 		ctx, cancel := s.llmStageContext(projectID)
 		defer cancel()
 		return s.store.ProcessSourcesWithLLM(ctx, client, projectID, workspace.ProcessSourcesOptions{
-			BaseRevision:    req.BaseRevision,
+			BaseRevision:    inputRevision,
 			Model:           req.Model,
 			ReasoningEffort: req.ReasoningEffort,
 			MaxOutputTokens: req.MaxOutputTokens,
 			OnProgress:      emit,
 		})
 	})
+	if err != nil {
+		writeMappedError(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 }
 
@@ -785,6 +1001,11 @@ func (s *Server) handleSourceUnits(w http.ResponseWriter, r *http.Request, proje
 		if !decodeJSON(w, r, &req) {
 			return
 		}
+		release, ok := s.reserve(w, r, projectID)
+		if !ok {
+			return
+		}
+		defer release()
 		revision, remaining, err := s.store.ReviewSourceUnit(projectID, rest[0], workspace.ReviewSourceUnitOptions{
 			BaseRevision: req.BaseRevision, Decision: req.Decision, NormalizedText: req.NormalizedText,
 			Note: req.Note, ReviewedBy: req.ReviewedBy,
@@ -900,18 +1121,31 @@ func (s *Server) handleQuality(w http.ResponseWriter, r *http.Request, projectID
 		return
 	}
 	if len(rest) == 1 && rest[0] == "run" && r.Method == http.MethodPost {
+		if s.jobs.HasActiveProject(projectID) {
+			writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
+			return
+		}
 		project, ok := s.store.Project(projectID)
 		if !ok {
 			writeMappedError(w, r, workspace.ErrNotFound)
 			return
 		}
-		job := s.jobs.StartWithRevision(projectID, "validation_lint", project.CurrentRevision, []string{"validate", "lint", "quality"}, func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-			return s.store.RefreshModelQuality(projectID, project.CurrentRevision, emit)
+		job, err := s.jobs.StartSingleFlightWithRevision(projectID, "validation_lint", project.CurrentRevision, []string{"validate", "lint", "quality"}, func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
+			return s.store.RefreshModelQuality(projectID, inputRevision, emit)
 		})
+		if err != nil {
+			writeMappedError(w, r, err)
+			return
+		}
 		writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 		return
 	}
 	if len(rest) == 3 && rest[0] == "issues" && rest[2] == "accept" && r.Method == http.MethodPost {
+		release, ok := s.reserve(w, r, projectID)
+		if !ok {
+			return
+		}
+		defer release()
 		revision, err := s.store.AcceptQualityIssue(projectID, rest[1])
 		if err != nil {
 			writeMappedError(w, r, err)
@@ -948,14 +1182,26 @@ func (s *Server) handleDBML(w http.ResponseWriter, r *http.Request, projectID st
 		return
 	}
 	if len(rest) == 1 && rest[0] == "regenerate" && r.Method == http.MethodPost {
+		if s.jobs.HasActiveProject(projectID) {
+			writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
+			return
+		}
 		project, ok := s.store.Project(projectID)
 		if !ok {
 			writeMappedError(w, r, workspace.ErrNotFound)
 			return
 		}
-		job := s.jobs.StartWithRevision(projectID, "generate_outputs", project.CurrentRevision, []string{"generate_dbml", "generate_trace", "refresh_quality"}, func(projectID, _ string, emit jobs.StepEmitter) (int, []string, error) {
-			return s.store.GenerateFinalOutputs(projectID, project.CurrentRevision, emit)
+		if !project.FinalModelAccepted {
+			writeMappedError(w, r, errors.New("final model review has not been accepted"))
+			return
+		}
+		job, err := s.jobs.StartSingleFlightWithRevision(projectID, "generate_outputs", project.CurrentRevision, []string{"generate_dbml", "generate_trace", "refresh_quality"}, func(projectID, _ string, inputRevision int, emit jobs.StepEmitter) (int, []string, error) {
+			return s.store.GenerateFinalOutputs(projectID, inputRevision, emit)
 		})
+		if err != nil {
+			writeMappedError(w, r, err)
+			return
+		}
 		writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 		return
 	}
@@ -967,6 +1213,12 @@ func (s *Server) handleExports(w http.ResponseWriter, r *http.Request, projectID
 		writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
 		return
 	}
+	project, err := s.store.ProjectSummary(projectID)
+	if err != nil {
+		writeMappedError(w, r, err)
+		return
+	}
+	prefix := fmt.Sprintf("%s_rev_%06d_", project.ID, project.CurrentRevision)
 	switch rest[0] {
 	case "sql":
 		sql, err := s.store.PostgreSQL(projectID)
@@ -974,28 +1226,28 @@ func (s *Server) handleExports(w http.ResponseWriter, r *http.Request, projectID
 			writeMappedError(w, r, err)
 			return
 		}
-		writeDownload(w, "schema.postgresql.sql", "application/sql; charset=utf-8", []byte(sql))
+		writeDownload(w, prefix+"schema.postgresql.sql", "application/sql; charset=utf-8", []byte(sql))
 	case "dbml":
 		dbml, err := s.store.DBML(projectID)
 		if err != nil {
 			writeMappedError(w, r, err)
 			return
 		}
-		writeDownload(w, "final.dbml", "text/plain; charset=utf-8", []byte(dbml))
+		writeDownload(w, prefix+"final.dbml", "text/plain; charset=utf-8", []byte(dbml))
 	case "report":
 		report, err := s.store.TraceReport(projectID)
 		if err != nil {
 			writeMappedError(w, r, err)
 			return
 		}
-		writeDownload(w, "traceability_report.md", "text/markdown; charset=utf-8", []byte(report))
+		writeDownload(w, prefix+"traceability_report.md", "text/markdown; charset=utf-8", []byte(report))
 	case "bundle":
 		bundle, err := s.store.ExportBundle(projectID)
 		if err != nil {
 			writeMappedError(w, r, err)
 			return
 		}
-		writeDownload(w, "db_model_workbench_bundle.zip", "application/zip", bundle)
+		writeDownload(w, prefix+"db_model_workbench_bundle.zip", "application/zip", bundle)
 	default:
 		writeError(w, r, http.StatusNotFound, "not_found", "Endpoint not found.", nil)
 	}
@@ -1025,6 +1277,10 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request, projectID st
 			BaseRevision int `json:"base_revision"`
 		}
 		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if s.jobs.HasActiveProject(projectID) {
+			writeError(w, r, http.StatusConflict, "project_busy", "Another project job is active.", nil)
 			return
 		}
 		retried, err := s.jobs.Retry(rest[0], req.BaseRevision)
@@ -1153,12 +1409,27 @@ func writeDownload(w http.ResponseWriter, filename, contentType string, data []b
 	_, _ = w.Write(data)
 }
 
+// reserve holds the project for one synchronous change, so it cannot interleave
+// with a running job or another change.
+func (s *Server) reserve(w http.ResponseWriter, r *http.Request, projectID string) (func(), bool) {
+	release, err := s.jobs.Reserve(projectID)
+	if err != nil {
+		writeMappedError(w, r, err)
+		return nil, false
+	}
+	return release, true
+}
+
 func writeMappedError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, workspace.ErrNotFound):
 		writeError(w, r, http.StatusNotFound, "not_found", "Resource not found.", nil)
 	case errors.Is(err, workspace.ErrRevisionConflict):
 		writeError(w, r, http.StatusConflict, "revision_conflict", "The project changed since this screen was loaded.", nil)
+	case errors.Is(err, workspace.ErrProjectCompleted):
+		writeError(w, r, http.StatusConflict, "project_completed", err.Error(), nil)
+	case errors.Is(err, jobs.ErrProjectBusy):
+		writeError(w, r, http.StatusConflict, "project_busy", "Another change or job is running on this project; wait for it to finish.", nil)
 	case errors.Is(err, workspace.ErrModelNotGenerated), errors.Is(err, workspace.ErrDBMLNotReady):
 		writeError(w, r, http.StatusPreconditionFailed, "precondition_failed", err.Error(), nil)
 	default:

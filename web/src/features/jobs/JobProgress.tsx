@@ -10,11 +10,15 @@ export function JobProgress({
   projectId,
   job,
   onDone,
+  onFailed,
   onDismiss,
 }: {
   projectId: string;
   job: Job;
   onDone?: (job: Job) => void;
+  // Called once when the job ends without success, so the page can refresh
+  // the state the job changed before it failed and free its actions.
+  onFailed?: (job: Job) => void;
   onDismiss?: (job: Job) => void;
 }) {
   const queryClient = useQueryClient();
@@ -22,8 +26,11 @@ export function JobProgress({
   const [event, setEvent] = useState<JobEvent | null>(null);
 	const [events, setEvents] = useState<JobEvent[]>([]);
 	const onDoneRef = useRef(onDone);
+	const onFailedRef = useRef(onFailed);
 	const completedNotificationRef = useRef<string | null>(null);
+	const failedNotificationRef = useRef<string | null>(null);
 	onDoneRef.current = onDone;
+	onFailedRef.current = onFailed;
 	const polledJob = useQuery({
 		queryKey: ["job", projectId, activeJob.id],
 		queryFn: () => api.job(projectId, activeJob.id),
@@ -91,6 +98,12 @@ export function JobProgress({
 		void queryClient.invalidateQueries();
 		onDoneRef.current?.(currentJob);
 	}, [currentJob, currentStatus, projectId, queryClient]);
+
+	useEffect(() => {
+		if (!canRetryJob(currentStatus) || failedNotificationRef.current === currentJob.id) return;
+		failedNotificationRef.current = currentJob.id;
+		onFailedRef.current?.(currentJob);
+	}, [currentJob, currentStatus]);
 
 	const progress = currentJob.progress ?? 0;
 	const running = !isTerminalJobStatus(currentStatus);
@@ -161,6 +174,8 @@ export function JobProgress({
 const stageDescriptions: Record<string, string> = {
 	process_sources: "LLM segments the sources · backend assigns canonical segment IDs and validates the contract",
 	conceptual_model: "LLM describes what the system must remember · backend derives the conceptual model and checks coverage",
+	adversarial_review: "Independent LLM review challenges the current proposal against its cited source evidence",
+	conceptual_correction: "LLM prepares one corrected conceptual proposal from the recorded human instruction · acceptance remains manual",
 	logical_model: "Deterministic mapping of the conceptual model into DB-DSL (no LLM) · full validation",
 	generate_outputs: "Generating DBML and the traceability report (deterministic)",
 	validation_lint: "Validating and linting the DB-DSL model",

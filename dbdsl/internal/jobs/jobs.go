@@ -1,7 +1,9 @@
 package jobs
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,11 +64,15 @@ type Manager struct {
 	jobs        map[string]*jobState
 	applyResult func(projectID string, jobType string) (revision int, updated []string, err error)
 	statePath   string
+	// reserved marks projects held by a synchronous change (an acceptance, a
+	// review decision). Jobs and reservations exclude each other, so one
+	// project never has two writers at once.
+	reserved map[string]bool
 }
 
 type StepEmitter func(step string, message string, progress int, metadata map[string]any)
 
-type Runner func(projectID string, jobType string, emit StepEmitter) (revision int, updated []string, err error)
+type Runner func(projectID string, jobType string, inputRevision int, emit StepEmitter) (revision int, updated []string, err error)
 
 type jobState struct {
 	job         Job
@@ -75,7 +81,11 @@ type jobState struct {
 	subscribers map[chan Event]bool
 	steps       []string
 	runner      Runner
+	done        chan struct{}
+	doneClosed  bool
 }
+
+var ErrProjectBusy = errors.New("another project job is active")
 
 // NewPersistentManager preserves job summaries and event timelines across
 // workbench restarts. In-flight work is marked interrupted during recovery;
@@ -91,8 +101,23 @@ func NewPersistentManager(statePath string) *Manager {
 }
 
 func (m *Manager) StartWithRevision(projectID, jobType string, inputRevision int, steps []string, runner Runner) Job {
+	job, _ := m.startWithRevision(projectID, jobType, inputRevision, steps, runner, false)
+	return job
+}
+
+// StartSingleFlightWithRevision atomically checks for active work and reserves
+// the project before launching the runner.
+func (m *Manager) StartSingleFlightWithRevision(projectID, jobType string, inputRevision int, steps []string, runner Runner) (Job, error) {
+	return m.startWithRevision(projectID, jobType, inputRevision, steps, runner, true)
+}
+
+func (m *Manager) startWithRevision(projectID, jobType string, inputRevision int, steps []string, runner Runner, singleFlight bool) (Job, error) {
 	now := time.Now()
 	m.mu.Lock()
+	if singleFlight && m.busyLocked(projectID) {
+		m.mu.Unlock()
+		return Job{}, ErrProjectBusy
+	}
 	m.seq++
 	id := fmt.Sprintf("job_%06d", m.seq)
 	state := &jobState{
@@ -105,6 +130,7 @@ func (m *Manager) StartWithRevision(projectID, jobType string, inputRevision int
 		subscribers: map[chan Event]bool{},
 		steps:       append([]string(nil), steps...),
 		runner:      runner,
+		done:        make(chan struct{}),
 	}
 	m.jobs[id] = state
 	m.appendLocked(state, Event{
@@ -120,7 +146,38 @@ func (m *Manager) StartWithRevision(projectID, jobType string, inputRevision int
 	m.mu.Unlock()
 
 	go m.run(id, runner)
-	return job
+	return job, nil
+}
+
+// Wait blocks on the job lifecycle rather than polling. A returned terminal
+// job is synchronized after its final persistent-state write.
+func (m *Manager) Wait(ctx context.Context, id string) (Job, error) {
+	m.mu.Lock()
+	state, ok := m.jobs[id]
+	if !ok {
+		m.mu.Unlock()
+		return Job{}, fmt.Errorf("job not found")
+	}
+	if terminal(state.job.Status) {
+		job := state.job
+		m.mu.Unlock()
+		return job, nil
+	}
+	done := state.done
+	m.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return Job{}, ctx.Err()
+	case <-done:
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		state, ok := m.jobs[id]
+		if !ok {
+			return Job{}, fmt.Errorf("job not found")
+		}
+		return state.job, nil
+	}
 }
 
 func (m *Manager) List(projectID string) []Job {
@@ -154,7 +211,7 @@ func (m *Manager) Retry(id string, inputRevision int) (Job, error) {
 	projectID, jobType := state.projectID, state.job.Type
 	steps, runner := append([]string(nil), state.steps...), state.runner
 	m.mu.Unlock()
-	return m.StartWithRevision(projectID, jobType, inputRevision, steps, runner), nil
+	return m.startWithRevision(projectID, jobType, inputRevision, steps, runner, true)
 }
 
 func (m *Manager) Get(id string) (Job, bool) {
@@ -167,15 +224,48 @@ func (m *Manager) Get(id string) (Job, bool) {
 	return state.job, true
 }
 
+// HasActiveProject reports whether the project has a running job or is held by
+// a synchronous change.
 func (m *Manager) HasActiveProject(projectID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.busyLocked(projectID)
+}
+
+func (m *Manager) busyLocked(projectID string) bool {
+	if m.reserved[projectID] {
+		return true
+	}
 	for _, state := range m.jobs {
 		if state.projectID == projectID && !terminal(state.job.Status) {
 			return true
 		}
 	}
 	return false
+}
+
+// Reserve holds the project for one synchronous change. It fails with
+// ErrProjectBusy while a job runs or another change holds the project; the
+// returned release must be called when the change is done.
+func (m *Manager) Reserve(projectID string) (func(), error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.busyLocked(projectID) {
+		return nil, ErrProjectBusy
+	}
+	if m.reserved == nil {
+		m.reserved = map[string]bool{}
+	}
+	m.reserved[projectID] = true
+	released := false
+	return func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if !released {
+			delete(m.reserved, projectID)
+			released = true
+		}
+	}, nil
 }
 
 func (m *Manager) ForgetProject(projectID string) {
@@ -187,6 +277,10 @@ func (m *Manager) ForgetProject(projectID string) {
 		}
 		for subscriber := range state.subscribers {
 			close(subscriber)
+		}
+		if !state.doneClosed {
+			close(state.done)
+			state.doneClosed = true
 		}
 		delete(m.jobs, id)
 	}
@@ -231,12 +325,13 @@ func (m *Manager) run(id string, runner Runner) {
 		state := m.jobs[id]
 		projectID := state.projectID
 		jobType := state.job.Type
+		inputRevision := state.job.InputRevision
 		m.mu.Unlock()
 
 		emit := func(step string, message string, progress int, metadata map[string]any) {
 			m.update(id, StatusRunning, step, message, progress, 0, nil, metadata)
 		}
-		revision, updated, err := runner(projectID, jobType, emit)
+		revision, updated, err := runner(projectID, jobType, inputRevision, emit)
 		if err != nil {
 			m.update(id, StatusFailed, "", err.Error(), 100, 0, nil, nil)
 			return
@@ -291,6 +386,10 @@ func (m *Manager) update(id string, status Status, step string, message string, 
 		}
 	}
 	m.persistLocked()
+	if terminal(status) && !state.doneClosed {
+		close(state.done)
+		state.doneClosed = true
+	}
 }
 
 func (m *Manager) appendLocked(state *jobState, event Event) {
@@ -336,7 +435,9 @@ func (m *Manager) load() {
 			job.CompletedAt = &now
 			eventsByJob[job.ID] = append(eventsByJob[job.ID], Event{JobID: job.ID, Type: job.Type, Status: StatusInterrupted, Message: job.Message, Progress: 100, CreatedAt: now})
 		}
-		m.jobs[job.ID] = &jobState{job: job, projectID: job.ProjectID, events: eventsByJob[job.ID], subscribers: map[chan Event]bool{}}
+		done := make(chan struct{})
+		close(done)
+		m.jobs[job.ID] = &jobState{job: job, projectID: job.ProjectID, events: eventsByJob[job.ID], subscribers: map[chan Event]bool{}, done: done, doneClosed: true}
 		var seq int
 		_, _ = fmt.Sscanf(job.ID, "job_%d", &seq)
 		if seq > m.seq {

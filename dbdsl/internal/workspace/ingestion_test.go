@@ -240,6 +240,57 @@ func TestDeleteProjectRemovesWorkspaceAndPersistsDeletion(t *testing.T) {
 	}
 }
 
+func TestImportedBundleWithoutTaskCanBeCompletedAndReopened(t *testing.T) {
+	store := newIngestionTestStore(t)
+	fixtureDir := filepath.Join(store.root, "fixtures", "golden", "no_task")
+	result, err := scaffold.BundleFromText("Product has a name.", fixtureDir, scaffold.Options{ModelID: "no_task", Name: "No task bundle"})
+	if err != nil {
+		t.Fatalf("create no-task fixture: %v", err)
+	}
+	model, err := os.ReadFile(result.ModelPath)
+	if err != nil {
+		t.Fatalf("read fixture model: %v", err)
+	}
+	withoutTask := bytes.Replace(model, []byte("task_text_file: TASK.md"), []byte(`task_text_file: ""`), 1)
+	if bytes.Equal(model, withoutTask) {
+		t.Fatal("fixture model did not contain the expected task reference")
+	}
+	if err := os.WriteFile(result.ModelPath, withoutTask, 0o644); err != nil {
+		t.Fatalf("remove fixture task reference: %v", err)
+	}
+	if err := os.Remove(filepath.Join(fixtureDir, "TASK.md")); err != nil {
+		t.Fatalf("remove fixture task: %v", err)
+	}
+
+	imported, err := store.ImportBundle(filepath.Join("fixtures", "golden", "no_task"))
+	if err != nil {
+		t.Fatalf("import bundle without task: %v", err)
+	}
+	state, ok := store.Project(imported.ID)
+	if !ok || len(state.Resources) != 0 {
+		t.Fatalf("no-task import created an unreadable placeholder resource: %+v", state)
+	}
+	revision, err := store.AcceptFinalModel(imported.ID, imported.CurrentRevision)
+	if err != nil {
+		t.Fatalf("accept imported model: %v", err)
+	}
+	revision, _, err = store.GenerateFinalOutputs(imported.ID, revision, nil)
+	if err != nil {
+		t.Fatalf("generate imported outputs: %v", err)
+	}
+	if _, _, err := store.CompleteProject(imported.ID, revision); err != nil {
+		t.Fatalf("complete imported project: %v", err)
+	}
+	reopened, _, err := store.ReopenProject(imported.ID, "Continue no-task review")
+	if err != nil {
+		t.Fatalf("reopen no-task import: %v", err)
+	}
+	units, err := store.SourceUnits(reopened.ID)
+	if err != nil || len(units) == 0 {
+		t.Fatalf("reopened no-task import lost source evidence: units=%d err=%v", len(units), err)
+	}
+}
+
 func newIngestionTestStore(t *testing.T) *Store {
 	t.Helper()
 	root := t.TempDir()

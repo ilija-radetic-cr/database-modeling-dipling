@@ -309,6 +309,9 @@ func (s *Store) ProcessSourcesWithLLM(ctx context.Context, client llm.Client, pr
 	if opts.BaseRevision > 0 && project.CurrentRevision != opts.BaseRevision {
 		return 0, nil, ErrRevisionConflict
 	}
+	if err := projectMutable(project); err != nil {
+		return 0, nil, err
+	}
 	emit := opts.OnProgress
 	if emit == nil {
 		emit = func(string, string, int, map[string]any) {}
